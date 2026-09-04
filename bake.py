@@ -12,7 +12,9 @@ import subprocess
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-MAPS_DIR = Path("/home/deck/Games/StarCraft II/Maps")
+SC2_ROOT = Path("/home/deck/Games/StarCraft II")
+MAPS_DIR = SC2_ROOT / "Maps"
+MODS_DIR = SC2_ROOT / "Mods"
 DISTROBOX = "sc2bake"
 BAKED_SUFFIX = "__"          # 烤出来的图名里含这个，picker 会过滤掉
 
@@ -32,7 +34,12 @@ def bake(map_stem: str, mod_keys: list[str]) -> str:
     if not mod_keys:
         return map_stem
 
-    key = hashlib.md5(("|".join([map_stem, *sorted(mod_keys)])).encode()).hexdigest()[:8]
+    # 缓存键：图名 + mod 组合 + 各 .SC2Mod 文件的 mtime（mod 改了 → 键变 → 重烤）
+    sig_parts = [map_stem, *sorted(mod_keys)]
+    for k in sorted(mod_keys):
+        mf = MODS_DIR / MOD_DEPS[k].split("file:Mods/")[-1]
+        sig_parts.append(f"{k}:{int(mf.stat().st_mtime) if mf.exists() else 0}")
+    key = hashlib.md5("|".join(sig_parts).encode()).hexdigest()[:8]
     out_stem = f"{map_stem}{BAKED_SUFFIX}{key}"
     out_file = MAPS_DIR / f"{out_stem}.SC2Map"
     src = MAPS_DIR / f"{map_stem}.SC2Map"
