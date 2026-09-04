@@ -319,9 +319,9 @@ async def create_and_join(conn: SC2Conn, sel: dict) -> int:
     create.player_setup.add(type=sc_pb.Computer, race=enemy_race,
                             difficulty=diff, ai_build=ai_build, player_name="Cruel-AI")
     r = await conn.send(sc_pb.Request(create_game=create))
-    if r.create_game.error != sc_pb.RequestCreateGame.Error.Value("MissingMap") and r.create_game.HasField("error"):
-        if r.create_game.error:
-            raise RuntimeError(f"CreateGame 失败：{r.create_game.error} {r.create_game.error_details}")
+    if r.create_game.error:
+        name = sc_pb.ResponseCreateGame.Error.Name(r.create_game.error)
+        raise RuntimeError(f"CreateGame 失败：{name}  {r.create_game.error_details}")
 
     join = sc_pb.RequestJoinGame(
         race=my_race,
@@ -332,7 +332,8 @@ async def create_and_join(conn: SC2Conn, sel: dict) -> int:
     )
     r = await conn.send(sc_pb.Request(join_game=join))
     if r.join_game.error:
-        raise RuntimeError(f"JoinGame 失败：{r.join_game.error} {r.join_game.error_details}")
+        name = sc_pb.ResponseJoinGame.Error.Name(r.join_game.error)
+        raise RuntimeError(f"JoinGame 失败：{name}  {r.join_game.error_details}")
     pid = r.join_game.player_id
     print(f"[sc2Mod] 已加入对局，你是 player {pid}")
     return pid
