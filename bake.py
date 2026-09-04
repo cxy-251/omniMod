@@ -3,19 +3,19 @@
 把选中的 mod 烘焙进地图副本（改 DocumentHeader 依赖表），产物放进 Maps/，
 文件名带 __<hash> 后缀。缓存：同 图+mod 组合第二次直接返回。
 
-真正的 MPQ 写在容器里做（distrobox sc2bake + StormLib），见 _bake_inner.py。
+MPQ 写靠 _bake_inner.py（宿主直接跑，用仓库自带 lib/libstorm.so）。
 """
 from __future__ import annotations
 
 import hashlib
 import subprocess
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SC2_ROOT = Path("/home/deck/Games/StarCraft II")
 MAPS_DIR = SC2_ROOT / "Maps"
 MODS_DIR = SC2_ROOT / "Mods"
-DISTROBOX = "sc2bake"
 BAKED_SUFFIX = "__"          # 烤出来的图名里含这个，picker 会过滤掉
 
 # mod key -> 写进 DocumentHeader 的依赖串。file: 部分对应 Mods/ 下的 .SC2Mod。
@@ -49,21 +49,13 @@ def bake(map_stem: str, mod_keys: list[str]) -> str:
         raise FileNotFoundError(src)
 
     deps = [MOD_DEPS[k] for k in sorted(mod_keys)]
-    cmd = ["distrobox", "enter", DISTROBOX, "--",
-           "bash", "-c",
-           "cd {} && LD_LIBRARY_PATH=/usr/local/lib python3 _bake_inner.py {} {} {}".format(
-               _sh(HERE), _sh(src), _sh(out_file), " ".join(_sh(d) for d in deps))]
+    cmd = [sys.executable, str(HERE / "_bake_inner.py"), str(src), str(out_file), *deps]
     print(f"[sc2Mod] 烘焙 {map_stem} + {mod_keys} …")
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not out_file.exists():
         raise RuntimeError(f"烘焙失败：\n{r.stdout}\n{r.stderr}")
     print(f"[sc2Mod] {r.stdout.strip()}")
     return out_stem
-
-
-def _sh(p) -> str:
-    s = str(p)
-    return "'" + s.replace("'", "'\\''") + "'"
 
 
 if __name__ == "__main__":

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-容器内执行（distrobox sc2bake，有 StormLib）：
 把一份 .SC2Map 复制出来，往它的 DocumentHeader 里加若干 mod 依赖，写回 MPQ。
 
-  LD_LIBRARY_PATH=/usr/local/lib python3 _bake_inner.py <src.SC2Map> <dst.SC2Map> <dep1> [dep2 ...]
+  python3 _bake_inner.py <src.SC2Map> <dst.SC2Map> <dep1> [dep2 ...]
 
 <depN> 形如： bnet:5xHarvest/0.0/999,file:Mods/5xHarvest.SC2Mod
+
+StormLib 用随仓库带的 lib/libstorm.so（在 distrobox arch 容器里编好、宿主可直接加载）。
+需要重编时进容器：见 RECON.md。
 """
 import ctypes
 import shutil
@@ -14,7 +16,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-STORM = ctypes.CDLL("/usr/local/lib/libstorm.so")
+_LIB = Path(__file__).resolve().parent / "lib" / "libstorm.so.9.30.0"
+STORM = ctypes.CDLL(str(_LIB) if _LIB.exists() else "libstorm.so")
 
 MPQ_FILE_REPLACEEXISTING = 0x80000000
 MPQ_FILE_COMPRESS = 0x00000200
