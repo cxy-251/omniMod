@@ -310,15 +310,9 @@ async def create_and_join(conn: SC2Conn, sel: dict) -> int:
     diff = DIFFICULTY[sel["difficulty"]]
     ai_build = AI_BUILD.get(sel["ai_build"], sc_pb.RandomBuild)
 
-    map_file = MAPS_DIR / f"{sel['map']}.SC2Map"
-    if not map_file.exists():
-        raise RuntimeError(f"地图文件不存在：{map_file}")
-    # 直接塞地图字节，SC2 不用去解析路径（最稳，绕过 MissingMap）
+    # RequestAvailableMaps 返回的就是 "<名字>.SC2Map" 这种相对名，CreateGame 要的也是它
     create = sc_pb.RequestCreateGame(
-        local_map=sc_pb.LocalMap(
-            map_path=f"Z:\\{str(map_file).lstrip('/').replace('/', chr(92))}",
-            map_data=map_file.read_bytes(),
-        ),
+        local_map=sc_pb.LocalMap(map_path=f"{sel['map']}.SC2Map"),
         realtime=True,
         disable_fog=False,
     )
