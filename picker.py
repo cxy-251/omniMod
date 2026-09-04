@@ -71,9 +71,12 @@ def minimap_hash(map_file: Path) -> str:
 
 
 def dedupe_maps(map_files: list[Path]) -> list[Path]:
-    """同地形只留一张，代表用最短名（一般是不带 512/513 后缀的那张）。"""
+    """同地形只留一张，代表用最短名（一般是不带 512/513 后缀的那张）。
+    烘焙产物（名字含 '__'）不进列表。"""
     by_hash: dict[str, list[Path]] = {}
     for mf in map_files:
+        if "__" in mf.stem:
+            continue
         by_hash.setdefault(minimap_hash(mf), []).append(mf)
     reps = [min(v, key=lambda p: (len(p.stem), p.stem)) for v in by_hash.values()]
     return sorted(reps, key=lambda p: p.stem.lower())

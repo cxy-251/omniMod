@@ -43,7 +43,10 @@ AIB = {
 
 
 def play_one(sel: dict) -> Result | list | None:
-    game_map = maps.get(sel["map"])
+    import bake
+    mods = sel.get("mods") or (["5xHarvest"] if sel.get("cheat") else [])
+    map_name = bake.bake(sel["map"], mods) if mods else sel["map"]
+    game_map = maps.get(map_name)
     players = [
         Human(RACE[sel["race"].upper()]),
         Computer(RACE[sel["enemy_race"].upper()],

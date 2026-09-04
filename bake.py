@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""
+把选中的 mod 烘焙进地图副本（改 DocumentHeader 依赖表），产物放进 Maps/，
+文件名带 __<hash> 后缀。缓存：同 图+mod 组合第二次直接返回。
+
+真正的 MPQ 写在容器里做（distrobox sc2bake + StormLib），见 _bake_inner.py。
+"""
+from __future__ import annotations
+
+import hashlib
+import subprocess
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+MAPS_DIR = Path("/home/deck/Games/StarCraft II/Maps")
+DISTROBOX = "sc2bake"
+BAKED_SUFFIX = "__"          # 烤出来的图名里含这个，picker 会过滤掉
+
+# mod key -> 写进 DocumentHeader 的依赖串。file: 部分对应 Mods/ 下的 .SC2Mod。
+MOD_DEPS: dict[str, str] = {
+    "5xHarvest": "bnet:5xHarvest/0.0/999,file:Mods/5xHarvest.SC2Mod",
+}
+
+
+def is_baked(stem: str) -> bool:
+    return BAKED_SUFFIX in stem
+
+
+def bake(map_stem: str, mod_keys: list[str]) -> str:
+    """返回要传给 maps.get() 的地图名。没选 mod 就原样返回。"""
+    mod_keys = [k for k in mod_keys if k in MOD_DEPS]
+    if not mod_keys:
+        return map_stem
+
+    key = hashlib.md5(("|".join([map_stem, *sorted(mod_keys)])).encode()).hexdigest()[:8]
+    out_stem = f"{map_stem}{BAKED_SUFFIX}{key}"
+    out_file = MAPS_DIR / f"{out_stem}.SC2Map"
+    src = MAPS_DIR / f"{map_stem}.SC2Map"
+    if out_file.exists() and out_file.stat().st_mtime >= src.stat().st_mtime:
+        return out_stem
+    if not src.exists():
+        raise FileNotFoundError(src)
+
+    deps = [MOD_DEPS[k] for k in sorted(mod_keys)]
+    cmd = ["distrobox", "enter", DISTROBOX, "--",
+           "bash", "-c",
+           "cd {} && LD_LIBRARY_PATH=/usr/local/lib python3 _bake_inner.py {} {} {}".format(
+               _sh(HERE), _sh(src), _sh(out_file), " ".join(_sh(d) for d in deps))]
+    print(f"[sc2Mod] 烘焙 {map_stem} + {mod_keys} …")
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 or not out_file.exists():
+        raise RuntimeError(f"烘焙失败：\n{r.stdout}\n{r.stderr}")
+    print(f"[sc2Mod] {r.stdout.strip()}")
+    return out_stem
+
+
+def _sh(p) -> str:
+    s = str(p)
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+if __name__ == "__main__":
+    import sys
+    print(bake(sys.argv[1], sys.argv[2:] or ["5xHarvest"]))
