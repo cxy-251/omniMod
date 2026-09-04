@@ -20,14 +20,22 @@ BAKED_SUFFIX = "__"          # 烤出来的图名里含这个，picker 会过滤
 
 # mod key -> 写进 DocumentHeader 的依赖串。file: 部分对应 Mods/ 下的 .SC2Mod。
 MOD_DEPS: dict[str, str] = {
+    "3xHarvest": "bnet:3xHarvest/0.0/999,file:Mods/3xHarvest.SC2Mod",
     "5xHarvest": "bnet:5xHarvest/0.0/999,file:Mods/5xHarvest.SC2Mod",
 }
 
-# mod key -> 给 UI 用的展示信息。做新 mod 时两边（MOD_DEPS + MOD_INFO）都加一条。
+# mod key -> 给 UI 用的展示信息。"group" 字段：同组互斥（前端渲染成单选，一次只能选一个），
+# 没有 group 的照旧是独立勾选框。做新 mod 时 MOD_DEPS + MOD_INFO 两边都加一条。
 MOD_INFO: dict[str, dict[str, str]] = {
+    "3xHarvest": {
+        "name": "3 倍采集",
+        "desc": "矿 / 气全变体采集量 ×3（双方阵营对称生效，只改采集量，不改别的）",
+        "group": "harvest",
+    },
     "5xHarvest": {
         "name": "5 倍采集",
         "desc": "矿 / 气全变体采集量 ×5（双方阵营对称生效，只改采集量，不改别的）",
+        "group": "harvest",
     },
 }
 
