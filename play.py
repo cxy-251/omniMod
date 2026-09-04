@@ -183,7 +183,7 @@ def choose_interactively(args: argparse.Namespace, last: dict) -> dict:
         sel["cheat"] = args.cheat
     else:
         sel["cheat"] = _kd_yesno(
-            f"启用 cheat？\n\n开局 +{CHEAT_EXTRA_WORKERS} 农民、瞬间建造、每 {CHEAT_TOPUP_EVERY_S}s 补满矿气",
+            f"启用 cheat？\n\n（临时版）每 {CHEAT_TOPUP_EVERY_S}s 补满矿气，抹平残酷电脑的资源加成",
             default_yes=bool(last.get("cheat", True)),
         )
 
@@ -310,9 +310,15 @@ async def create_and_join(conn: SC2Conn, sel: dict) -> int:
     diff = DIFFICULTY[sel["difficulty"]]
     ai_build = AI_BUILD.get(sel["ai_build"], sc_pb.RandomBuild)
 
-    # RequestAvailableMaps 返回的就是 "<名字>.SC2Map" 这种相对名，CreateGame 要的也是它
+    # burnysc2 的做法：相对名 + 文件字节一起发（不是 oneof，两个都塞）
+    map_file = MAPS_DIR / f"{sel['map']}.SC2Map"
+    if not map_file.exists():
+        raise RuntimeError(f"地图文件不存在：{map_file}")
     create = sc_pb.RequestCreateGame(
-        local_map=sc_pb.LocalMap(map_path=f"{sel['map']}.SC2Map"),
+        local_map=sc_pb.LocalMap(
+            map_path=f"{sel['map']}.SC2Map",
+            map_data=map_file.read_bytes(),
+        ),
         realtime=True,
         disable_fog=False,
     )
@@ -322,7 +328,20 @@ async def create_and_join(conn: SC2Conn, sel: dict) -> int:
     r = await conn.send(sc_pb.Request(create_game=create))
     if r.create_game.error:
         name = sc_pb.ResponseCreateGame.Error.Name(r.create_game.error)
-        raise RuntimeError(f"CreateGame 失败：{name}  {r.create_game.error_details}")
+        print(f"[sc2Mod] CreateGame（相对名+字节）失败：{name} {r.create_game.error_details}；改试仅字节 / 仅路径 …")
+        for lm in (sc_pb.LocalMap(map_data=map_file.read_bytes()),
+                   sc_pb.LocalMap(map_path=str(map_file)),  # Linux 绝对路径，SC2 有时也认
+                   sc_pb.LocalMap(map_path=sel["map"])):     # 不带扩展名
+            c2 = sc_pb.RequestCreateGame(local_map=lm, realtime=True, disable_fog=False)
+            c2.player_setup.add(type=sc_pb.Participant, race=my_race)
+            c2.player_setup.add(type=sc_pb.Computer, race=enemy_race,
+                                difficulty=diff, ai_build=ai_build, player_name="Cruel-AI")
+            r = await conn.send(sc_pb.Request(create_game=c2))
+            if not r.create_game.error:
+                print("[sc2Mod] 这种写法成功了")
+                break
+        else:
+            raise RuntimeError(f"CreateGame 全部写法都失败：{name}")
 
     join = sc_pb.RequestJoinGame(
         race=my_race,
