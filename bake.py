@@ -22,6 +22,7 @@ BAKED_SUFFIX = "__"          # 烤出来的图名里含这个，picker 会过滤
 MOD_DEPS: dict[str, str] = {
     "3xHarvest": "bnet:3xHarvest/0.0/999,file:Mods/3xHarvest.SC2Mod",
     "5xHarvest": "bnet:5xHarvest/0.0/999,file:Mods/5xHarvest.SC2Mod",
+    "fastBuild": "bnet:fastBuild/0.0/999,file:Mods/fastBuild.SC2Mod",
 }
 
 # mod key -> 给 UI 用的展示信息。"group" 字段：同组互斥（前端渲染成单选，一次只能选一个），
@@ -36,6 +37,10 @@ MOD_INFO: dict[str, dict[str, str]] = {
         "name": "5 倍采集",
         "desc": "矿 / 气全变体采集量 ×5（双方阵营对称生效，只改采集量，不改别的）",
         "group": "harvest",
+    },
+    "fastBuild": {
+        "name": "2 倍建造速度",
+        "desc": "建筑建造耗时减半（人族/神族/异虫三族主建筑，不含指挥中心/主基地相关的升级变形）",
     },
 }
 
