@@ -533,7 +533,23 @@ def main() -> None:
             if v is not None:
                 sel[k] = v
     else:
-        sel = choose_interactively(args, last)
+        sel = None
+        # 优先用可视化选图器（缩略图网格）；不行再退回 kdialog
+        try:
+            import picker
+            sel = picker.choose(MAPS_DIR, last)
+            if sel is None:
+                print("[sc2Mod] 取消了")
+                return
+        except Exception as e:
+            print(f"[sc2Mod] 可视化选择器不可用（{e}），改用文字弹窗")
+            sel = choose_interactively(args, last)
+        # 命令行参数仍可覆盖
+        for k, v in (("map", args.map), ("race", args.race), ("enemy_race", args.enemy_race),
+                     ("difficulty", args.difficulty and args.difficulty.lower()),
+                     ("ai_build", args.ai_build), ("cheat", args.cheat)):
+            if v is not None:
+                sel[k] = v
 
     sel["use_switcher"] = not args.core
     STATE_FILE.write_text(json.dumps(sel, ensure_ascii=False, indent=2))
