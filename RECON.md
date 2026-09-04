@@ -1,46 +1,72 @@
-# SC2 离线化 + 自制 mod —— 现状勘察 (2026-09-04)
+# sc2Mod —— 星际 2 离线打电脑 + cheat mod
 
-## 安装
+## 目标（用户原话提炼）
 
-| 项 | 值 |
+- 主要玩法：**任意天梯图 vs 残酷电脑（CheatInsane，AI 有资源加成）**。战役买了(国服)但基本不玩。
+- 痛点：新版 SC2 初始农民少 + 残酷电脑额外资源 → 前期怎么发展都比电脑慢（除非卡电脑开矿点触发龟缩 bug）。
+- 需求 mod：**初始农民翻倍 / 采集 5 倍 / 资源采不完 / 快速建造**，用来抹平前期经济差。
+- 要能**离线、免登录**打，配任意地图。
+
+## 账号情况
+
+| 账号 | 状态 |
 |---|---|
-| 游戏目录 | `/home/deck/Games/StarCraft II/` |
-| 客户端 | **国服 / 网易 (NetEase)**，非全球版。`.build.info`: Branch=`cn`，CDN=`blzdist-s2.necdn.leihuo.netease.com`，`acct-CHN geoip-CN zhCN` |
-| 版本 | 5.0.16.97579，内核 `Versions/Base97579/SC2_x64.exe` (66 MB) |
-| 启动器 | `Support64/SC2Switcher_x64.exe` (由战网调用的引导器) |
-| 编辑器 | `Support64/SC2Editor_x64.exe` (87 MB，完整银河编辑器) + 根目录 `StarCraft II Editor_x64.exe` |
-| 战网 | `/home/deck/Games/Battle.net/` —— **网易国服战网** v2.52.10.17731 (`acct-CHN`) |
-| Wine 前缀 | `~/.local/share/omni_deck_pfx` (Proton 前缀，omni-deck 管理) |
-| Proton | Steam 库里有 Experimental / 11 / 10 / 9 / 8 / 7 / 5.13 / Hotfix |
-| Maps | `Maps/` 已有 AIE 天梯图 (AbyssalReefAIE 等)；`Old_Maps_Archive/` |
-| Mods | `Mods/` 空 |
-| omni-deck 入口 | 「独立游戏 / Windows 软件」区，`custom_id='StarCraft II'`，exe=`Support64/SC2Switcher_x64.exe`，Proton 运行，注释写「绕过战网」 |
+| 国服(网易) | 满级，全战役 + 全指挥官已购 |
+| 暴雪全球 | 有号，**什么都没买**（只有自由之翼基础） |
 
-## 关键事实
+→ 国服值钱但离线难；全球版能离线但没内容。**都不理想**。
 
-- 前缀内 **没有 SC2 用户数据** (无 Documents/StarCraft II、无 Variables.txt、无 Banks) —— 游戏很可能**从没在这个前缀里成功跑起来过**，或跑起来没进到会写用户数据的程度。
-- 国服客户端认证走**网易服务器** (leihuo.netease.com)，不是暴雪全球 Battle.net。
-- SC2 **没有运行时代码注入 / Harmony 那种 mod 方式**。mod = 用银河编辑器做的 `.SC2Mod`（数据表 + 触发器 + 脚本包）。
+## 之前 Gemini 尝试的结果（关键教训）
 
-## "5x 采集 / 快速建造 / 采不完" 怎么做
+- 通过 Wine 里的**网易战网**打开过游戏。
+- **离线模式下无法新建地图开打**；网上下的地图**识别不了**。
+- Gemini 做过 mod，但**没法测**：进游戏只有玩家一个人 → 直接判胜利（melee 图没有对手/AI）。
 
-都是 `.SC2Mod` 里的 Catalog 覆盖，编辑器里改几个字段：
-- **采集倍率**: 工人采矿 `Effect - Resource Harvest` 的携带量，或矿点 `CUnit` 的 `Resource - Contents`。5→25。
-- **采不完**: 矿点 `Contents` 设成天文数字；或周期性触发器补满；或行为(Behavior)重置。
-- **快速建造**: 所有建筑 `Cost - Time` 缩放；或 `CAbilBuild` 建造时间。
+## 选定方案：s2client AI-API「真人 vs 内置AI」直连
 
-用法：把这个 mod 作为**依赖**加到每张天梯图上（编辑器 → Dependencies），存副本；对 AI 对战就生效。可脚本批量给所有图挂依赖。
+**完全绕开战网 / 登录 / 离线模式**——这正是 aiarena.net 的 AI 天梯在 Linux 服务器上跑零暴雪账号 SC2 的方式。
 
-## 离线方案 (国服客户端是难点)
+一个 Linux 端 python 脚本：
+1. 用 Proton 起 `Versions/Base97579/SC2_x64.exe -listen 127.0.0.1 -port <p> -displayMode 1`
+2. 连本地 websocket
+3. `RequestCreateGame`：本地地图路径 + 玩家 `[Participant, Computer(种族, Difficulty.CheatInsane, AIBuild)]`
+4. `RequestJoinGame` 以 Participant 加入（realtime，不 step）
+5. 渲染窗口出来，你正常鼠标键盘玩；脚本只维持连接
 
-| 路线 | 做法 | 门槛 |
-|---|---|---|
-| 1. SC2 自带离线模式 | 前缀里用网易账号**成功登录一次**缓存许可 → 之后断网启动 → 「离线模式」→ 战役/打电脑/自定义图/编辑器可用 ~30 天，联网一次续期 | 需要能用的网易账号 + 国服战网在 Wine 里能登进去；国服离线宽容度未知 |
-| 2. 国服 → 全球版转换 | 换 `.build.info`/`.product.db` 指向暴雪全球 `s2`，让它补丁到全球内核 → 用全球版离线模式（文档完善、可靠） | 需要暴雪全球账号登一次；补丁下载 ~GB |
-| 3. 社区离线启动器 / 免认证引导 | 打补丁的 `SC2Switcher` 或直接 `SC2_x64.exe` 跳过认证进菜单；或 **AI-API 路线**：`SC2_x64.exe -listen 127.0.0.1 -port N -displayMode 1`（aiarena 打 bot 天梯用的接口），零战网、任意图打内置 AI，用 python 脚本(burnysc2)驱动 | 灰色地带（你全买了）；AI-API 路线没有战役、没有常规菜单，是脚本开局 |
+好处：
+- 零登录、零离线模式依赖。
+- 「地图识别不了」——脚本直接传文件路径，任何 `Maps/*.SC2Map` 都能开。
+- 「只有一个玩家秒胜」——`CreateGame` 里显式加 `Computer` 对手，结构上就不会。
+- 种族 / 难度 / 地图全是脚本参数。
 
-## 待用户确认
+缺点：没有常规主菜单、没有战役（战役要另想办法，但用户基本不玩）。
 
-1. 有没有能登录一次的账号？网易国服账号？还是有暴雪全球账号？
-2. SC2 通过 omni-deck 启动过吗？到过什么画面（登录页 / 报错 / 黑屏）？
-3. 战役也要离线打，还是主要就是「任意图 vs 残酷电脑 + cheat mod」？（决定走路线 1/2 还是路线 3 的 AI-API）
+## Cheat mod 做法
+
+SC2 没有运行时代码注入。做一个 `cheat.SC2Mod`（Catalog XML，手写即可，不用开编辑器 GUI）：
+- 初始农民：地图 `CPlayer`/开局单位 或 melee 触发库覆盖 → 改 `MeleeInitialWorkers`
+- 采集 5x：`CEffectResourceHarvest` 的 `Amount`（矿 5→25，气 4→20）
+- 采不完：矿点 `CUnit`（MineralField 等）`Resource - Contents` 设 999999，或行为周期补满
+- 快速建造：所有建筑 `Cost.TimeBuild` 全局缩放
+把 mod 作为**依赖**批量挂到要玩的天梯图上（脚本遍历 `Maps/*.SC2Map` 改依赖表）。
+或：`RequestCreateGame` 可以在 `local_map` 里带 mod 列表——先试这个，省得改图。
+
+## 环境
+
+| | |
+|---|---|
+| Python | 3.13.5，联网 OK |
+| Proton | `~/.local/share/Steam/steamapps/common/Proton - Experimental/proton` |
+| SC2 前缀 | `~/.local/share/omni_deck_pfx` |
+| SC2 内核 | `/home/deck/Games/StarCraft II/Versions/Base97579/SC2_x64.exe` |
+| 地图 | `/home/deck/Games/StarCraft II/Maps/*.SC2Map`（已有 AIE 天梯图） |
+| 客户端 | 国服 5.0.16.97579（AI-API 自 3.16 起所有零售版都带，此版本必有） |
+
+## 待办
+
+- [ ] 装 `s2clientprotocol`（+ 视需要 `burnysc2`）到一个 venv
+- [ ] 写 Proton 启动包装 + 最小 s2client 握手脚本 `play.py`
+- [ ] 跑通「真人 vs CheatInsane，AbyssalReefAIE」一局
+- [ ] 写 `cheat.SC2Mod`，先试 CreateGame 带 mod；不行再改图依赖
+- [ ] omni-deck 里把「星际争霸2」入口换成调 `play.py`（带参数选图/种族/难度）
+- [ ] 整理地图库
