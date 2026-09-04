@@ -1,0 +1,12 @@
+# 缺氧 Mod 元信息。游戏用它判断这个 mod 兼容哪个版本、用哪套 API。
+# 字段含义：
+#   supportedContent    : 支持的内容。ALL = 本体 + 所有 DLC 都能用。
+#   minimumSupportedBuild: 兼容的最低游戏版本号。低于当前版本时，mod 管理器会显示"可能过时"的黄色提示（仍会加载）。
+#   lastWorkingBuild     : 最后一次验证可用的版本号。
+#   version              : mod 自身版本，字符串，随你自己迭代。
+#   APIVersion           : 2 = 使用 Harmony 2 + KMod.UserMod2 入口（现代缺氧 mod 都用 2）。
+supportedContent: ALL
+minimumSupportedBuild: 744825
+lastWorkingBuild: 744825
+version: 1.0.0
+APIVersion: 2
