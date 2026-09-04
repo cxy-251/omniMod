@@ -64,12 +64,32 @@ def main() -> None:
     ap.add_argument("--enemy-race", default="P")
     ap.add_argument("--difficulty", default="cheatinsane", choices=list(DIFF))
     ap.add_argument("--ai-build", default="random", choices=list(AIB))
+    ap.add_argument("--mods", default="", help="逗号分隔的 mod key，如 5xHarvest")
+    ap.add_argument("--json", action="store_true", help="结束时额外打印一行机器可读结果")
     a = ap.parse_args()
-    res = play_one({
+    sel = {
         "map": a.map, "race": a.race, "enemy_race": a.enemy_race,
         "difficulty": a.difficulty, "ai_build": a.ai_build,
-    })
-    print(f"[sc2Mod] 结果：{res}")
+        "mods": [m for m in a.mods.split(",") if m],
+    }
+    err = None
+    try:
+        res = play_one(sel)
+    except Exception as e:
+        res = None
+        err = str(e)
+    print(f"[sc2Mod] 结果：{res if res is not None else err}")
+
+    if a.json:
+        import json
+        payload = {
+            "map": a.map,
+            "result": (res.name if hasattr(res, "name") else
+                       [r.name if hasattr(r, "name") else str(r) for r in res] if isinstance(res, list) else
+                       str(res) if res is not None else None),
+            "error": err,
+        }
+        print("SC2MOD_RESULT: " + json.dumps(payload, ensure_ascii=False))
 
 
 if __name__ == "__main__":

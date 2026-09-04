@@ -23,6 +23,14 @@ MOD_DEPS: dict[str, str] = {
     "5xHarvest": "bnet:5xHarvest/0.0/999,file:Mods/5xHarvest.SC2Mod",
 }
 
+# mod key -> 给 UI 用的展示信息。做新 mod 时两边（MOD_DEPS + MOD_INFO）都加一条。
+MOD_INFO: dict[str, dict[str, str]] = {
+    "5xHarvest": {
+        "name": "5 倍采集",
+        "desc": "矿 / 气全变体采集量 ×5，抹平残酷电脑的资源加成",
+    },
+}
+
 
 def is_baked(stem: str) -> bool:
     return BAKED_SUFFIX in stem
