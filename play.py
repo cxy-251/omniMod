@@ -42,9 +42,18 @@ from s2clientprotocol import debug_pb2 as debug_pb
 SC2_ROOT = Path("/home/deck/Games/StarCraft II")
 SC2_EXE = SC2_ROOT / "Versions" / "Base97579" / "SC2_x64.exe"
 MAPS_DIR = SC2_ROOT / "Maps"
-PROTON = Path.home() / ".local/share/Steam/steamapps/common/Proton - Experimental/proton"
-COMPAT_DATA = Path.home() / ".local/share/omni_deck_pfx"
 STEAM_ROOT = Path.home() / ".local/share/Steam"
+STEAM_COMMON = STEAM_ROOT / "steamapps/common"
+COMPAT_DATA = Path.home() / ".local/share/omni_deck_pfx"
+
+# 优先级：Experimental > 11 > 10 > 9 …（用第一个存在的）
+_PROTON_CANDIDATES = ["Proton - Experimental", "Proton 11.0", "Proton 10.0",
+                      "Proton 9.0 (Beta)", "Proton Hotfix", "Proton 8.0"]
+PROTON = next((STEAM_COMMON / n / "proton" for n in _PROTON_CANDIDATES
+               if (STEAM_COMMON / n / "proton").exists()), None)
+# 新版 Proton 必须在 Steam Linux Runtime 容器里跑，否则直接退出 code 53
+SLR_ENTRY = STEAM_COMMON / "SteamLinuxRuntime_sniper" / "_v2-entry-point"
+PROTON_LOG = Path.home() / ".config/sc2mod/proton.log"
 
 STATE_FILE = Path.home() / ".config/sc2mod/last.json"
 
@@ -68,8 +77,10 @@ AI_BUILD = {
 WORKER_ID = {common_pb.Terran: 45, common_pb.Protoss: 84, common_pb.Zerg: 104}   # SCV / Probe / Drone
 TOWNHALL_IDS = {18, 59, 86, 132, 130, 100}  # CC / Nexus / Hatchery / OrbitalCommand / PlanetaryFortress / Lair ...
 
-CHEAT_TOPUP_EVERY_S = 8      # 每隔多少秒补一次资源
-CHEAT_EXTRA_WORKERS = 12     # 开局额外农民数
+# cheat（临时版，靠 API debug 指令）：真正的「5倍采集」要靠 cheat5x.SC2Mod（下一步做），
+# 这里先用「周期补矿气」近似 —— 效果是经济不受限，够抹平残酷电脑的资源加成。
+CHEAT_TOPUP_EVERY_S = 6      # 每隔多少秒补一次资源
+CHEAT_TOPUP_ENABLE_FAST_BUILD = False   # 用户只要 5x 采集，不要瞬间建造
 
 
 # ----------------------------------------------------------------------------- #
@@ -191,24 +202,46 @@ def free_port() -> int:
 
 
 def launch_sc2(port: int) -> subprocess.Popen:
+    if PROTON is None or not PROTON.exists():
+        sys.exit("没找到 Proton（Steam 里装一个 Proton Experimental / 11）")
+
     env = os.environ.copy()
     env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(STEAM_ROOT)
     env["STEAM_COMPAT_DATA_PATH"] = str(COMPAT_DATA)
+    env["STEAM_COMPAT_INSTALL_PATH"] = str(SC2_ROOT)
+    env["STEAM_COMPAT_APP_ID"] = "0"
+    env["SteamAppId"] = "0"
+    env["SteamGameId"] = "0"
+    # 把游戏所在盘也挂进容器（$HOME 默认已挂，这里保险）
+    env["STEAM_COMPAT_MOUNTS"] = f"{SC2_ROOT}:{COMPAT_DATA}"
+    env["PROTON_LOG"] = "1"
+    env["PROTON_LOG_DIR"] = str(PROTON_LOG.parent)
     env["WINEDEBUG"] = "-all"
     env.setdefault("LANG", "zh_CN.UTF-8")
     env.setdefault("LC_ALL", "zh_CN.UTF-8")
     COMPAT_DATA.mkdir(parents=True, exist_ok=True)
+    PROTON_LOG.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        str(PROTON), "run", str(SC2_EXE),
+    sc2_args = [
         "-listen", "127.0.0.1", "-port", str(port),
         "-displayMode", "1",          # 1 = 窗口化（0 = 全屏无边框）
         "-windowwidth", "1600", "-windowheight", "900",
         "-windowx", "40", "-windowy", "40",
     ]
-    print("[sc2Mod] 启动 SC2 …")
+    proton_cmd = [str(PROTON), "run", str(SC2_EXE), *sc2_args]
+
+    if SLR_ENTRY.exists():
+        cmd = [str(SLR_ENTRY), "--verb=run", "--", *proton_cmd]
+        how = "SteamLinuxRuntime_sniper + Proton"
+    else:
+        cmd = proton_cmd
+        how = "Proton（无 SLR 容器，新版可能退出 53）"
+
+    logf = open(PROTON_LOG.with_suffix(".stdouterr.log"), "w")
+    print(f"[sc2Mod] 启动 SC2 … （{how}）")
+    print(f"[sc2Mod] 输出日志: {logf.name}  /  Proton 详细日志: {PROTON_LOG.parent}/steam-*.log")
     # cwd 用游戏根目录，AI-API 的相对地图路径就是相对 Maps/
-    return subprocess.Popen(cmd, env=env, cwd=str(SC2_ROOT))
+    return subprocess.Popen(cmd, env=env, cwd=str(SC2_ROOT), stdout=logf, stderr=subprocess.STDOUT)
 
 
 # ----------------------------------------------------------------------------- #
@@ -235,13 +268,26 @@ class SC2Conn:
             return False
 
 
+def _dump_launch_logs() -> None:
+    for p in sorted(PROTON_LOG.parent.glob("*.log")) + sorted(PROTON_LOG.parent.glob("steam-*.log")):
+        try:
+            lines = p.read_text(errors="replace").splitlines()
+        except Exception:
+            continue
+        if not lines:
+            continue
+        print(f"\n----- {p}  (末 40 行) -----")
+        print("\n".join(lines[-40:]))
+
+
 async def connect(port: int, sc2_proc: subprocess.Popen, timeout: float = 180.0) -> SC2Conn:
     url = f"ws://127.0.0.1:{port}/sc2api"
     deadline = time.time() + timeout
     print(f"[sc2Mod] 等待 SC2 API 就绪 {url} …")
     while time.time() < deadline:
         if sc2_proc.poll() is not None:
-            raise RuntimeError(f"SC2 进程提前退出（code {sc2_proc.returncode}）")
+            _dump_launch_logs()
+            raise RuntimeError(f"SC2 进程提前退出（code {sc2_proc.returncode}）—— 见上面日志尾部")
         try:
             ws = await websockets.connect(url, max_size=2 ** 26, open_timeout=5, ping_interval=None)
             print("[sc2Mod] 已连上 SC2 API")
@@ -291,37 +337,12 @@ async def get_obs(conn: SC2Conn) -> sc_pb.ResponseObservation:
 
 
 async def do_cheats_once(conn: SC2Conn, pid: int) -> None:
-    obs = await get_obs(conn)
-    my_race = None
-    townhall_pos = None
-    for u in obs.observation.raw_data.units:
-        if u.owner != pid:
-            continue
-        if u.unit_type in TOWNHALL_IDS and townhall_pos is None:
-            townhall_pos = u.pos
-        if u.unit_type in WORKER_ID.values():
-            for rid, race in ((45, common_pb.Terran), (84, common_pb.Protoss), (104, common_pb.Zerg)):
-                if u.unit_type == rid:
-                    my_race = race
-    if my_race is None:
-        # 从任意自己单位猜种族
-        for u in obs.observation.raw_data.units:
-            if u.owner == pid and u.unit_type in TOWNHALL_IDS:
-                my_race = {18: common_pb.Terran, 59: common_pb.Protoss, 86: common_pb.Zerg}.get(u.unit_type)
-                break
-
     cmds = []
-    # 瞬间建造
-    cmds.append(debug_pb.DebugCommand(game_state=debug_pb.fast_build))
-    # 开局多塞农民
-    if my_race is not None and townhall_pos is not None:
-        cmds.append(debug_pb.DebugCommand(create_unit=debug_pb.DebugCreateUnit(
-            unit_type=WORKER_ID[my_race], owner=pid,
-            pos=common_pb.Point2D(x=townhall_pos.x, y=townhall_pos.y),
-            quantity=CHEAT_EXTRA_WORKERS,
-        )))
-    await conn.send(sc_pb.Request(debug=sc_pb.RequestDebug(debug=cmds)))
-    print(f"[sc2Mod] cheat 已生效：fast_build + {CHEAT_EXTRA_WORKERS} 农民")
+    if CHEAT_TOPUP_ENABLE_FAST_BUILD:
+        cmds.append(debug_pb.DebugCommand(game_state=debug_pb.fast_build))
+    if cmds:
+        await conn.send(sc_pb.Request(debug=sc_pb.RequestDebug(debug=cmds)))
+    print("[sc2Mod] cheat（临时·补矿气）已启动；真·5倍采集见 cheat5x.SC2Mod")
 
 
 async def cheat_topup_loop(conn: SC2Conn) -> None:
