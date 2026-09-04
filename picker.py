@@ -18,7 +18,10 @@ import mpyq
 from PIL import Image, ImageTk
 
 CACHE = Path.home() / ".cache/sc2mod/thumbs"
-THUMB_W = 240  # 缩略图宽（高按地图比例，一般 2:1 → 120）
+# 统一画布：所有缩略图输出成同尺寸（地图按比例缩放后居中，两侧/上下留深色边），
+# 这样 UI 里每张卡片高度一致。
+THUMB_W, THUMB_H = 256, 144
+CANVAS_BG = (18, 20, 24)
 
 RACES = [("T", "人族"), ("P", "神族"), ("Z", "虫族"), ("R", "随机")]
 DIFFS = [
@@ -47,14 +50,33 @@ def extract_thumb(map_file: Path) -> Path | None:
         if not raw:
             return None
         im = Image.open(io.BytesIO(raw)).convert("RGB")
-        w, h = im.size
-        th = max(1, round(THUMB_W * h / w))
-        im = im.resize((THUMB_W, th), Image.LANCZOS)
+        im.thumbnail((THUMB_W, THUMB_H), Image.LANCZOS)  # 按比例缩到画布内
+        canvas = Image.new("RGB", (THUMB_W, THUMB_H), CANVAS_BG)
+        canvas.paste(im, ((THUMB_W - im.width) // 2, (THUMB_H - im.height) // 2))
         CACHE.mkdir(parents=True, exist_ok=True)
-        im.save(out)
+        canvas.save(out)
         return out
     except Exception:
         return None
+
+
+def minimap_hash(map_file: Path) -> str:
+    """Minimap.tga 内容哈希，用于识别"同一张图的不同赛季版本"。"""
+    import hashlib
+    try:
+        raw = mpyq.MPQArchive(str(map_file)).read_file("Minimap.tga")
+        return hashlib.md5(raw).hexdigest()[:12] if raw else map_file.stem
+    except Exception:
+        return map_file.stem
+
+
+def dedupe_maps(map_files: list[Path]) -> list[Path]:
+    """同地形只留一张，代表用最短名（一般是不带 512/513 后缀的那张）。"""
+    by_hash: dict[str, list[Path]] = {}
+    for mf in map_files:
+        by_hash.setdefault(minimap_hash(mf), []).append(mf)
+    reps = [min(v, key=lambda p: (len(p.stem), p.stem)) for v in by_hash.values()]
+    return sorted(reps, key=lambda p: p.stem.lower())
 
 
 def choose(maps_dir: Path, last: dict) -> dict | None:

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
-from picker import extract_thumb  # 复用：从 .SC2Map 抽 Minimap.tga
+from picker import dedupe_maps, extract_thumb  # 复用：抽 Minimap.tga / 去重赛季版本
 
 RACES = [("R", "随机"), ("T", "人族"), ("P", "神族"), ("Z", "虫族")]
 DIFFS = [
@@ -74,13 +74,12 @@ class MapCard(QtWidgets.QFrame):
         v.setContentsMargins(8, 8, 8, 8)
         img = QtWidgets.QLabel()
         img.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        img.setFixedSize(256, 144)                 # 统一卡片图片区，高度一致
+        img.setScaledContents(False)
         if thumb and thumb.exists():
-            pix = QtGui.QPixmap(str(thumb)).scaledToWidth(
-                240, QtCore.Qt.TransformationMode.SmoothTransformation)
-            img.setPixmap(pix)
+            img.setPixmap(QtGui.QPixmap(str(thumb)))
         else:
             img.setText("(无缩略图)")
-            img.setFixedHeight(120)
         v.addWidget(img)
         name = QtWidgets.QLabel(("★ " if is_last else "") + stem)
         name.setObjectName("mapName")
@@ -137,7 +136,7 @@ class Picker(QtWidgets.QWidget):
         grid_host = QtWidgets.QWidget()
         grid = QtWidgets.QGridLayout(grid_host)
         grid.setSpacing(10)
-        maps = sorted(maps_dir.glob("*.SC2Map"))
+        maps = dedupe_maps(sorted(maps_dir.glob("*.SC2Map")))   # 去掉赛季重复版
         cols = 4
         for idx, mf in enumerate(maps):
             card = MapCard(mf.stem, extract_thumb(mf), mf.stem == last.get("map"))
