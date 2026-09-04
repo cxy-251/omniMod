@@ -372,6 +372,30 @@ async def cheat_topup_loop(conn: SC2Conn) -> None:
             return
 
 
+async def show_maps() -> None:
+    """连上 SC2，问它 ping（版本）+ 能看到哪些地图。"""
+    port = free_port()
+    proc = launch_sc2(port, use_switcher=True)
+    try:
+        conn = await connect(port, proc)
+        r = await conn.send(sc_pb.Request(ping=sc_pb.RequestPing()))
+        print(f"\n[ping] game_version={r.ping.game_version!r}  data_version={r.ping.data_version!r} "
+              f"base_build={r.ping.base_build}  data_build={r.ping.data_build}")
+        print(f"[LocalMap 字段] {[f.name for f in sc_pb.LocalMap.DESCRIPTOR.fields]}")
+        r = await conn.send(sc_pb.Request(available_maps=sc_pb.RequestAvailableMaps()))
+        am = r.available_maps
+        print(f"\n[SC2 能看到的本地图] 共 {len(am.local_map_paths)} 个：")
+        for p in list(am.local_map_paths)[:60]:
+            print("   ", p)
+        print(f"\n[SC2 能看到的 Bnet 图] 共 {len(am.battlenet_map_names)} 个：")
+        for p in list(am.battlenet_map_names)[:30]:
+            print("   ", p)
+        await conn.send(sc_pb.Request(quit=sc_pb.RequestQuit()))
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+
+
 async def probe(use_switcher: bool) -> None:
     """只把 SC2 拉起来（不带 -listen / 不连 API），看窗口能不能出来、进程能不能活着。"""
     proc = launch_sc2(None, use_switcher=use_switcher, winedebug="")
@@ -447,6 +471,8 @@ def main() -> None:
     ap.add_argument("--last", action="store_true", help="直接沿用上次选择，不弹窗")
     ap.add_argument("--probe", action="store_true",
                     help="只把 SC2 拉起来看能不能跑（不选图/不连 API），排障用")
+    ap.add_argument("--maps", action="store_true",
+                    help="连上 SC2，打印版本 + 它能看到的地图清单，排障用")
     ap.add_argument("--core", action="store_true",
                     help="直接用 SC2_x64.exe，不经 SC2Switcher（默认经 Switcher 转发参数）")
     args = ap.parse_args()
@@ -454,6 +480,13 @@ def main() -> None:
     if args.probe:
         try:
             asyncio.run(probe(use_switcher=not args.core))
+        except KeyboardInterrupt:
+            pass
+        return
+
+    if args.maps:
+        try:
+            asyncio.run(show_maps())
         except KeyboardInterrupt:
             pass
         return
