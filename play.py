@@ -334,9 +334,6 @@ async def create_and_join(conn: SC2Conn, sel: dict) -> int:
         else:
             raise RuntimeError(f"CreateGame 失败：{name}  {r.create_game.error_details}")
 
-    # 等地图加载：轮询 ping，直到 SC2 不再"忙"
-    await asyncio.sleep(3)
-
     join = sc_pb.RequestJoinGame(
         race=my_race,
         options=sc_pb.InterfaceOptions(
@@ -344,20 +341,32 @@ async def create_and_join(conn: SC2Conn, sel: dict) -> int:
             show_placeholders=True, raw_affects_selection=False, raw_crop_to_playable_area=False,
         ),
     )
-    for attempt in range(20):
+    # 地图要几秒才加载完。JoinGame 期间可能报 MissingParticipation（还没好）/
+    # "Already in a game"（其实已经进去了，成功）。
+    last_err = ""
+    for attempt in range(40):
         r = await conn.send(sc_pb.Request(join_game=join))
-        if not r.join_game.error:
-            pid = r.join_game.player_id
-            print(f"[sc2Mod] 已加入对局，你是 player {pid}")
-            return pid
-        name = sc_pb.ResponseJoinGame.Error.Name(r.join_game.error)
-        if name in ("MissingParticipation",) or (r.error and "not been started" in " ".join(r.error)):
-            # 游戏还没起好，等一下再试
-            print(f"[sc2Mod] JoinGame 暂不可（{name}），2s 后重试 {attempt+1}/20 …")
-            await asyncio.sleep(2)
-            continue
-        raise RuntimeError(f"JoinGame 失败：{name}  {r.join_game.error_details}")
-    raise RuntimeError("JoinGame 重试 20 次仍失败")
+        if r.join_game.player_id:
+            print(f"[sc2Mod] 已加入对局，你是 player {r.join_game.player_id}")
+            return r.join_game.player_id
+
+        top = " ".join(r.error)
+        if "Already in a game" in top:
+            # 已经在局里了 —— 从 observation 拿 player_id
+            try:
+                obs = await get_obs(conn)
+                pid = obs.observation.player_common.player_id
+                print(f"[sc2Mod] 已在对局中（player {pid}）")
+                return pid
+            except Exception:
+                await asyncio.sleep(1)
+                continue
+
+        jg_err = sc_pb.ResponseJoinGame.Error.Name(r.join_game.error) if r.join_game.error else ""
+        last_err = f"{jg_err} / {top}".strip(" /")
+        await asyncio.sleep(1.5)
+
+    raise RuntimeError(f"JoinGame 一直没成（最后：{last_err}）")
 
 
 async def get_obs(conn: SC2Conn) -> sc_pb.ResponseObservation:
@@ -457,19 +466,21 @@ async def run(sel: dict) -> None:
 
         if topup:
             topup.cancel()
-    finally:
+        # 正常收尾：游戏已经结束/退出了才关。这里只断开 API，不动 SC2 进程。
         try:
             if conn:
-                await conn.send(sc_pb.Request(leave_game=sc_pb.RequestLeaveGame()))
-                await conn.send(sc_pb.Request(quit=sc_pb.RequestQuit()))
+                await conn.ws.close()
         except Exception:
             pass
-        if proc.poll() is None:
-            proc.send_signal(signal.SIGTERM)
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+    except Exception as e:
+        # 失败也**不要杀 SC2** —— 你可能正在窗口里玩。只断开脚本这边。
+        print(f"[sc2Mod] 脚本出错：{e}")
+        print("[sc2Mod] SC2 窗口保留，你可以继续手动玩；玩完自己关窗口即可。")
+        try:
+            if conn:
+                await conn.ws.close()
+        except Exception:
+            pass
 
 
 # ----------------------------------------------------------------------------- #
