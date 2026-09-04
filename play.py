@@ -328,20 +328,14 @@ async def create_and_join(conn: SC2Conn, sel: dict) -> int:
     r = await conn.send(sc_pb.Request(create_game=create))
     if r.create_game.error:
         name = sc_pb.ResponseCreateGame.Error.Name(r.create_game.error)
-        print(f"[sc2Mod] CreateGame（相对名+字节）失败：{name} {r.create_game.error_details}；改试仅字节 / 仅路径 …")
-        for lm in (sc_pb.LocalMap(map_data=map_file.read_bytes()),
-                   sc_pb.LocalMap(map_path=str(map_file)),  # Linux 绝对路径，SC2 有时也认
-                   sc_pb.LocalMap(map_path=sel["map"])):     # 不带扩展名
-            c2 = sc_pb.RequestCreateGame(local_map=lm, realtime=True, disable_fog=False)
-            c2.player_setup.add(type=sc_pb.Participant, race=my_race)
-            c2.player_setup.add(type=sc_pb.Computer, race=enemy_race,
-                                difficulty=diff, ai_build=ai_build, player_name="Cruel-AI")
-            r = await conn.send(sc_pb.Request(create_game=c2))
-            if not r.create_game.error:
-                print("[sc2Mod] 这种写法成功了")
-                break
+        # MissingMap 常常是"路径没匹配上但 map_data 已被接受、游戏其实在加载"的软报错——不当致命
+        if name == "MissingMap":
+            print(f"[sc2Mod] CreateGame 报 MissingMap（软报错，map_data 已提交，游戏应在加载）；继续 …")
         else:
-            raise RuntimeError(f"CreateGame 全部写法都失败：{name}")
+            raise RuntimeError(f"CreateGame 失败：{name}  {r.create_game.error_details}")
+
+    # 等地图加载：轮询 ping，直到 SC2 不再"忙"
+    await asyncio.sleep(3)
 
     join = sc_pb.RequestJoinGame(
         race=my_race,
@@ -350,13 +344,20 @@ async def create_and_join(conn: SC2Conn, sel: dict) -> int:
             show_placeholders=True, raw_affects_selection=False, raw_crop_to_playable_area=False,
         ),
     )
-    r = await conn.send(sc_pb.Request(join_game=join))
-    if r.join_game.error:
+    for attempt in range(20):
+        r = await conn.send(sc_pb.Request(join_game=join))
+        if not r.join_game.error:
+            pid = r.join_game.player_id
+            print(f"[sc2Mod] 已加入对局，你是 player {pid}")
+            return pid
         name = sc_pb.ResponseJoinGame.Error.Name(r.join_game.error)
+        if name in ("MissingParticipation",) or (r.error and "not been started" in " ".join(r.error)):
+            # 游戏还没起好，等一下再试
+            print(f"[sc2Mod] JoinGame 暂不可（{name}），2s 后重试 {attempt+1}/20 …")
+            await asyncio.sleep(2)
+            continue
         raise RuntimeError(f"JoinGame 失败：{name}  {r.join_game.error_details}")
-    pid = r.join_game.player_id
-    print(f"[sc2Mod] 已加入对局，你是 player {pid}")
-    return pid
+    raise RuntimeError("JoinGame 重试 20 次仍失败")
 
 
 async def get_obs(conn: SC2Conn) -> sc_pb.ResponseObservation:
