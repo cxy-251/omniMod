@@ -40,7 +40,8 @@ from s2clientprotocol import debug_pb2 as debug_pb
 # 路径 / 常量（按这台 Deck 的实际情况写死，换机改这里）
 # ----------------------------------------------------------------------------- #
 SC2_ROOT = Path("/home/deck/Games/StarCraft II")
-SC2_EXE = SC2_ROOT / "Versions" / "Base97579" / "SC2_x64.exe"
+SC2_CORE_EXE = SC2_ROOT / "Versions" / "Base97579" / "SC2_x64.exe"
+SC2_SWITCHER = SC2_ROOT / "Support64" / "SC2Switcher_x64.exe"   # 会把参数转发给 SC2_x64.exe
 MAPS_DIR = SC2_ROOT / "Maps"
 STEAM_ROOT = Path.home() / ".local/share/Steam"
 STEAM_COMMON = STEAM_ROOT / "steamapps/common"
@@ -201,9 +202,11 @@ def free_port() -> int:
     return p
 
 
-def launch_sc2(port: int) -> subprocess.Popen:
+def launch_sc2(port: int | None, *, use_switcher: bool = True, winedebug: str = "-all") -> subprocess.Popen:
     if PROTON is None or not PROTON.exists():
         sys.exit("没找到 Proton（Steam 里装一个 Proton Experimental / 11）")
+
+    exe = SC2_SWITCHER if (use_switcher and SC2_SWITCHER.exists()) else SC2_CORE_EXE
 
     env = os.environ.copy()
     env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(STEAM_ROOT)
@@ -212,35 +215,35 @@ def launch_sc2(port: int) -> subprocess.Popen:
     env["STEAM_COMPAT_APP_ID"] = "0"
     env["SteamAppId"] = "0"
     env["SteamGameId"] = "0"
-    # 把游戏所在盘也挂进容器（$HOME 默认已挂，这里保险）
-    env["STEAM_COMPAT_MOUNTS"] = f"{SC2_ROOT}:{COMPAT_DATA}"
     env["PROTON_LOG"] = "1"
     env["PROTON_LOG_DIR"] = str(PROTON_LOG.parent)
-    env["WINEDEBUG"] = "-all"
+    env["WINEDEBUG"] = winedebug
     env.setdefault("LANG", "zh_CN.UTF-8")
     env.setdefault("LC_ALL", "zh_CN.UTF-8")
     COMPAT_DATA.mkdir(parents=True, exist_ok=True)
     PROTON_LOG.parent.mkdir(parents=True, exist_ok=True)
 
-    sc2_args = [
-        "-listen", "127.0.0.1", "-port", str(port),
-        "-displayMode", "1",          # 1 = 窗口化（0 = 全屏无边框）
-        "-windowwidth", "1600", "-windowheight", "900",
-        "-windowx", "40", "-windowy", "40",
-    ]
-    proton_cmd = [str(PROTON), "run", str(SC2_EXE), *sc2_args]
+    sc2_args: list[str] = []
+    if port is not None:
+        sc2_args = [
+            "-listen", "127.0.0.1", "-port", str(port),
+            "-displayMode", "1",
+            "-windowwidth", "1600", "-windowheight", "900",
+            "-windowx", "40", "-windowy", "40",
+        ]
 
+    # 关键：verb 用 waitforexitandrun（不是 run）——run 会立刻返回，wrapper 退出被误判成失败
+    proton_cmd = [str(PROTON), "waitforexitandrun", str(exe), *sc2_args]
     if SLR_ENTRY.exists():
-        cmd = [str(SLR_ENTRY), "--verb=run", "--", *proton_cmd]
-        how = "SteamLinuxRuntime_sniper + Proton"
+        cmd = [str(SLR_ENTRY), "--verb=waitforexitandrun", "--", *proton_cmd]
+        how = f"SLR_sniper + Proton  ({exe.name})"
     else:
         cmd = proton_cmd
-        how = "Proton（无 SLR 容器，新版可能退出 53）"
+        how = f"Proton 裸跑  ({exe.name})"
 
-    logf = open(PROTON_LOG.with_suffix(".stdouterr.log"), "w")
+    logf = open(str(PROTON_LOG.parent / "launch.stdouterr.log"), "w")
     print(f"[sc2Mod] 启动 SC2 … （{how}）")
-    print(f"[sc2Mod] 输出日志: {logf.name}  /  Proton 详细日志: {PROTON_LOG.parent}/steam-*.log")
-    # cwd 用游戏根目录，AI-API 的相对地图路径就是相对 Maps/
+    print(f"[sc2Mod] 输出: {logf.name}   Proton 日志: {PROTON_LOG.parent}/steam-*.log")
     return subprocess.Popen(cmd, env=env, cwd=str(SC2_ROOT), stdout=logf, stderr=subprocess.STDOUT)
 
 
@@ -269,15 +272,19 @@ class SC2Conn:
 
 
 def _dump_launch_logs() -> None:
-    for p in sorted(PROTON_LOG.parent.glob("*.log")) + sorted(PROTON_LOG.parent.glob("steam-*.log")):
+    seen = set()
+    for p in list(PROTON_LOG.parent.glob("*.log")):
+        if p in seen or not p.is_file():
+            continue
+        seen.add(p)
         try:
             lines = p.read_text(errors="replace").splitlines()
         except Exception:
             continue
         if not lines:
             continue
-        print(f"\n----- {p}  (末 40 行) -----")
-        print("\n".join(lines[-40:]))
+        print(f"\n----- {p}  (末 50 行) -----")
+        print("\n".join(lines[-50:]))
 
 
 async def connect(port: int, sc2_proc: subprocess.Popen, timeout: float = 180.0) -> SC2Conn:
@@ -357,9 +364,23 @@ async def cheat_topup_loop(conn: SC2Conn) -> None:
             return
 
 
+async def probe(use_switcher: bool) -> None:
+    """只把 SC2 拉起来（不带 -listen / 不连 API），看窗口能不能出来、进程能不能活着。"""
+    proc = launch_sc2(None, use_switcher=use_switcher, winedebug="")
+    print("[sc2Mod] 已启动，无 API。观察 60 秒 …（Ctrl+C 结束）")
+    for i in range(60):
+        await asyncio.sleep(1)
+        if proc.poll() is not None:
+            print(f"[sc2Mod] SC2 在第 {i+1} 秒退出，code {proc.returncode}")
+            _dump_launch_logs()
+            return
+    print("[sc2Mod] 60 秒内没退出 —— 说明 SC2 起来了。手动关掉游戏窗口即可。")
+    proc.terminate()
+
+
 async def run(sel: dict) -> None:
     port = free_port()
-    proc = launch_sc2(port)
+    proc = launch_sc2(port, use_switcher=sel.get("use_switcher", True))
     conn = None
     try:
         conn = await connect(port, proc)
@@ -416,7 +437,18 @@ def main() -> None:
     ap.add_argument("--cheat", dest="cheat", action="store_true", default=None, help="强制开 cheat")
     ap.add_argument("--no-cheat", dest="cheat", action="store_false", help="强制关 cheat")
     ap.add_argument("--last", action="store_true", help="直接沿用上次选择，不弹窗")
+    ap.add_argument("--probe", action="store_true",
+                    help="只把 SC2 拉起来看能不能跑（不选图/不连 API），排障用")
+    ap.add_argument("--core", action="store_true",
+                    help="直接用 SC2_x64.exe，不经 SC2Switcher（默认经 Switcher 转发参数）")
     args = ap.parse_args()
+
+    if args.probe:
+        try:
+            asyncio.run(probe(use_switcher=not args.core))
+        except KeyboardInterrupt:
+            pass
+        return
 
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     last = {}
@@ -437,6 +469,7 @@ def main() -> None:
     else:
         sel = choose_interactively(args, last)
 
+    sel["use_switcher"] = not args.core
     STATE_FILE.write_text(json.dumps(sel, ensure_ascii=False, indent=2))
     print(f"[sc2Mod] 本局：{sel}")
 
