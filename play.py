@@ -310,29 +310,41 @@ async def create_and_join(conn: SC2Conn, sel: dict) -> int:
     diff = DIFFICULTY[sel["difficulty"]]
     ai_build = AI_BUILD.get(sel["ai_build"], sc_pb.RandomBuild)
 
-    # burnysc2 的做法：相对名 + 文件字节一起发（不是 oneof，两个都塞）
     map_file = MAPS_DIR / f"{sel['map']}.SC2Map"
     if not map_file.exists():
         raise RuntimeError(f"地图文件不存在：{map_file}")
-    create = sc_pb.RequestCreateGame(
-        local_map=sc_pb.LocalMap(
-            map_path=f"{sel['map']}.SC2Map",
-            map_data=map_file.read_bytes(),
-        ),
-        realtime=True,
-        disable_fog=False,
-    )
-    create.player_setup.add(type=sc_pb.Participant, race=my_race)
-    create.player_setup.add(type=sc_pb.Computer, race=enemy_race,
-                            difficulty=diff, ai_build=ai_build, player_name="Cruel-AI")
-    r = await conn.send(sc_pb.Request(create_game=create))
-    if r.create_game.error:
-        name = sc_pb.ResponseCreateGame.Error.Name(r.create_game.error)
-        # MissingMap 常常是"路径没匹配上但 map_data 已被接受、游戏其实在加载"的软报错——不当致命
-        if name == "MissingMap":
-            print(f"[sc2Mod] CreateGame 报 MissingMap（软报错，map_data 已提交，游戏应在加载）；继续 …")
-        else:
-            raise RuntimeError(f"CreateGame 失败：{name}  {r.create_game.error_details}")
+
+    def _mk(local_map):
+        c = sc_pb.RequestCreateGame(local_map=local_map, realtime=True, disable_fog=False)
+        c.player_setup.add(type=sc_pb.Participant, race=my_race)
+        c.player_setup.add(type=sc_pb.Computer, race=enemy_race,
+                           difficulty=diff, ai_build=ai_build, player_name="Cruel-AI")
+        return c
+
+    # 依次尝试几种 map 写法，直到 CreateGame 不报错
+    attempts = [
+        ("相对名", sc_pb.LocalMap(map_path=f"{sel['map']}.SC2Map")),
+        ("仅字节", sc_pb.LocalMap(map_data=map_file.read_bytes())),
+        ("相对名+字节", sc_pb.LocalMap(map_path=f"{sel['map']}.SC2Map", map_data=map_file.read_bytes())),
+        ("绝对Z路径", sc_pb.LocalMap(map_path="Z:" + str(map_file).replace("/", "\\"))),
+    ]
+    ok = False
+    for label, lm in attempts:
+        r = await conn.send(sc_pb.Request(create_game=_mk(lm)))
+        if not r.create_game.error:
+            print(f"[sc2Mod] CreateGame 成功（写法：{label}）")
+            ok = True
+            break
+        nm = sc_pb.ResponseCreateGame.Error.Name(r.create_game.error)
+        top = " ".join(r.error)
+        print(f"[sc2Mod] CreateGame「{label}」→ {nm} {r.create_game.error_details} {top}")
+        if "Already in" in top or "in the process" in top:
+            print("[sc2Mod] SC2 说已经在开局了 —— 当成功继续")
+            ok = True
+            break
+        await asyncio.sleep(0.5)
+    if not ok:
+        raise RuntimeError("CreateGame 所有写法都失败")
 
     join = sc_pb.RequestJoinGame(
         race=my_race,
