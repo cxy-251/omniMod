@@ -1,28 +1,26 @@
 # sc2Mod
 
-离线打星际2 —— 真人 vs 内置AI，不登录、不开战网。
+在 Steam Deck 上**离线**玩星际2 + 自制 mod。
 
-## 用法
+## 日常：离线打电脑
 
 ```bash
-uv run python play.py          # 弹窗逐项选：地图 / 你的种族 / 电脑种族 / 难度 / 是否 cheat
-uv run python play.py --last    # 用上次的选择，不弹窗
-uv run python play.py --map AbyssalReefAIE --race T --enemy-race Z --difficulty cheatinsane --cheat
+uv run python play.py
 ```
 
-选择记在 `~/.config/sc2mod/last.json`。
+用 Proton 在 Steam 容器里把**正常的离线 SC2 客户端**拉起来 —— 有主菜单、大厅、选项、
+快捷键设置，打完一场回大厅继续下一场。不需要登录、不碰战网。
 
-## cheat（可选，每局可开关）
+之后全在游戏里操作：`创建自定义游戏` → 选图 → 加一个 `Computer`(残酷3) → 开打。
+要 cheat 就在自定义游戏的「额外 Mod」里挂上 `cheat5x.SC2Mod`（见下）。
 
-不改游戏文件，全靠 SC2 AI-API 的 debug 指令：
-- 开局主基地旁 +12 农民
-- `fast_build`：建造 / 训练瞬间完成
-- 每 8 秒补满矿和气（“采不完” + 抹平残酷电脑的资源加成）
+`uv run python play.py --editor` 起银河编辑器（做 mod 用）。
 
-## 原理
+## cheat mod（做 5 倍采集等）
 
-`play.py` 用 Proton 起 `SC2_x64.exe -listen 127.0.0.1 -port N -displayMode 1`，
-连本地 websocket 做 `CreateGame`（本地图 + 一个 Computer 对手）+ `JoinGame`（你的种族），
-渲染窗口出来你正常操作，脚本只维持连接 + 按需喂 cheat。
+`mods/` 目录放自制 `.SC2Mod`。做法见 `RECON.md` 和 `mods/README.md`。
 
-详见 `RECON.md`。
+## api_match.py（bot 开发用，暂放）
+
+用 SC2 的 AI-API（`-listen`）脚本组局的版本。这条路是给**写 bot 打残酷**用的，
+不是日常玩 —— 它是单场对局、没有菜单、打完黑屏。`picker.py` 是它配套的选图器。
