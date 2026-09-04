@@ -1,5 +1,12 @@
 # sc2Mod —— 星际 2 离线打电脑 + cheat mod
 
+> **架构更新**：拉起游戏/选图面板那部分代码已经搬到 `~/Games/omni-deck/`
+> （`sc2_panel_service.py` + `sc2_runner.py`），首页「⭐ 星际争霸2」卡片进去用。
+> 本仓库现在**只做 mod**：`bake.py` / `_bake_inner.py` / `lib/libstorm.so` /
+> `mods/*.SC2Mod`。下面是当初设计/踩坑过程的完整记录，历史背景仍然有效，
+> 只是"怎么拉起游戏"那几节里提到的 `play.py`/`runner.py`/`picker.py` 现在
+> 已经不在这个仓库了（同名逻辑在 omni-deck 里，见上面）。
+
 ## 目标（用户原话提炼）
 
 - 主要玩法：**任意天梯图 vs 残酷电脑（CheatInsane，AI 有资源加成）**。战役买了(国服)但基本不玩。

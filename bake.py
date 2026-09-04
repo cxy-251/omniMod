@@ -27,7 +27,7 @@ MOD_DEPS: dict[str, str] = {
 MOD_INFO: dict[str, dict[str, str]] = {
     "5xHarvest": {
         "name": "5 倍采集",
-        "desc": "矿 / 气全变体采集量 ×5，抹平残酷电脑的资源加成",
+        "desc": "矿 / 气全变体采集量 ×5（双方阵营对称生效，只改采集量，不改别的）",
     },
 }
 

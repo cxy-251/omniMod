@@ -1,26 +1,34 @@
 # sc2Mod
 
-在 Steam Deck 上**离线**玩星际2 + 自制 mod。
+自制 StarCraft II mod 仓库 —— **只负责做 mod**，不负责拉起游戏。
 
-## 日常：离线打电脑
+游戏怎么离线打（burnysc2 组局 + Proton/SLR 垫片）、地图选择面板，都在
+`~/Games/omni-deck/`（首页「⭐ 星际争霸2」卡片，`sc2_panel_service.py` +
+`sc2_runner.py`）。这里只是被它 `import bake` 调用一下。
+
+## 目录
+
+- `mods/*.SC2Mod` —— 自制 mod 本体（银河编辑器 Extension mod）。见 `mods/README.md`。
+- `bake.py` —— mod 依赖表（`MOD_DEPS`）+ UI 展示信息（`MOD_INFO`）+ `bake()`：
+  把选中的 mod 焊进某张地图的副本（改 `.SC2Map` 里 `DocumentHeader` 的依赖表）。
+- `_bake_inner.py` —— 实际动 MPQ 的部分：ctypes 调 `lib/libstorm.so`（StormLib）
+  打开地图、替换/写回 `DocumentHeader`。宿主直接跑，不需要容器。
+- `lib/libstorm.so*` —— 编译好的 StormLib（在一次性的 distrobox Arch 容器里编的，
+  运行时不需要容器 —— glibc 2.41 够新，直接能在 SteamOS host 上 `dlopen`）。
+
+## 做新 mod 的流程
+
+1. 银河编辑器（在 Windows/Proton 里，或问 omni-deck 那边怎么起编辑器）建一个
+   Extension mod，改想改的字段，导出 `.SC2Mod` 放进 `mods/`。
+2. `bake.py` 里 `MOD_DEPS` 加一条 `key -> "bnet:<mod名>/0.0/999,file:Mods/<文件名>.SC2Mod"`，
+   `MOD_INFO` 加一条展示用的中文名/描述。
+3. `uv run python bake.py <地图 stem> <mod key>` 本地测试烘焙。
+4. omni-deck 那边的 mod 勾选列表会自动读到新 mod（`bake.MOD_INFO`），不用改它的代码。
+
+## 独立测试烘焙
 
 ```bash
-uv run python play.py
+uv run python bake.py BlackburnAIE 5xHarvest
 ```
 
-用 Proton 在 Steam 容器里把**正常的离线 SC2 客户端**拉起来 —— 有主菜单、大厅、选项、
-快捷键设置，打完一场回大厅继续下一场。不需要登录、不碰战网。
-
-之后全在游戏里操作：`创建自定义游戏` → 选图 → 加一个 `Computer`(残酷3) → 开打。
-要 cheat 就在自定义游戏的「额外 Mod」里挂上 `cheat5x.SC2Mod`（见下）。
-
-`uv run python play.py --editor` 起银河编辑器（做 mod 用）。
-
-## cheat mod（做 5 倍采集等）
-
-`mods/` 目录放自制 `.SC2Mod`。做法见 `RECON.md` 和 `mods/README.md`。
-
-## api_match.py（bot 开发用，暂放）
-
-用 SC2 的 AI-API（`-listen`）脚本组局的版本。这条路是给**写 bot 打残酷**用的，
-不是日常玩 —— 它是单场对局、没有菜单、打完黑屏。`picker.py` 是它配套的选图器。
+产物是 `~/Games/StarCraft II/Maps/BlackburnAIE__<hash>.SC2Map`（原图不动，副本改了依赖表）。

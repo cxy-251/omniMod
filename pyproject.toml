@@ -1,14 +1,8 @@
 [project]
 name = "sc2mod"
 version = "0.1.0"
-description = "Add your description here"
+description = "SC2 自制 mod 仓库：mod 依赖表 + 把 mod 烘焙进地图副本（StormLib 改 MPQ）。不负责拉起游戏 —— 那部分在 omni-deck。"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = [
-    "burnysc2>=7.1.3",
-    "pillow>=12.3.0",
-    "protobuf==3.20.3",
-    "pyqt6>=6.11.0",
-    "s2clientprotocol>=5.0.16.97563.0",
-    "websockets>=17.1",
-]
+# bake.py / _bake_inner.py 全是标准库（hashlib/subprocess/ctypes/struct），不需要第三方依赖。
+dependencies = []
