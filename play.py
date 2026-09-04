@@ -260,8 +260,7 @@ class SC2Conn:
         resp = sc_pb.Response()
         resp.ParseFromString(data)
         if resp.error:
-            names = [sc_pb.Response.Error.Name(e) for e in resp.error]
-            print(f"[sc2Mod] API 顶层错误: {names}")
+            print(f"[sc2Mod] API 顶层错误: {list(resp.error)}")
         return resp
 
     async def ping(self) -> bool:
