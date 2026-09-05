@@ -30,12 +30,12 @@ MOD_DEPS: dict[str, str] = {
 MOD_INFO: dict[str, dict[str, str]] = {
     "3xHarvest": {
         "name": "3 倍采集",
-        "desc": "矿 / 气全变体采集量 ×3（双方阵营对称生效，只改采集量，不改别的）",
+        "desc": "矿 ×3；气矿按跟矿同时挖空换算，不是单纯也乘 3（双方阵营对称生效，只改采集量）",
         "group": "harvest",
     },
     "5xHarvest": {
         "name": "5 倍采集",
-        "desc": "矿 / 气全变体采集量 ×5（双方阵营对称生效，只改采集量，不改别的）",
+        "desc": "矿 ×5；气矿按跟矿同时挖空换算，不是单纯也乘 5（双方阵营对称生效，只改采集量）",
         "group": "harvest",
     },
     "macroSpeed": {
