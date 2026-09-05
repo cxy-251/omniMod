@@ -211,12 +211,17 @@ def main() -> None:
     behavior_path = "Base.SC2Data\\GameData\\BehaviorData.xml"
     write_mpq_file(h_mpq, behavior_path, build_behavior_xml(multiplier).encode("utf-8"))
 
+    # 真实游戏本体的 GameStrings.txt 都是带 UTF-8 BOM（EF BB BF）开头的——用 CascLib 挖
+    # mods/liberty.sc2mod 自己的 zhCN GameStrings.txt 对比确认过。我们生成的文件之前没加
+    # BOM，编辑器日志里报过 "Unable to load 'GameText <zhCN>'"，虽然不确定这跟气矿数据
+    # 不生效是不是同一个根因，但这本身就是个真实的、该修的编码问题，顺手一起修了。
+    BOM = b"\xef\xbb\xbf"
     write_mpq_file(h_mpq, "enUS.SC2Data\\LocalizedData\\GameStrings.txt",
-                   f"DocInfo/Name={multiplier}x Harvest Rate\n"
+                   BOM + f"DocInfo/Name={multiplier}x Harvest Rate\n"
                    f"DocInfo/Desc=Minerals x{multiplier}; gas rate recalculated to deplete "
                    f"at the same time as minerals (not simply x{multiplier})!\n".encode())
     write_mpq_file(h_mpq, "zhCN.SC2Data\\LocalizedData\\GameStrings.txt",
-                   f"DocInfo/Name={display_name}\n"
+                   BOM + f"DocInfo/Name={display_name}\n"
                    f"DocInfo/Desc={desc}\n".encode())
 
     STORM.SFileCompactArchive(h_mpq, None, 0)
