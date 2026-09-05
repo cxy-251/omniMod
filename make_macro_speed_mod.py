@@ -131,9 +131,15 @@ def main() -> None:
     if not STORM.SFileOpenArchive(str(dst).encode(), 0, 0, ctypes.byref(h_mpq)):
         sys.exit(f"打不开 MPQ {dst}")
 
-    STORM.SFileRemoveFile(h_mpq, b"Base.SC2Data\\GameData\\BehaviorData.xml", 0)
     xml = build_abildata_xml(multiplier)
-    write_mpq_file(h_mpq, "Base.SC2Data\\GameData\\AbilData.xml", xml.encode("utf-8"))
+    # 关键坑：文件名必须留着 BehaviorData.xml 不能改叫 AbilData.xml——即使里面装的是
+    # CAbilBuild/CAbilTrain 数据。踩过：改名字（先 remove 旧名再 add 新名）会让 MPQ
+    # 内部的东西对不上（大概率是 (listfile) 没跟着更新，游戏自己的 MPQ 加载器比
+    # StormLib/mpyq 挑剔，读不到重命名后的文件），建出来的 mod 表面上没报错、
+    # archive 本身也能正常打开，但游戏里一建局就秒退，报 "Not in a game"。
+    # 内容是 CAbilBuild 还是 CBehaviorResource 都无所谓，游戏是按 <Catalog> 里每个
+    # 元素自己的标签类型识别的，不看文件名——只要名字维持 BehaviorData.xml 就没事。
+    write_mpq_file(h_mpq, "Base.SC2Data\\GameData\\BehaviorData.xml", xml.encode("utf-8"))
 
     write_mpq_file(h_mpq, "enUS.SC2Data\\LocalizedData\\GameStrings.txt",
                    f"DocInfo/Name=Macro Speed ({multiplier}x)\n"
