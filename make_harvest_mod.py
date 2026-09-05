@@ -89,6 +89,69 @@ GAS_IDS_RICH = [
     "HarvestableRichVespeneGeyserGasZerg",
 ]
 
+# 气矿 id 真实原版每一个字段（CascLib 挖出来的），EditorCategories 的 Race 值就是
+# 原版数据本身写的（三个 Rich 变体在原版里全标了 Race:Terran，连 Zerg/Protoss 那两个也是——
+# 这是暴雪自己数据里的笔误，不是我们抄错，照抄不改）。踩过的坑：只写 HarvestAmount 一个
+# 字段的"最小覆盖"对矿有效、对气矿没生效，怀疑是气矿这几个字段（尤其 RequiredAlliance /
+# Flags HideHarvesters）缺了会导致覆盖不完整被引擎忽略，所以气矿这边把原版全部字段都
+# 照抄一遍，只改 HarvestAmount 一个数值。
+GAS_EXTRA_FIELDS = {
+    "HarvestableVespeneGeyserGas": (
+        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
+        '<Capacity value="32000"/><HarvestTime value="1.981"/>'
+        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
+        '<InfoFlags index="Hidden" value="1"/><Flags index="HideHarvesters" value="1"/>'
+        '<RequiredAlliance value="Control"/>'
+        '<EditorCategories value="Race:Terran,AbilityorEffectType:Units"/>'
+        '<IdealHarvesterCount value="3"/>'
+    ),
+    "HarvestableVespeneGeyserGasProtoss": (
+        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
+        '<Capacity value="2500"/><HarvestTime value="1.981"/>'
+        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
+        '<InfoFlags index="Hidden" value="1"/><Flags index="HideHarvesters" value="1"/>'
+        '<RequiredAlliance value="Control"/>'
+        '<EditorCategories value="Race:Protoss,AbilityorEffectType:Units"/>'
+        '<IdealHarvesterCount value="3"/>'
+    ),
+    "HarvestableVespeneGeyserGasZerg": (
+        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
+        '<Capacity value="2500"/><HarvestTime value="1.981"/>'
+        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
+        '<InfoFlags index="Hidden" value="1"/><Flags index="HideHarvesters" value="1"/>'
+        '<RequiredAlliance value="Control"/>'
+        '<EditorCategories value="Race:Zerg,AbilityorEffectType:Units"/>'
+        '<IdealHarvesterCount value="3"/>'
+    ),
+    "HarvestableRichVespeneGeyserGas": (
+        '<InfoFlags index="Hidden" value="1"/>'
+        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
+        '<EditorCategories value="Race:Terran,AbilityorEffectType:Units"/>'
+        '<Capacity value="32000"/><HarvestTime value="1.981"/>'
+        '<Flags index="HideHarvesters" value="1"/><RequiredAlliance value="Control"/>'
+        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
+        '<IdealHarvesterCount value="3"/>'
+    ),
+    "HarvestableRichVespeneGeyserGasZerg": (
+        '<InfoFlags index="Hidden" value="1"/>'
+        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
+        '<EditorCategories value="Race:Terran,AbilityorEffectType:Units"/>'  # 原版数据自己就是这么写的
+        '<Capacity value="32000"/><HarvestTime value="1.981"/>'
+        '<Flags index="HideHarvesters" value="1"/><RequiredAlliance value="Control"/>'
+        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
+        '<IdealHarvesterCount value="3"/>'
+    ),
+    "HarvestableRichVespeneGeyserGasProtoss": (
+        '<InfoFlags index="Hidden" value="1"/>'
+        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
+        '<EditorCategories value="Race:Terran,AbilityorEffectType:Units"/>'  # 原版数据自己就是这么写的
+        '<Capacity value="32000"/><HarvestTime value="1.981"/>'
+        '<Flags index="HideHarvesters" value="1"/><RequiredAlliance value="Control"/>'
+        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
+        '<IdealHarvesterCount value="3"/>'
+    ),
+}
+
 
 def write_mpq_file(h_mpq, name: str, data: bytes) -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as tf:
@@ -120,7 +183,8 @@ def build_behavior_xml(multiplier: float) -> str:
     for mid in MINERAL_IDS_RICH:
         lines.append(f'    <CBehaviorResource id="{mid}"><HarvestAmount value="{min_new_rich}"/></CBehaviorResource>')
     for gid in GAS_IDS_NORMAL + GAS_IDS_RICH:
-        lines.append(f'    <CBehaviorResource id="{gid}"><HarvestAmount value="{gas_new}"/></CBehaviorResource>')
+        extra = GAS_EXTRA_FIELDS[gid]
+        lines.append(f'    <CBehaviorResource id="{gid}">{extra}<HarvestAmount value="{gas_new}"/></CBehaviorResource>')
     lines.append("</Catalog>")
     return "\n".join(lines) + "\n"
 
