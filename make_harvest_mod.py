@@ -66,16 +66,19 @@ CONTENTS_GAS, HARVESTTIME_GAS, IDEAL_GAS = 2500, 1.981, 3
 BASE_MIN = 5          # 普通矿单趟基础采集量（超级矿基础是 7，矿这边就还是直接 ×N，不反推）
 BASE_MIN_RICH = 7
 
-# 矿：直接 ×N，用真实存在的 id（这几个是原版就有的，5xHarvest 一直生效正常）。
-MINERAL_IDS = [
-    "MineralFieldMinerals", "MineralFieldMinerals750",
-    "PurifierMineralFieldMinerals", "PurifierMineralFieldMinerals750",
-    "BattleStationMineralFieldMinerals", "BattleStationMineralFieldMinerals750",
-]
-MINERAL_IDS_RICH = [
-    "RawRichMineralFieldMinerals",  # 没验证到真实对应 id，保留原样但不保证生效
-    "PurifierRichMineralFieldMinerals", "PurifierRichMineralFieldMinerals750",
-]
+# 矿：直接 ×N。之前这里有 6 个"听起来像"真实 id 的条目（PurifierMineralFieldMinerals、
+# BattleStationMineralFieldMinerals 等），实测在游戏本体任何一层数据里都不存在——全是
+# 从上一版 mod 照抄下来、从没验证过的假 id，纯粹占地方，不影响功能但也没用。
+# 真相是：Lab/Purifier/BattleStation 这些"换皮"矿脉单位（CUnit）全都 parent="MineralFieldDefault"
+# 直接继承，自己不声明 BehaviorArray，或者显式 Link 回 "MineralFieldMinerals"/"MineralFieldMinerals750"
+# ——用 CascLib 逐个查过 CUnit 定义确认的。所以普通矿只需要这两个 id 就能覆盖所有换皮版本。
+MINERAL_IDS = ["MineralFieldMinerals", "MineralFieldMinerals750"]
+
+# 富矿同理：RichMineralField（BlackburnAIE 这张图实际放置的富矿类型）的父类
+# RichMineralFieldDefault 明确 Link 到 "HighYieldMineralFieldMinerals"（750 版本同理）——
+# 之前用的 "RawRichMineralFieldMinerals"/"PurifierRichMineralFieldMinerals" 这些也是假 id，
+# 从没生效过，这是本轮排查气矿问题时顺手挖出来的另一个真 bug。
+MINERAL_IDS_RICH = ["HighYieldMineralFieldMinerals", "HighYieldMineralFieldMinerals750"]
 
 # 气：真实 id（带 Harvestable 前缀），单趟量用反推值，不是简单 ×N。
 GAS_IDS_NORMAL = [
