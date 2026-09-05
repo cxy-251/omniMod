@@ -18,12 +18,28 @@ MAPS_DIR = SC2_ROOT / "Maps"
 MODS_DIR = SC2_ROOT / "Mods"
 BAKED_SUFFIX = "__"          # 烤出来的图名里含这个，picker 会过滤掉
 
-# mod key -> 写进 DocumentHeader 的依赖串。file: 部分对应 Mods/ 下的 .SC2Mod。
-MOD_DEPS: dict[str, str] = {
-    "3xHarvest": "bnet:3xHarvest/0.0/999,file:Mods/3xHarvest.SC2Mod",
-    "5xHarvest": "bnet:5xHarvest/0.0/999,file:Mods/5xHarvest.SC2Mod",
-    "macroSpeed": "bnet:macroSpeed/0.0/999,file:Mods/macroSpeed.SC2Mod",
+# mod key -> Mods/ 下对应的 .SC2Mod 文件名。
+MOD_FILES: dict[str, str] = {
+    "3xHarvest": "3xHarvest.SC2Mod",
+    "5xHarvest": "5xHarvest.SC2Mod",
+    "macroSpeed": "macroSpeed.SC2Mod",
 }
+
+
+def _mod_dep_string(key: str) -> str:
+    """写进 DocumentHeader 的依赖串，形如 "bnet:X/0.0/<版本号>,file:Mods/X.SC2Mod"。
+
+    版本号不能写死（以前是死的 "999"）——本地 Battle.net 有一层内容缓存
+    （ProgramData/Blizzard Entertainment/Battle.net/Cache 下一堆按哈希命名的
+    .s2ma），踩过坑：mod 文件内容改了、三份拷贝（sc2Mod 源头/游戏安装目录/Wine
+    前缀 Documents）也都同步过了，但版本号没变，游戏那边可能还是把它当"以前解析过
+    的那个版本"，读的是缓存结果而不是重新解析新内容——改了跟没改一样。这里让
+    版本号跟着 mod 文件内容的哈希走，内容一变版本号必然跟着变，不给缓存偷懒的机会。"""
+    fname = MOD_FILES[key]
+    mf = MODS_DIR / fname
+    content = mf.read_bytes() if mf.exists() else b""
+    build = int(hashlib.md5(content).hexdigest()[:6], 16) % 900000 + 1
+    return f"bnet:{key}/0.0/{build},file:Mods/{fname}"
 
 # mod key -> 给 UI 用的展示信息。"group" 字段：同组互斥（前端渲染成单选，一次只能选一个），
 # 没有 group 的照旧是独立勾选框。做新 mod 时 MOD_DEPS + MOD_INFO 两边都加一条。
@@ -53,14 +69,14 @@ def is_baked(stem: str) -> bool:
 
 def bake(map_stem: str, mod_keys: list[str]) -> str:
     """返回要传给 maps.get() 的地图名。没选 mod 就原样返回。"""
-    mod_keys = [k for k in mod_keys if k in MOD_DEPS]
+    mod_keys = [k for k in mod_keys if k in MOD_FILES]
     if not mod_keys:
         return map_stem
 
     # 缓存键：图名 + mod 组合 + 各 .SC2Mod 文件的 mtime（mod 改了 → 键变 → 重烤）
     sig_parts = [map_stem, *sorted(mod_keys)]
     for k in sorted(mod_keys):
-        mf = MODS_DIR / MOD_DEPS[k].split("file:Mods/")[-1]
+        mf = MODS_DIR / MOD_FILES[k]
         sig_parts.append(f"{k}:{int(mf.stat().st_mtime) if mf.exists() else 0}")
     key = hashlib.md5("|".join(sig_parts).encode()).hexdigest()[:8]
     out_stem = f"{map_stem}{BAKED_SUFFIX}{key}"
@@ -71,7 +87,7 @@ def bake(map_stem: str, mod_keys: list[str]) -> str:
     if not src.exists():
         raise FileNotFoundError(src)
 
-    deps = [MOD_DEPS[k] for k in sorted(mod_keys)]
+    deps = [_mod_dep_string(k) for k in sorted(mod_keys)]
     cmd = [sys.executable, str(HERE / "_bake_inner.py"), str(src), str(out_file), *deps]
     print(f"[sc2Mod] 烘焙 {map_stem} + {mod_keys} …")
     r = subprocess.run(cmd, capture_output=True, text=True)
