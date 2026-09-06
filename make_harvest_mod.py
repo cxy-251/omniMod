@@ -65,6 +65,17 @@ CONTENTS_MIN, HARVESTTIME_MIN, IDEAL_MIN = 1800, 2.786, 2
 CONTENTS_GAS, HARVESTTIME_GAS, IDEAL_GAS = 2500, 1.981, 3
 BASE_MIN = 5          # 普通矿单趟基础采集量（超级矿基础是 7，矿这边就还是直接 ×N，不反推）
 BASE_MIN_RICH = 7
+BASE_GAS = 4          # 普通气矿原版单趟采集量（工人 Harvest 能力的 Vespene 倍率就以这个为基准换算）
+
+# 气矿走"另一条路"：不再改资源节点行为（CBehaviorResource.HarvestAmount）——实测这条对
+# 晶体矿有效、对气矿从来不生效（id、依赖版本号、字段补全、BOM 全查过修过都没用，
+# 见下面 GAS_EXTRA_FIELDS 注释）。改成 SC2Mapster 社区标准做法：直接改工人「采集能力」
+# CAbilHarvest 上的 ResourceAmountMultiplier —— 这是个按资源类型索引的数组
+# [Minerals|Vespene|Terrazine|Custom]，原版全是 1，MULEGather 就是靠把 Minerals 项设成 6
+# 让机骡单趟挖 25 的。我们只动 Vespene 项，晶体矿那条继续用行为覆盖（它是好的，别碰）。
+# CascLib 从 liberty/void/voidmulti 的 abildata.xml 确认：SCV/Probe/Drone 三个采集能力
+# 原版都没写任何 ResourceAmount* 字段，是干净的，直接加就行。
+WORKER_HARVEST_IDS = ["SCVHarvest", "ProbeHarvest", "DroneHarvest"]
 
 # 矿：直接 ×N。之前这里有 6 个"听起来像"真实 id 的条目（PurifierMineralFieldMinerals、
 # BattleStationMineralFieldMinerals 等），实测在游戏本体任何一层数据里都不存在——全是
@@ -175,19 +186,32 @@ def gas_amount_for(mineral_new_amount: float) -> int:
     return max(1, round(k * mineral_new_amount))
 
 
+def gas_multiplier_for(mineral_new_amount: float) -> float:
+    """气矿目标单趟量 ÷ 原版单趟量(4) = 挂在工人采集能力 Vespene 项上的倍率。"""
+    return round(gas_amount_for(mineral_new_amount) / BASE_GAS, 3)
+
+
 def build_behavior_xml(multiplier: float) -> str:
     min_new = round(BASE_MIN * multiplier)
     min_new_rich = round(BASE_MIN_RICH * multiplier)
-    gas_new = gas_amount_for(min_new)   # 普通/超级气矿反推目标是同一个挖空时间，算出来共用一个值
+    gas_mult = gas_multiplier_for(min_new)
 
     lines = ['<?xml version="1.0" encoding="us-ascii"?>', "<Catalog>"]
+    # 晶体矿：继续走资源节点行为覆盖（实测有效）。
     for mid in MINERAL_IDS:
         lines.append(f'    <CBehaviorResource id="{mid}"><HarvestAmount value="{min_new}"/></CBehaviorResource>')
     for mid in MINERAL_IDS_RICH:
         lines.append(f'    <CBehaviorResource id="{mid}"><HarvestAmount value="{min_new_rich}"/></CBehaviorResource>')
-    for gid in GAS_IDS_NORMAL + GAS_IDS_RICH:
-        extra = GAS_EXTRA_FIELDS[gid]
-        lines.append(f'    <CBehaviorResource id="{gid}">{extra}<HarvestAmount value="{gas_new}"/></CBehaviorResource>')
+    # 气矿：改工人采集能力的 Vespene 倍率（另一条路，绕开对气矿不生效的行为覆盖）。
+    # 同一个 BehaviorData.xml 里混写 <CAbilHarvest>——SC2 数据系统按元素标签名归类到对应
+    # catalog，跟文件名无关（macroSpeed mod 已经这么干过，能进游戏）。超级气矿原版单趟是 6，
+    # 乘同一个倍率会比普通气矿高一点，但总量(Contents)一样、目标是"大致对齐"，可接受。
+    for aid in WORKER_HARVEST_IDS:
+        lines.append(
+            f'    <CAbilHarvest id="{aid}">'
+            f'<ResourceAmountMultiplier index="Vespene" value="{gas_mult}"/>'
+            f'</CAbilHarvest>'
+        )
     lines.append("</Catalog>")
     return "\n".join(lines) + "\n"
 
@@ -232,8 +256,10 @@ def main() -> None:
 
     min_new = round(BASE_MIN * multiplier)
     gas_new = gas_amount_for(min_new)
+    gas_mult = gas_multiplier_for(min_new)
     print(f"OK: {dst}")
-    print(f"  矿单趟量 {BASE_MIN} -> {min_new}；气矿单趟量反推 -> {gas_new}（原来是没生效的错 id，这次修正）")
+    print(f"  晶体矿单趟量 {BASE_MIN} -> {min_new}（资源节点行为覆盖，实测有效）")
+    print(f"  气矿：工人采集能力 Vespene 倍率 x{gas_mult}（4 -> ~{gas_new}），绕开对气矿不生效的行为覆盖")
     print()
     print("把下面两条分别加进 bake.py 的 MOD_DEPS 和 MOD_INFO：")
     print(f'    "{out_name}": "bnet:{out_name}/0.0/999,file:Mods/{out_name}.SC2Mod",')
