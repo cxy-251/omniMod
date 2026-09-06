@@ -120,7 +120,14 @@ function M.init(g)
         if p and p.DoTaskInTime then p:DoTaskInTime(0, apply_player) end
     end)
 
-    print("[omnidsm/cheats] 已加载，默认全开（控制台输 omni() 看状态）")
+    -- 给 cheatmenu 模块用：读状态 + 主动重套
+    G.OMNIDSM = {
+        state = state,
+        apply = apply_all,
+        HP_FLOOR = HP_FLOOR,
+    }
+
+    print("[omnidsm/cheats] 已加载，默认全开（控制台 omni() 看状态，或用作弊菜单）")
 end
 
 return M

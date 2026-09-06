@@ -127,3 +127,16 @@
 - 锁血：`health:SetMinHealth(10)` —— 引擎 `Health:SetVal` 自带 minhealth 钳制，掉到 10 触发
   `minhealth` 事件而非 `death`
 - 伤害：`combat.damagemultiplier = n`（`Combat:CalcDamage` 直接用）
+
+### `cheatmenu` 模块 (2026-09-06)
+
+`cheats` 的游戏内可视化菜单，Steam Deck 手柄可操作，不用键鼠。
+- 入口：`AddClassPostConstruct("screens/pausescreen", ...)` 往暂停菜单加一项「作弊菜单」，
+  加完按新项数重新水平居中。
+- `CheatMenu`：`Class(Screen)` 竖排 `Menu`，8 行（地图/速度/科技/锁血/伤害/全恢复/全关/返回）。
+  A = 行的 `act()` 然后 `Refresh()`（`menu:EditItem` 刷新每行文字）；B/Start = `Close()`。
+  数值行按预设循环：速度 {1,1.5,2,3,5,8}，伤害 {1,2,3,5,10,25}。
+- 读 `GLOBAL.OMNIDSM.state`（`cheats` 模块导出），改动走已有的 `GLOBAL.omni_*`。
+- **本文件所有游戏全局走 `G.xxx`**（Class/require/常量/TheFrontEnd/SetPause…），
+  因为 mod 脚本环境不保证能直接看到 `_G`。
+- 待运行验证：暂停菜单能不能加进去、手柄导航、5 个按钮横排会不会太宽。
