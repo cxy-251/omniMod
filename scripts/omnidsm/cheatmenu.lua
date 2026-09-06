@@ -78,7 +78,6 @@ local CheatMenu = Class(Screen, function(self)
           act = function() G.omni_hp(not st().hp) end },
         { label = function() return "伤害倍率  x" .. tostring(st().dmg) end,
           act = function() G.omni_dmg(cycle(DMG_PRESETS, st().dmg)) end },
-        { label = function() return "一键采集周围" end, act = function() G.omni_harvest(); self:Close() end },
         { label = function() return "全部默认" end, act = function() G.omni_on() end },
         { label = function() return "全部关闭" end, act = function() G.omni_off() end },
         { label = function() return "返回"     end, act = function() self:Close() end },

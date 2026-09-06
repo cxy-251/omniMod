@@ -6,12 +6,12 @@
     omni_map(true/false)   地图全开        （默认 开）
     omni_speed(n)          行走速度倍率     （默认 2；omni_speed(1) 恢复正常）
     omni_tech(true/false)  免费建造（所有东西直接造，不要材料）  （默认 开）
-    omni_work(true/false)  秒砍伐 / 秒挖矿 / 秒锤 / 秒挖（一击完成）  （默认 开）
-    omni_harvest()         一键采集周围一圈（草/枝/浆果/花/作物 + 树/矿一击 + 捡地上物品）
+    omni_work(true/false)  秒砍伐/秒挖矿/秒锤/秒挖 + 采集不出动作（一下完成）  （默认 开）
     omni_hp(true/false)    生命下限锁 10    （默认 开；能掉血但不会低于 10）
     omni_dmg(n)            伤害倍率         （默认 3；omni_dmg(1) 恢复正常）
-    omni_box()             给一个随身箱子（也能在 建造栏→生存 里造）
     omni_off() / omni_on() 全关 / 全恢复默认
+
+  随身箱子在 建造栏 → 生存 里造（不是控制台）。
 
   所有改动在 AddSimPostInit / AddPlayerPostInit 里重新套用 —— 下洞穴、进迷宫、
   三大世界互跳之后都会自动生效。
@@ -105,6 +105,25 @@ AddComponentPostInit("workable", function(Workable)
     end
 end)
 
+-- ---- 采集不出动作：把 dolongaction（采草/摘果/挖花/收割…）压到几帧完成 ----
+-- 靠 state.work 开关：关掉时走原版慢动作。
+AddStategraphPostInit("wilson", function(sg)
+    local st = sg.states and sg.states["dolongaction"]
+    if not st then return end
+    local _onenter, _ontimeout = st.onenter, st.ontimeout
+    st.onenter = function(inst, timeout)
+        if not state.work then return _onenter(inst, timeout) end
+        if inst.components.locomotor then inst.components.locomotor:Stop() end
+        inst.AnimState:PlayAnimation("pickup")
+        inst.sg:SetTimeout(4 * G.FRAMES)
+    end
+    st.ontimeout = function(inst)
+        if not state.work then return _ontimeout(inst) end
+        inst:PerformBufferedAction()
+        inst.sg:GoToState("idle")
+    end
+end)
+
 -- ---- 控制台指令（挂全局）----
 G.omni = function()
     print(string.format(
@@ -117,41 +136,6 @@ G.omni_tech  = function(on) state.tech  = (on ~= false);      apply_player(); G.
 G.omni_work  = function(on) state.work  = (on ~= false);      G.omni() end
 G.omni_hp    = function(on) state.hp    = (on ~= false);      apply_player(); G.omni() end
 G.omni_dmg   = function(n)  state.dmg   = G.tonumber(n) or 1; apply_player(); G.omni() end
-G.omni_box = function()
-    local p = player()
-    if not (p and p.components and p.components.inventory) then print("[omni] 没有玩家") return end
-    local box = G.SpawnPrefab("omni_box")
-    if box then
-        p.components.inventory:GiveItem(box)
-        print("[omni] 已给随身箱子（也能在 建造栏→生存 里造）")
-    end
-end
-G.omni_harvest = function()
-    local p = player()
-    if not (p and p.Transform and p.components and p.components.inventory) then print("[omni] 没有玩家") return end
-    local x, y, z = p.Transform:GetWorldPosition()
-    local R = 30
-    local ents = G.TheSim:FindEntities(x, y, z, R, nil, { "INLIMBO", "FX", "NOCLICK", "player", "structure", "wall" })
-    local n = 0
-    for _, e in ipairs(ents) do
-        if e ~= p and e:IsValid() and e.components then
-            if e.components.pickable and e.components.pickable.canbepicked then
-                e.components.pickable:Pick(p); n = n + 1
-            elseif e.components.crop and e.components.crop:IsReadyForHarvest() then
-                e.components.crop:Harvest(p); n = n + 1
-            elseif e.components.harvestable and e.components.harvestable:CanBeHarvested() then
-                e.components.harvestable:Harvest(p); n = n + 1
-            elseif e.components.workable and e.components.workable:CanBeWorked()
-                   and (e.components.workable.workleft or 999) <= 40 then
-                e.components.workable:Destroy(p); n = n + 1
-            elseif e.components.inventoryitem and e.components.inventoryitem.canbepickedup
-                   and e.components.inventoryitem.owner == nil then
-                p.components.inventory:GiveItem(e); n = n + 1
-            end
-        end
-    end
-    print("[omni] 一键采集：处理了 " .. n .. " 个")
-end
 G.omni_off = function()
     state.map, state.speed, state.tech, state.work, state.hp, state.dmg = false, 1, false, false, false, 1
     apply_player(); G.omni()

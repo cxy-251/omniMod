@@ -20,7 +20,7 @@
 GLOBAL.setmetatable(env, { __index = function(_, k) return GLOBAL.rawget(GLOBAL, k) end })
 
 local MODNAME = "OmniDontStarveMod"
-local VERSION = "0.0.7"
+local VERSION = "0.0.8"
 
 -- ---- 自制预制物：随身箱子 ----
 PrefabFiles = { "omni_box" }
@@ -39,6 +39,7 @@ local FEATURES = {
     "cheats",        -- 地图全开/行走速度/科技全解锁/锁血下限10/伤害倍率（默认全开，控制台 omni_* 可调）
     "cheatmenu",     -- 上面这些的游戏内菜单（暂停菜单→作弊菜单），手柄 + 键鼠都能用
     "lazyforager",   -- 橙色护符（懒人护符）不掉耐久
+    "box_craft",     -- 隔箱合成：合成时也算随身箱子里的材料
     -- "treeshake_bear",
     -- "autopickup",
     -- "janitor",

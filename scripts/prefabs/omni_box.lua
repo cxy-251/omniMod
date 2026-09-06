@@ -14,8 +14,8 @@ local assets = {
     Asset("ANIM", "anim/treasure_chest.zip"),
 }
 
-local COLS, ROWS = 10, 6
-local STEP = 75
+local COLS, ROWS = 12, 10
+local STEP = 60
 
 -- 程序化生成 10×6 槽位坐标，居中
 local slotpos = {}
@@ -34,7 +34,8 @@ local function on_itemget(inst, data)
     local item = data and data.item
     if not item or not item.components then return end
     if item.components.perishable then
-        item.components.perishable:StopPerishing()   -- 冻结腐坏
+        item.components.perishable:SetPercent(1)      -- 反鲜：放进去立刻恢复到最新鲜
+        item.components.perishable:StopPerishing()    -- 之后也不再腐坏
     end
     if item.components.stackable then
         item.components.stackable._omni_maxsize = item.components.stackable._omni_maxsize
@@ -92,7 +93,7 @@ local function fn(Sim)
     inst:AddComponent("container")
     inst.components.container:SetNumSlots(#slotpos)
     inst.components.container.widgetslotpos = slotpos
-    inst.components.container.widgetpos = Vector3(0, 40, 0)
+    inst.components.container.widgetpos = Vector3(0, 60, 0)
     inst.components.container.side_align_tip = 0
     inst.components.container.type = "chest"
     inst.components.container.itemtestfn = itemtest

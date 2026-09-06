@@ -230,3 +230,24 @@ equipslots。是个大件，下一轮做。
 - **一键整理**：PC 的 `sortcontainers()`（prefab 77-446 行），按类别+耐久排序回填。
 - **大网格背景框**：PC 自带 `images/iai_pc_8x15` / `iai_pc_12x20` 贴图 + `widgetbgatlas/
   widgetbgimage`。要么复制那两个资源，要么不做框（现在就是无框裸槽）。
+
+### v0.0.8 (2026-09-06)
+
+- **删掉**：`omni_box()` / `omni_harvest()` 控制台指令、作弊菜单「一键采集周围」行。
+  （箱子改成只在建造栏造。）
+- **采集不出动作**（`cheats.lua`，并入 `omni_work` 开关）：`AddStategraphPostInit("wilson")`
+  把 `dolongaction`（采草/摘果/挖花/收割等）压到 4 帧完成，关掉 `秒砍伐` 时走原版慢动作。
+  砍树/挖矿走各自的 chop/mine state，靠 `WorkedBy` 一击到 0 提前退出。
+- **随身箱子**：60 → **120 格**（12×10，槽距 60）。`widgetpos` 上移到 60。
+- **反鲜（不是保鲜）**：`omni_box.lua` `on_itemget` 从 `StopPerishing()` 改成
+  `SetPercent(1)` + `StopPerishing()` —— 放进去立刻恢复到最新鲜、之后也不腐。
+- **隔箱合成**（`box_craft.lua`，新模块）：`AddComponentPostInit("inventory")` 包
+  `Count` / `GetCraftingIngredient` / `RemoveItem` —— 合成/建造时把物品栏（含背包）里
+  所有 `omni_box` 的内容也算进去，不用先打开箱子。已打开的箱子（在 `opencontainers`）
+  跳过以免重复计数。用了 `Container:Count / GetCraftingIngredient / RemoveItem` 现成方法。
+
+### 随身箱子 —— 还没做的部分
+
+- 多箱分页合并（`trueportablecellar` 组件）
+- 一键整理按钮（PC 的 `sortcontainers`）
+- 大网格背景框（现在是无框裸槽；PC 自带 `iai_pc_8x15/12x20` 贴图）
