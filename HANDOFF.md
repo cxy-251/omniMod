@@ -41,8 +41,22 @@
   `settings.ini` `DISABLECLOUD=true`。
 - gbe 二进制 + 配置也存了一份到 `BK/gbe_fork-x86/`（含 `SOURCE.txt` 下载地址），SD 卡副本重置时不用重下。
 
-**待用户验证下一次启动**：① 进主菜单且是中文 ② Mods 列表空 ③ 三个 DLC 世界可选（新建游戏时能选巨人国/海难/哈姆雷特）④ 没有旧存档 ⑤ `save_backups/` 生成了时间戳备份。
-若 gbe 没生效（还连真 Steam / 报接口错）→ 检查 `steam_settings` 是否被 gbe 找到（可加 env `SteamAppPath` 指到 `bin/`），或补 `steam_interfaces.txt`。
+**验证结果 (2026-09-06)**：mods 列表空、存档空 —— ✅ 干净了。
+
+**中文字体 `?` 问题**：
+- 字体**不缺**。`data/fonts/fallback_full_packed.zip` / `fallback_full_outline_packed.zip` 就是
+  `Noto Sans CJK SC`，44201 个字形，中文全覆盖。
+- 根因是 DS 的老毛病：**游戏内 Options 切语言**走 `loc.lua:SwapLanguage()`，它只重载字符串、
+  **不重新调 `TheSim:SetUseUnicode()`**。`SetUseUnicode` 只在开机时 `language.lua` 里跑一次，
+  读的是 `Profile:GetLanguageID()`。所以当场切 → `?`；但选择**已存进 `save/profile`**。
+- **修法：彻底退出再重开**。下次开机 `language.lua` 读到 profile 里的中文 → 跑 `SetUseUnicode(true)`
+  → 中文正常。
+- gbe 的 `language=` 对 DS 无效（`PlayerProfile:GetLanguageID` 非主机平台硬默认 ENGLISH，
+  从不查 Steam 语言），已改回 `english` 免得误导。真正的语言开关是游戏内 Options，存到 profile。
+- 若彻底重开还是 `?` → plan B：给 `loc.lua:SwapLanguage()` 补一行
+  `TheSim:SetUseUnicode(LOCALE.GetUseUnicode())`（改游戏脚本，或以后做进 mod）。
+
+**仍待验证**：① 三个 DLC 世界可选 ② `save_backups/` 有时间戳备份 ③ 彻底重开后中文正常。
 
 ## omni-deck 集成
 
