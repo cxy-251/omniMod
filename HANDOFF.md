@@ -12,12 +12,15 @@
 | `G/bin/steam_appid.txt`、`G/steam_appid.txt` | 写 `219740` —— Steamworks 无客户端也能初始化 |
 | `G/bin/dontstarve`（启动 wrapper，被 omni-deck 调用） | 重写：①保证 steam_appid ②启动前 `cp -a K/save K/save_backups/save-<时间戳>`，只留最近 15 份 ③`SteamAppId=219740` ④优先走 `~/.local/share/Steam/ubuntu12_32/steam-runtime/run.sh` 起 `dontstarve_steam`，否则 `LD_LIBRARY_PATH=./lib32` 兜底 ⑤日志 → `K/omnideck-launch.log` |
 | `K/settings.ini` | `bloom=false` `distortion=false` `use_small_textures=true` `ENABLECONSOLE=true`；`[hamlet] renderjunglecanopy=false` `renderjunglevines=false`；`netbook_mode=true` 保留 |
-| `G/mods/modsettings.lua` | 追加 `DisableModDisabling()`（崩溃后不自动禁用所有 mod） |
-| `G/mods/` 第三方 mod | 39 个 `workshop-*` + `screecher` 全部 `mv` 到 `G/mods/_disabled_thirdparty/`（可逆）。用户要求"不用别人的"。 |
+| `G/mods/modsettings.lua` | stock + 注释。**踩过的坑**：`DisableModDisabling()` 是**联机版(DST)专属**，单机版没有 —— 加了它 `main.lua` 加载报错、进不去菜单直接闪退。别加。用 `ForceEnableMod("omniDontStarveMod")` 就够（强制加载，不受"崩溃后禁用 mod"影响）。 |
+| 第三方 mod | 39 个 `workshop-*` + `screecher` 全部 `mv` 到 **`G/_disabled_thirdparty_mods/`**（在游戏根目录，不在 `mods/` 里，DS 完全不会扫到）。可逆。用户要求"只借鉴别人的，不用别人的 mod"。 |
 
 **备份**：动过的原文件在 `K/omnideck-offline-backup-20260906-172232/`
 （`dontstarve.wrapper.orig` / `settings.ini.orig` / `modsettings.lua.orig` / `mods-listing-before.txt`）。
-第三方 mod 没删，在 `_disabled_thirdparty/`。
+第三方 mod 没删，在 `G/_disabled_thirdparty_mods/`。
+
+**首次启动结果 (2026-09-06)**：先崩了（`DisableModDisabling` 那个坑），修掉后 `modsettings.lua`
+恢复 stock。待用户再试一次确认能进菜单。
 
 ## omni-deck 集成
 
