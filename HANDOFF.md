@@ -140,3 +140,22 @@
 - **本文件所有游戏全局走 `G.xxx`**（Class/require/常量/TheFrontEnd/SetPause…），
   因为 mod 脚本环境不保证能直接看到 `_G`。
 - 待运行验证：暂停菜单能不能加进去、手柄导航、5 个按钮横排会不会太宽。
+
+### mod 环境坑 (2026-09-06) —— 首个功能其实一直在报错
+
+`打开饥荒报错`：`modmain.lua:25: attempt to call global 'pcall' (a nil value)`。
+单机饥荒的 mod 环境（`mods.lua:CreateEnvironment`）只放了很少的裸名：
+`pairs ipairs print math table type string tostring Class GLOBAL TUNING Prefab
+Asset Ingredient modname MODROOT modimport` + `InsertPostInitFunctions` 加的
+`Add*PostInit` / `AddClassPostConstruct` 等。**没有** `pcall / require / tonumber
+/ assert / error`，也没有任何游戏运行时全局（除 `GLOBAL`）。
+`FEATURES={}` 空的时候不触发，加了第一个功能才炸 —— 所以 unlockchars 之前从没生效过。
+
+**重构**：
+- `modmain.lua` 改用 `GLOBAL.pcall(modimport, "scripts/omnidsm/<name>.lua")` 逐个加载。
+- 三个功能文件改成**扁平写法**：由 `modimport` 在 mod 环境里直接跑，不返回表，不再有
+  `M.init(G)`。`require/pcall/tonumber` 及所有游戏全局走 `GLOBAL.xxx`；
+  `Add*PostInit`/`Class`/`AddClassPostConstruct` 用裸名。
+- `_template.lua` 同步成新写法。
+- 菜单：`Menu` 的项是 `ImageButton`，**鼠标可点 + 手柄可导航**，本来就两者都支持；
+  额外 `TheInputProxy:SetCursorVisible(true)`，提示文字也写了"上下/鼠标、A/左键、B/Esc"。
