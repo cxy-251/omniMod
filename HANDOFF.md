@@ -204,3 +204,29 @@ workshop-2972769037`（Portable Cellar）的源码。它很重（`trueportablece
 用户还要"扩展穿戴格子"的 mod。参考 `_disabled_thirdparty_mods/workshop-571751170`
 （Extra Slots / Han's Extra Equip Slots）—— 会重改 HUD `inventorybar` + `inventory` 组件的
 equipslots。是个大件，下一轮做。
+
+### v0.0.7 (2026-09-06)
+
+- **omni_box 崩溃修复**：`GiveItem` 时报 `Could not find region 'omni_box.tex'` —— 没有物品栏
+  图标。`inventoryitem.imagename = "krampus_sack"` 借游戏自带图标。
+- **箱子进建造栏**：`modmain.lua` 加 `Recipe("omni_box", {Ingredient("cutgrass",1)},
+  RECIPETABS.SURVIVAL, TECH.NONE)`（免费建造默认开，材料只是占位），`recipe.atlas/image`
+  用 krampus_sack 图标。作弊菜单里的「给随身箱子」删掉（`omni_box()` 控制台还留着）。
+- **秒砍伐没生效？**：`WorkedBy` 包装看起来是对的，怀疑上次是被 omni_box 的报错屏污染了会话。
+  这版：① 包装条件从 `worker==GetPlayer()` 放宽成 `worker.components.inventory ~= nil`
+  ② 加了 5 次上限的调试打印「秒砍伐生效 -> <prefab>」，下次看 log 能确认
+  ③ `apply_player` 里把玩家 `worker` 组件的 CHOP/MINE/HAMMER/DIG 效率设 999（空手也算）。
+- **一键采集**（`omni_harvest()` / 菜单「一键采集周围」）：`TheSim:FindEntities` 半径 30，
+  对每个：`pickable:Pick` / `crop:Harvest` / `harvestable:Harvest` / `workable:Destroy`
+  （workleft<=40，排除墙和建筑）/ 捡起地上 `inventoryitem`。
+
+### 下一轮：随身箱子完整版（用户点名要）
+
+参考 `_disabled_thirdparty_mods/workshop-2972769037` 的 `modmain.lua` +
+`scripts/components/trueportablecellar.lua`：
+- **隔箱合成取材料**：改写玩家 `inventory` 的 `GetItems / FindItem / FindItems /
+  GetNextAvailableSlot / GetItemSlot`，把箱子里的物品也算进去（PC 的 modmain 56-260 行）。
+- **多箱分页合并**：`trueportablecellar` 组件，多个箱子当一个虚拟大容器翻页。
+- **一键整理**：PC 的 `sortcontainers()`（prefab 77-446 行），按类别+耐久排序回填。
+- **大网格背景框**：PC 自带 `images/iai_pc_8x15` / `iai_pc_12x20` 贴图 + `widgetbgatlas/
+  widgetbgimage`。要么复制那两个资源，要么不做框（现在就是无框裸槽）。

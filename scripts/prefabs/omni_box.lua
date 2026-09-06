@@ -87,6 +87,7 @@ local function fn(Sim)
 
     inst:AddComponent("inventoryitem")
     inst.components.inventoryitem.cangoincontainer = true
+    inst.components.inventoryitem.imagename = "krampus_sack"   -- 借用游戏自带的物品栏图标，避免找不到贴图报错
 
     inst:AddComponent("container")
     inst.components.container:SetNumSlots(#slotpos)
