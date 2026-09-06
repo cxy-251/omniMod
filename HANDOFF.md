@@ -175,3 +175,32 @@ Asset Ingredient modname MODROOT modimport` + `InsertPostInitFunctions` 加的
   `fueled.rate = 0` → 永不掉耐久。
 - **锁血**：一直是做了的（`cheats.lua` 的 `omni_hp`，`health:SetMinHealth(10)`，
   默认开）—— 之前 mod 一直在崩所以没体现。现在能用了：掉血但不会低于 10 = 不会死。
+
+### v0.0.6 — 自制随身箱子 (2026-09-06)
+
+用户要 Portable Cellar 那样的箱子（不用他的，自己写）。读了 `_disabled_thirdparty_mods/
+workshop-2972769037`（Portable Cellar）的源码。它很重（`trueportablecellar` 组件分页、
+`sortcontainers` 整理、inventory 组件一堆改写让"隔箱取材料合成"生效）。我们只做核心：
+
+- `scripts/prefabs/omni_box.lua`（新预制物 `omni_box`）：
+  - 外观用游戏自带 `treasure_chest`（bank `chest` / build `treasure_chest`）
+  - `inventoryitem` `cangoincontainer=true` → 能塞进默认物品格，多个箱子=全部家当随身
+  - `container` 60 格（10×6，程序化 `widgetslotpos`，无 bg bank —— 每个槽自己画 `inv_slot.tex`）
+  - `itemtestfn` 拦掉箱子套箱子
+  - `AddTag("fridge")` + `itemget`→`perishable:StopPerishing()` / `itemlose`→`StartPerishing()`
+    ＝ 里面食物**完全不腐**
+  - `itemget` 把 `stackable.maxsize` 设 999（记 `_omni_maxsize`，拿出且没超上限才还原）
+- `modmain.lua`：`PrefabFiles={"omni_box"}` + `Assets` + `STRINGS.NAMES.OMNI_BOX`。
+- **关键**：加了 `GLOBAL.setmetatable(env,{__index=...→GLOBAL.rawget})` —— mod 环境回退到 `_G`，
+  这样 prefab 文件里的 `CreateEntity`/`MakeInventoryPhysics`/`Vector3` 等裸名能用
+  （PC 等大量 mod 的标准写法；我们之前没加所以 prefab 文件会全是 nil）。
+- `omni_box()` / 菜单「给随身箱子」→ `SpawnPrefab("omni_box")`。
+
+**没做**（PC 有、我们暂缺，按需再加）：隔箱合成取材料、多箱分页合并、一键整理、
+自定义大容量 UI 背景框。
+
+### 待做：穿戴装备格扩展（帽子/衣服/护符 多穿）
+
+用户还要"扩展穿戴格子"的 mod。参考 `_disabled_thirdparty_mods/workshop-571751170`
+（Extra Slots / Han's Extra Equip Slots）—— 会重改 HUD `inventorybar` + `inventory` 组件的
+equipslots。是个大件，下一轮做。

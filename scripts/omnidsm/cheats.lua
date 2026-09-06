@@ -9,7 +9,7 @@
     omni_work(true/false)  秒砍伐 / 秒挖矿 / 秒锤 / 秒挖树桩       （默认 开）
     omni_hp(true/false)    生命下限锁 10    （默认 开；能掉血但不会低于 10）
     omni_dmg(n)            伤害倍率         （默认 3；omni_dmg(1) 恢复正常）
-    omni_box()             给一个随身箱子（14 格，装背部栏，可跨三大世界携带）
+    omni_box()             给一个随身箱子（60 格，食物不腐、每格 999，能放进物品栏、跨世界携带）
     omni_off() / omni_on() 全关 / 全恢复默认
 
   所有改动在 AddSimPostInit / AddPlayerPostInit 里重新套用 —— 下洞穴、进迷宫、
@@ -103,10 +103,10 @@ G.omni_dmg   = function(n)  state.dmg   = G.tonumber(n) or 1; apply_player(); G.
 G.omni_box = function()
     local p = player()
     if not (p and p.components and p.components.inventory) then print("[omni] 没有玩家") return end
-    local box = G.SpawnPrefab("krampus_sack")
+    local box = G.SpawnPrefab("omni_box")
     if box then
         p.components.inventory:GiveItem(box)
-        print("[omni] 已给随身箱子（krampus_sack，14 格，背部栏，跨世界携带）")
+        print("[omni] 已给随身箱子（60 格，食物不腐、每格 999，可放进物品栏、跨世界携带）")
     end
 end
 G.omni_off = function()

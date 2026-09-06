@@ -14,8 +14,19 @@
   ANCHOR_MIDDLE / TITLEFONT / CONTROL_CANCEL / Vector3 / PlayerProfile ...）。
 ]]
 
+-- 让 mod 环境（含 modimport 的文件、PrefabFiles 的预制物文件）读不到的裸名
+-- 回退到 _G —— 这样 CreateEntity / MakeInventoryPhysics / Vector3 / STRINGS / TheSim
+-- 等游戏全局可以直接用（Portable Cellar 等大量 mod 的标准写法）。
+GLOBAL.setmetatable(env, { __index = function(_, k) return GLOBAL.rawget(GLOBAL, k) end })
+
 local MODNAME = "OmniDontStarveMod"
-local VERSION = "0.0.5"
+local VERSION = "0.0.6"
+
+-- ---- 自制预制物 ----
+PrefabFiles = { "omni_box" }
+Assets = { Asset("ANIM", "anim/treasure_chest.zip") }
+GLOBAL.STRINGS.NAMES.OMNI_BOX = "随身箱子"
+GLOBAL.STRINGS.CHARACTERS.GENERIC.DESCRIBE.OMNI_BOX = "全部家当都在里面。"
 
 local FEATURES = {
     "unlockchars",   -- 解锁所有人物
