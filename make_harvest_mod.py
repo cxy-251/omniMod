@@ -1,39 +1,37 @@
 #!/usr/bin/env python3
 """
-生成一个"N 倍采集"mod —— 矿用直接 ×N，气按"跟矿同时挖空"反推单趟采集量。
+生成一个"N 倍采集"mod —— 晶体矿直接 ×N，气矿按"跟晶体矿同时挖空"反推倍率。
 
-## 挖出来的两个真问题（CascLib 从游戏本体验证过，不是猜的）
+## 晶体矿和气矿走两条不同的路（都 CascLib 从游戏本体验证过，不是猜的）
 
-1. **气矿的 id 从一开始就是错的**：旧版 5xHarvest 用 "VespeneGeyserGas" /
-   "VespeneGeyserGasProtoss" / "VespeneGeyserGasZerg" / "RichVespeneGeyserGas..."，
-   这些 id 在游戏真实数据（mods/liberty.sc2mod 一路到 voidmulti.sc2mod）里根本不存在，
-   全是空改——从没生效过！真实 id 多了个 "Harvestable" 前缀：
-   HarvestableVespeneGeyserGas(Terran) / HarvestableVespeneGeyserGasProtoss /
-   HarvestableVespeneGeyserGasZerg，rich 版同理加 "Rich"。这就是为什么用户实测
-   "3倍/5倍采集"之后晶体矿明显比气矿先挖空——矿真的被乘了，气从来没被乘过。
-   （"RawRichMineralFieldMinerals"这个矿的 id 也没找到真实对应，目前不确定富矿这条
-   有没有生效，先保留原样，没进一步验证。）
+- **晶体矿**：改资源节点行为 `CBehaviorResource.HarvestAmount`（`MineralFieldMinerals`
+  / `...750` 两个真实 id 就覆盖了所有换皮矿脉——Lab/Purifier/BattleStation 这些
+  CUnit 全 `parent="MineralFieldDefault"` 或显式 Link 回这两个）。富矿同理走
+  `HighYieldMineralFieldMinerals` / `...750`。这条实测有效。
 
-2. **单纯把气矿也乘 N 倍，挖空时间还是对不上**：矿和气矿的总量(Contents)、单趟
-   耗时(HarvestTime)、同时能站几个矿工(IdealHarvesterCount)三个参数都不一样
-   （矿 1800/2.786s/2人，气 2500/1.981s/3人——数据来自 CascLib 挖出来的
-   mods/liberty.sc2mod/base.sc2data/gamedata/behaviordata.xml，晚期层没再改过
-   这几个字段），乘同一个倍数不代表挖空时间也一样。这里按"矿 N 倍之后挖空要多久，
-   气矿单趟采集量往回反推到挖空时间跟矿对齐"来算，而不是简单地气矿也乘 N。
+- **气矿**：同样的行为覆盖对气矿引擎就是不认（id、baked 地图里的依赖版本号、
+  补全全部字段、GameStrings 的 UTF-8 BOM 全查过修过都没用；地图自带数据也确认
+  没碰气矿）。改走 SC2Mapster 社区标准做法：改工人「采集能力」`CAbilHarvest`
+  上的 `ResourceAmountMultiplier`——按资源类型索引的数组 [Minerals|Vespene|
+  Terrazine|Custom]，原版全 1，机骡 `MULEGather` 就是把 Minerals 项设成 6 才
+  单趟挖 25 的。我们只在 `SCVHarvest`/`ProbeHarvest`/`DroneHarvest` 上加 Vespene 项。
 
-## 算法
+## 为什么气矿不是简单 ×N
 
-  矿新单趟量 = 矿基础单趟量(5) × N
-  气新单趟量 = 气矿总量 × 气单趟耗时 × 矿新单趟量 × 矿同时矿工数
-               ÷ (矿总量 × 矿单趟耗时 × 气同时矿工数)
+晶体矿和气矿的总量(Contents)、单趟耗时(HarvestTime)、同时能站几个矿工
+(IdealHarvesterCount) 都不一样（晶体矿 1800/2.786s/2人，气矿 2500/1.981s/3人），
+乘同一个倍数挖空时间对不上。这里按"晶体矿 ×N 之后挖空要多久，气矿倍率往回反推到
+挖空时间跟晶体矿对齐"来算：
 
-  实测（3x）：矿 5->15 挖空约 167s；气反推出来 4/6(普通/超级气) -> 10，挖空约 165s，对齐了。
-  （超级气矿总量/耗时跟普通气矿一样，只是原版单趟采集量更高，反推出来的目标挖空
-  时间是同一个，所以普通/超级气矿新单趟量算出来一样——这是有意的，都对齐到"矿挖空
-  要多久"这一个目标时间上，不再保留"超级气矿比普通气矿快"这层原版区别。）
+  晶体矿新单趟量 = 5 × N
+  气矿目标单趟量 = 气矿总量 × 气单趟耗时 × 晶体矿新单趟量 × 晶体矿矿工数
+                   ÷ (晶体矿总量 × 晶体矿单趟耗时 × 气矿矿工数)
+  气矿倍率 = 气矿目标单趟量 ÷ 4
+
+  实测（3x）：晶体矿 5->15；气矿倍率 x2.5（4 -> ~10），挖空时间基本对齐。
 
 用法：
-  uv run python make_harvest_mod.py 3 3xHarvest "3 倍采集" "矿 ×3，气矿按跟矿同时挖空换算（不是单纯也乘 3）"
+  uv run python make_harvest_mod.py 3 3xHarvest "3倍采集" "晶体矿 ×3，气矿按跟晶体矿同时挖空换算（不是单纯也乘 3）"
 """
 from __future__ import annotations
 
@@ -67,104 +65,15 @@ BASE_MIN = 5          # 普通矿单趟基础采集量（超级矿基础是 7，
 BASE_MIN_RICH = 7
 BASE_GAS = 4          # 普通气矿原版单趟采集量（工人 Harvest 能力的 Vespene 倍率就以这个为基准换算）
 
-# 气矿走"另一条路"：不再改资源节点行为（CBehaviorResource.HarvestAmount）——实测这条对
-# 晶体矿有效、对气矿从来不生效（id、依赖版本号、字段补全、BOM 全查过修过都没用，
-# 见下面 GAS_EXTRA_FIELDS 注释）。改成 SC2Mapster 社区标准做法：直接改工人「采集能力」
-# CAbilHarvest 上的 ResourceAmountMultiplier —— 这是个按资源类型索引的数组
-# [Minerals|Vespene|Terrazine|Custom]，原版全是 1，MULEGather 就是靠把 Minerals 项设成 6
-# 让机骡单趟挖 25 的。我们只动 Vespene 项，晶体矿那条继续用行为覆盖（它是好的，别碰）。
-# CascLib 从 liberty/void/voidmulti 的 abildata.xml 确认：SCV/Probe/Drone 三个采集能力
-# 原版都没写任何 ResourceAmount* 字段，是干净的，直接加就行。
-WORKER_HARVEST_IDS = ["SCVHarvest", "ProbeHarvest", "DroneHarvest"]
-
-# 矿：直接 ×N。之前这里有 6 个"听起来像"真实 id 的条目（PurifierMineralFieldMinerals、
-# BattleStationMineralFieldMinerals 等），实测在游戏本体任何一层数据里都不存在——全是
-# 从上一版 mod 照抄下来、从没验证过的假 id，纯粹占地方，不影响功能但也没用。
-# 真相是：Lab/Purifier/BattleStation 这些"换皮"矿脉单位（CUnit）全都 parent="MineralFieldDefault"
-# 直接继承，自己不声明 BehaviorArray，或者显式 Link 回 "MineralFieldMinerals"/"MineralFieldMinerals750"
-# ——用 CascLib 逐个查过 CUnit 定义确认的。所以普通矿只需要这两个 id 就能覆盖所有换皮版本。
+# 晶体矿：改资源节点行为，直接 ×N。这两个真实 id 就覆盖所有换皮矿脉（CascLib 逐个
+# 查过 CUnit：Lab/Purifier/BattleStation 全 parent="MineralFieldDefault" 或显式 Link
+# 回这两个）。富矿走 RichMineralFieldDefault 明确 Link 的 HighYield* 两个。
 MINERAL_IDS = ["MineralFieldMinerals", "MineralFieldMinerals750"]
-
-# 富矿同理：RichMineralField（BlackburnAIE 这张图实际放置的富矿类型）的父类
-# RichMineralFieldDefault 明确 Link 到 "HighYieldMineralFieldMinerals"（750 版本同理）——
-# 之前用的 "RawRichMineralFieldMinerals"/"PurifierRichMineralFieldMinerals" 这些也是假 id，
-# 从没生效过，这是本轮排查气矿问题时顺手挖出来的另一个真 bug。
 MINERAL_IDS_RICH = ["HighYieldMineralFieldMinerals", "HighYieldMineralFieldMinerals750"]
 
-# 气：真实 id（带 Harvestable 前缀），单趟量用反推值，不是简单 ×N。
-GAS_IDS_NORMAL = [
-    "HarvestableVespeneGeyserGas",           # Terran
-    "HarvestableVespeneGeyserGasProtoss",
-    "HarvestableVespeneGeyserGasZerg",
-]
-GAS_IDS_RICH = [
-    "HarvestableRichVespeneGeyserGas",
-    "HarvestableRichVespeneGeyserGasProtoss",
-    "HarvestableRichVespeneGeyserGasZerg",
-]
-
-# 气矿 id 真实原版每一个字段（CascLib 挖出来的），EditorCategories 的 Race 值就是
-# 原版数据本身写的（三个 Rich 变体在原版里全标了 Race:Terran，连 Zerg/Protoss 那两个也是——
-# 这是暴雪自己数据里的笔误，不是我们抄错，照抄不改）。踩过的坑：只写 HarvestAmount 一个
-# 字段的"最小覆盖"对矿有效、对气矿没生效，怀疑是气矿这几个字段（尤其 RequiredAlliance /
-# Flags HideHarvesters）缺了会导致覆盖不完整被引擎忽略，所以气矿这边把原版全部字段都
-# 照抄一遍，只改 HarvestAmount 一个数值。
-GAS_EXTRA_FIELDS = {
-    "HarvestableVespeneGeyserGas": (
-        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
-        '<Capacity value="32000"/><HarvestTime value="1.981"/>'
-        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
-        '<InfoFlags index="Hidden" value="1"/><Flags index="HideHarvesters" value="1"/>'
-        '<RequiredAlliance value="Control"/>'
-        '<EditorCategories value="Race:Terran,AbilityorEffectType:Units"/>'
-        '<IdealHarvesterCount value="3"/>'
-    ),
-    "HarvestableVespeneGeyserGasProtoss": (
-        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
-        '<Capacity value="2500"/><HarvestTime value="1.981"/>'
-        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
-        '<InfoFlags index="Hidden" value="1"/><Flags index="HideHarvesters" value="1"/>'
-        '<RequiredAlliance value="Control"/>'
-        '<EditorCategories value="Race:Protoss,AbilityorEffectType:Units"/>'
-        '<IdealHarvesterCount value="3"/>'
-    ),
-    "HarvestableVespeneGeyserGasZerg": (
-        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
-        '<Capacity value="2500"/><HarvestTime value="1.981"/>'
-        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
-        '<InfoFlags index="Hidden" value="1"/><Flags index="HideHarvesters" value="1"/>'
-        '<RequiredAlliance value="Control"/>'
-        '<EditorCategories value="Race:Zerg,AbilityorEffectType:Units"/>'
-        '<IdealHarvesterCount value="3"/>'
-    ),
-    "HarvestableRichVespeneGeyserGas": (
-        '<InfoFlags index="Hidden" value="1"/>'
-        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
-        '<EditorCategories value="Race:Terran,AbilityorEffectType:Units"/>'
-        '<Capacity value="32000"/><HarvestTime value="1.981"/>'
-        '<Flags index="HideHarvesters" value="1"/><RequiredAlliance value="Control"/>'
-        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
-        '<IdealHarvesterCount value="3"/>'
-    ),
-    "HarvestableRichVespeneGeyserGasZerg": (
-        '<InfoFlags index="Hidden" value="1"/>'
-        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
-        '<EditorCategories value="Race:Terran,AbilityorEffectType:Units"/>'  # 原版数据自己就是这么写的
-        '<Capacity value="32000"/><HarvestTime value="1.981"/>'
-        '<Flags index="HideHarvesters" value="1"/><RequiredAlliance value="Control"/>'
-        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
-        '<IdealHarvesterCount value="3"/>'
-    ),
-    "HarvestableRichVespeneGeyserGasProtoss": (
-        '<InfoFlags index="Hidden" value="1"/>'
-        '<InfoIcon value="Assets\\Textures\\icon-gas.dds"/>'
-        '<EditorCategories value="Race:Terran,AbilityorEffectType:Units"/>'  # 原版数据自己就是这么写的
-        '<Capacity value="32000"/><HarvestTime value="1.981"/>'
-        '<Flags index="HideHarvesters" value="1"/><RequiredAlliance value="Control"/>'
-        '<ExhaustedAlert value="ResourceExhausted_Vespene"/>'
-        '<IdealHarvesterCount value="3"/>'
-    ),
-}
+# 气矿：改工人采集能力的 Vespene 倍率（行为覆盖对气矿引擎不认，见模块 docstring）。
+# CascLib 确认这三个能力原版都没写任何 ResourceAmount* 字段，是干净的，直接加。
+WORKER_HARVEST_IDS = ["SCVHarvest", "ProbeHarvest", "DroneHarvest"]
 
 
 def write_mpq_file(h_mpq, name: str, data: bytes) -> None:

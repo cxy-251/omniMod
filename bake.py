@@ -23,6 +23,7 @@ MOD_FILES: dict[str, str] = {
     "3xHarvest": "3xHarvest.SC2Mod",
     "5xHarvest": "5xHarvest.SC2Mod",
     "macroSpeed": "macroSpeed.SC2Mod",
+    "infiniteRes": "infiniteRes.SC2Mod",
 }
 
 
@@ -59,6 +60,11 @@ MOD_INFO: dict[str, dict[str, str]] = {
         "desc": "建造/生产/研究/变形耗时全部减半（三族建筑、训练单位、科技研究、"
                 "Lair/Hive/轨道司令部/行星要塞/折跃门等经济科技类变形；不碰潜地/攻城/维京"
                 "形态切换这类战斗中随手用的战术变形）",
+    },
+    "infiniteRes": {
+        "name": "资源采不完",
+        "desc": "所有矿脉/气矿/泰伯林矿总量拉到 10 亿，实际对局时长内挖不空、矿脉不缩小消失"
+                "（只改总量，可与倍率采集、运营速度叠加）",
     },
 }
 
