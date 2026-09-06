@@ -76,13 +76,22 @@
 ## 已完成：mod 项目脚手架
 
 `~/Games/claude/omniDontStarveMod/`（与 `omniMod` 同级），git 已 init。
-`modinfo.lua` + `modmain.lua`（空壳，`FEATURES={}`）+ `scripts/omnidsm/_template.lua` + `deploy.sh`/`undeploy.sh`。
-**还没 deploy，没功能** —— 用户要求 mod 先不做，之后一个个加。
+`modinfo.lua`（api 6，三 DLC 兼容）+ `modmain.lua`（`FEATURES` 列表登记模块）+
+`scripts/omnidsm/*.lua`（一个功能一个模块，导出 `.init(GLOBAL)`）+ `deploy.sh`/`undeploy.sh`。
+
+**已 deploy**（`deploy.sh`：symlink 到 `G/mods/omniDontStarveMod` + `modsettings.lua` 加**未注释**的
+`ForceEnableMod("omniDontStarveMod")`）。踩过：`deploy.sh` 最初的 grep 命中了 stock modsettings.lua
+里那行**注释掉的**示例，误判"已存在"没加真的 —— 已改成 `grep -qE '^[[:space:]]*ForceEnableMod...'`。
+
+### 已实现功能
+
+- **`unlockchars`** (2026-09-06)：解锁所有人物。`modmain` 里把 `GLOBAL.PlayerProfile.IsCharacterUnlocked`
+  覆盖成恒 `true`（顺带覆盖当前 `Profile` 实例）。人物选择界面就是靠这个方法判定亮/黑剪影。
+  DLC 人物出现在列表里靠 gbe `unlock_all=1`（三 DLC 认成已装）。
 
 ## 下一步（用户按需触发）
 
-功能清单见 `README.md`：`cheatmenu` / `treeshake_bear` / `autopickup` / `janitor`。
-第一个大概率做 `cheatmenu`（屏幕按钮+菜单，无热键）。
+功能清单见 `README.md`：`cheatmenu`（屏幕按钮+菜单，无热键）/ `treeshake_bear` / `autopickup` / `janitor`。
 
 ---
 

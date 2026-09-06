@@ -13,10 +13,11 @@ rm -rf "$DEST"
 ln -s "$HERE" "$DEST"
 echo "linked: $DEST -> $HERE"
 
-if ! grep -q 'ForceEnableMod("omniDontStarveMod")' "$MS" 2>/dev/null; then
+# 注意：要匹配"未注释"的行（stock modsettings.lua 里有一行注释掉的示例会误命中）
+if ! grep -qE '^[[:space:]]*ForceEnableMod\("omniDontStarveMod"\)' "$MS" 2>/dev/null; then
     echo 'ForceEnableMod("omniDontStarveMod")' >> "$MS"
     echo "added ForceEnableMod(\"omniDontStarveMod\") to modsettings.lua"
 else
-    echo "modsettings.lua 已有 ForceEnableMod，跳过"
+    echo "modsettings.lua 已有 ForceEnableMod（未注释），跳过"
 fi
 echo "done. 启动游戏即加载（游戏内 Mods 菜单也会看到）。"

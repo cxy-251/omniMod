@@ -9,6 +9,6 @@ MS="$GAME/mods/modsettings.lua"
 [ -d "$DEST" ] && echo "注意：$DEST 是真目录不是 symlink，没动它" >&2
 
 if [ -f "$MS" ]; then
-    sed -i '/ForceEnableMod("omniDontStarveMod")/d' "$MS"
+    sed -i '/^[[:space:]]*ForceEnableMod("omniDontStarveMod")/d' "$MS"
     echo "removed ForceEnableMod line from modsettings.lua"
 fi
