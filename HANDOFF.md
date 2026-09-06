@@ -19,8 +19,30 @@
 （`dontstarve.wrapper.orig` / `settings.ini.orig` / `modsettings.lua.orig` / `mods-listing-before.txt`）。
 第三方 mod 没删，在 `G/_disabled_thirdparty_mods/`。
 
-**首次启动结果 (2026-09-06)**：先崩了（`DisableModDisabling` 那个坑），修掉后 `modsettings.lua`
-恢复 stock。待用户再试一次确认能进菜单。
+**首次启动结果 (2026-09-06)**：
+- 第一次崩了（`DisableModDisabling` 那个坑），修掉后 `modsettings.lua` 恢复 stock。
+- 第二次进去了，但**连上了真 Steam**：`libsteam_api.so` 是正版 Valve 的，Deck 上 Steam 客户端常开 →
+  游戏 `EnumerateUserSubscribedFiles` 把用户订阅的 38 个创意工坊 mod **全部重新下载回 `mods/`**，
+  还从 Steam 云同步回了存档。用户要的是全新干净无 mod 无存档 + 中文。
+
+**已换成 Steam 模拟库 (gbe_fork)** —— 跟缺氧(012)一个路子（缺氧那个是 64 位 gbe_fork）：
+- `bin/lib32/libsteam_api.so` 换成 **gbe_fork `release-2026_08_23` regular/x86**（32 位，10 MB）。
+  正版备份在 `BK/libsteam_api.so.valve-orig` 和 `bin/lib32/libsteam_api.so.valve-orig`。
+  也放了 `bin/lib32/steamclient.so`（gbe 自带）。
+- `steam_interfaces.txt` 用 gbe 的 `generate_interfaces_x86` 从正版 lib 生成（只出 5 条，
+  已手工补全到 25 条常用接口）。
+- `bin/steam_settings/`（也复制一份到 `bin/lib32/steam_settings/`）：
+  - `steam_appid.txt`=219740；`installed_app_ids.txt`=219740+282470+393010+712640（DLC 认成已装）
+  - `configs.app.ini` → `[app::dlcs] unlock_all=1`（RoG/SW/Hamlet 全解锁）
+  - `configs.main.ini` → `[main::connectivity] disable_networking=1 / offline=1`（彻底断网隔离）
+  - `configs.user.ini` → `language=schinese`（**中文界面**，DS 首次运行按这个定语言）+ 固定假身份
+  - `supported_languages.txt` = `schinese/english`
+- 清理：`mods/` 里 38 个重下的 `workshop-*` 全删；`~/.klei/DoNotStarve/save/` 清空（全新无存档）；
+  `settings.ini` `DISABLECLOUD=true`。
+- gbe 二进制 + 配置也存了一份到 `BK/gbe_fork-x86/`（含 `SOURCE.txt` 下载地址），SD 卡副本重置时不用重下。
+
+**待用户验证下一次启动**：① 进主菜单且是中文 ② Mods 列表空 ③ 三个 DLC 世界可选（新建游戏时能选巨人国/海难/哈姆雷特）④ 没有旧存档 ⑤ `save_backups/` 生成了时间戳备份。
+若 gbe 没生效（还连真 Steam / 报接口错）→ 检查 `steam_settings` 是否被 gbe 找到（可加 env `SteamAppPath` 指到 `bin/`），或补 `steam_interfaces.txt`。
 
 ## omni-deck 集成
 
