@@ -159,3 +159,19 @@ Asset Ingredient modname MODROOT modimport` + `InsertPostInitFunctions` 加的
 - `_template.lua` 同步成新写法。
 - 菜单：`Menu` 的项是 `ImageButton`，**鼠标可点 + 手柄可导航**，本来就两者都支持；
   额外 `TheInputProxy:SetCursorVisible(true)`，提示文字也写了"上下/鼠标、A/左键、B/Esc"。
+
+### v0.0.5 (2026-09-06)
+
+- **菜单文字截断**：标签全部缩短（"地图全开 开" 之类），`Menu:SetTextSize(30)`，
+  面板 `small_dialog` 放大到 2.0×2.3，10 行重新排版。
+- **秒砍伐/挖矿**（`cheats.lua`，默认开，`omni_work` / 菜单「秒砍伐挖矿」）：
+  `AddComponentPostInit("workable")` 包 `WorkedBy`，玩家工作时把 `numworks` 顶到
+  `self.workleft` → 一击完成砍树/挖矿/锤/挖树桩。只对玩家，不动其它生物。
+- **随身箱子**（`omni_box()` / 菜单「给随身箱子」）：`SpawnPrefab("krampus_sack")`
+  塞进背包 —— 克劳斯背包是游戏里最大的可携带容器（14 格，背部栏，跨三大世界携带）。
+  没做全新 60 格箱子（要自定义 prefab + 容器 UI anim，工作量大）；14 格够先用。
+- **懒人护符**（`lazyforager.lua`，新模块）：单机饥荒里没有 DST 的 lazyforager，
+  对应物是**橙色护符 `orangeamulet`**（戴上自动捡拾）。`AddPrefabPostInit` 把
+  `fueled.rate = 0` → 永不掉耐久。
+- **锁血**：一直是做了的（`cheats.lua` 的 `omni_hp`，`health:SetMinHealth(10)`，
+  默认开）—— 之前 mod 一直在崩所以没体现。现在能用了：掉血但不会低于 10 = 不会死。

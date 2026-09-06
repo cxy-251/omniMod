@@ -6,8 +6,10 @@
     omni_map(true/false)   地图全开        （默认 开）
     omni_speed(n)          行走速度倍率     （默认 2；omni_speed(1) 恢复正常）
     omni_tech(true/false)  免费建造（所有东西直接造，不要材料）  （默认 开）
+    omni_work(true/false)  秒砍伐 / 秒挖矿 / 秒锤 / 秒挖树桩       （默认 开）
     omni_hp(true/false)    生命下限锁 10    （默认 开；能掉血但不会低于 10）
     omni_dmg(n)            伤害倍率         （默认 3；omni_dmg(1) 恢复正常）
+    omni_box()             给一个随身箱子（14 格，装背部栏，可跨三大世界携带）
     omni_off() / omni_on() 全关 / 全恢复默认
 
   所有改动在 AddSimPostInit / AddPlayerPostInit 里重新套用 —— 下洞穴、进迷宫、
@@ -16,7 +18,7 @@
 
 local G = GLOBAL
 
-local state = { map = true, speed = 2, tech = true, hp = true, dmg = 3 }
+local state = { map = true, speed = 2, tech = true, work = true, hp = true, dmg = 3 }
 local HP_FLOOR   = 10
 local TECH_BONUS = 10
 
@@ -74,23 +76,45 @@ local function fmt(v)
     return tostring(v)
 end
 
+-- ---- 秒砍伐 / 秒挖矿：玩家对可工作物一击完成 ----
+-- 一次性挂钩，靠 state.work 实时开关；只对玩家生效，不动其它生物的工作。
+AddComponentPostInit("workable", function(Workable)
+    local _WorkedBy = Workable.WorkedBy
+    function Workable:WorkedBy(worker, numworks)
+        if state.work and worker and worker == player() and (self.workleft or 0) > 0 then
+            numworks = self.workleft
+        end
+        return _WorkedBy(self, worker, numworks)
+    end
+end)
+
 -- ---- 控制台指令（挂全局）----
 G.omni = function()
     print(string.format(
-        "[omni] 地图全开=%s  速度x%s  免费建造=%s  锁血(>=%d)=%s  伤害x%s",
-        fmt(state.map), fmt(state.speed), fmt(state.tech), HP_FLOOR, fmt(state.hp), fmt(state.dmg)))
+        "[omni] 地图=%s 速度x%s 免费建造=%s 秒砍伐=%s 锁血(>=%d)=%s 伤害x%s",
+        fmt(state.map), fmt(state.speed), fmt(state.tech), fmt(state.work), HP_FLOOR, fmt(state.hp), fmt(state.dmg)))
 end
-G.omni_map   = function(on) state.map   = (on ~= false);          apply_all();    G.omni() end
-G.omni_speed = function(n)  state.speed = G.tonumber(n) or 1;     apply_player(); G.omni() end
-G.omni_tech  = function(on) state.tech  = (on ~= false);          apply_player(); G.omni() end
-G.omni_hp    = function(on) state.hp    = (on ~= false);          apply_player(); G.omni() end
-G.omni_dmg   = function(n)  state.dmg   = G.tonumber(n) or 1;     apply_player(); G.omni() end
+G.omni_map   = function(on) state.map   = (on ~= false);      apply_all();    G.omni() end
+G.omni_speed = function(n)  state.speed = G.tonumber(n) or 1; apply_player(); G.omni() end
+G.omni_tech  = function(on) state.tech  = (on ~= false);      apply_player(); G.omni() end
+G.omni_work  = function(on) state.work  = (on ~= false);      G.omni() end
+G.omni_hp    = function(on) state.hp    = (on ~= false);      apply_player(); G.omni() end
+G.omni_dmg   = function(n)  state.dmg   = G.tonumber(n) or 1; apply_player(); G.omni() end
+G.omni_box = function()
+    local p = player()
+    if not (p and p.components and p.components.inventory) then print("[omni] 没有玩家") return end
+    local box = G.SpawnPrefab("krampus_sack")
+    if box then
+        p.components.inventory:GiveItem(box)
+        print("[omni] 已给随身箱子（krampus_sack，14 格，背部栏，跨世界携带）")
+    end
+end
 G.omni_off = function()
-    state.map, state.speed, state.tech, state.hp, state.dmg = false, 1, false, false, 1
+    state.map, state.speed, state.tech, state.work, state.hp, state.dmg = false, 1, false, false, false, 1
     apply_player(); G.omni()
 end
 G.omni_on = function()
-    state.map, state.speed, state.tech, state.hp, state.dmg = true, 2, true, true, 3
+    state.map, state.speed, state.tech, state.work, state.hp, state.dmg = true, 2, true, true, true, 3
     apply_all(); G.omni()
 end
 

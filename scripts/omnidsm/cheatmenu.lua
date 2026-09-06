@@ -53,31 +53,35 @@ local CheatMenu = Class(Screen, function(self)
 
     self.bg = self.root:AddChild(Image("images/globalpanels.xml", "small_dialog.tex"))
     self.bg:SetVRegPoint(G.ANCHOR_MIDDLE); self.bg:SetHRegPoint(G.ANCHOR_MIDDLE)
-    self.bg:SetScale(1.7, 1.6, 1)
+    self.bg:SetScale(2.0, 2.3, 1)
 
-    self.title = self.root:AddChild(Text(G.TITLEFONT, 45))
-    self.title:SetPosition(0, 175, 0)
+    self.title = self.root:AddChild(Text(G.TITLEFONT, 42))
+    self.title:SetPosition(0, 235, 0)
     self.title:SetString("作弊菜单")
 
-    self.hint = self.root:AddChild(Text(G.BUTTONFONT, 22))
-    self.hint:SetPosition(0, -205, 0)
+    self.hint = self.root:AddChild(Text(G.BUTTONFONT, 20))
+    self.hint:SetPosition(0, -260, 0)
     self.hint:SetColour(0.8, 0.8, 0.8, 1)
-    self.hint:SetString("上下 / 鼠标 选择    A / 左键 切换    B / Esc 返回")
+    self.hint:SetString("上下/鼠标 选择    A/左键 切换    B/Esc 返回")
 
+    -- 标签保持短，避免超出按钮底图
     self.rows = {
-        { label = function() return "地图全开：" .. onoff(st().map) end,
+        { label = function() return "地图全开  " .. onoff(st().map) end,
           act = function() G.omni_map(not st().map) end },
-        { label = function() return "行走速度：x" .. tostring(st().speed) end,
+        { label = function() return "行走速度  x" .. tostring(st().speed) end,
           act = function() G.omni_speed(cycle(SPEED_PRESETS, st().speed)) end },
-        { label = function() return "免费建造（所有东西直接造）：" .. onoff(st().tech) end,
+        { label = function() return "免费建造  " .. onoff(st().tech) end,
           act = function() G.omni_tech(not st().tech) end },
-        { label = function() return "锁血（不低于10）：" .. onoff(st().hp) end,
+        { label = function() return "秒砍伐挖矿  " .. onoff(st().work) end,
+          act = function() G.omni_work(not st().work) end },
+        { label = function() return "锁血≥10  " .. onoff(st().hp) end,
           act = function() G.omni_hp(not st().hp) end },
-        { label = function() return "伤害倍率：x" .. tostring(st().dmg) end,
+        { label = function() return "伤害倍率  x" .. tostring(st().dmg) end,
           act = function() G.omni_dmg(cycle(DMG_PRESETS, st().dmg)) end },
-        { label = function() return "— 全部恢复默认 —" end, act = function() G.omni_on() end },
-        { label = function() return "— 全部关闭 —"     end, act = function() G.omni_off() end },
-        { label = function() return "返回"             end, act = function() self:Close() end },
+        { label = function() return "给随身箱子" end, act = function() G.omni_box() end },
+        { label = function() return "全部默认" end, act = function() G.omni_on() end },
+        { label = function() return "全部关闭" end, act = function() G.omni_off() end },
+        { label = function() return "返回"     end, act = function() self:Close() end },
     }
 
     local items = {}
@@ -85,8 +89,9 @@ local CheatMenu = Class(Screen, function(self)
         items[i] = { text = r.label(), cb = function() r.act(); self:Refresh() end }
     end
 
-    self.menu = self.root:AddChild(Menu(items, -46, false))
-    self.menu:SetPosition(0, 120, 0)
+    self.menu = self.root:AddChild(Menu(items, -42, false))
+    self.menu:SetPosition(0, 190, 0)
+    self.menu:SetTextSize(30)
     self.default_focus = self.menu
     self.menu:SetFocus(1)
 
