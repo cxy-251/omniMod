@@ -112,3 +112,18 @@
 
 若还 `?` → 说明是字体 fallback 本身坏了（不是加载顺序），plan C：重打包 / 替换
 `fallback_full_(outline_)packed.zip`（可从 DST 或 Noto Sans CJK 重新生成 BMFont）。
+
+### `cheats` 模块 (2026-09-06)
+
+后台指令可控、**默认全开**的一组作弊。控制台全局函数（`GLOBAL.omni*`）：
+`omni()` 看状态 / `omni_map(bool)` 地图全开 / `omni_speed(n)` 速度倍率(默认2) /
+`omni_tech(bool)` 科技全解锁 / `omni_hp(bool)` 生命下限锁10 / `omni_dmg(n)` 伤害倍率(默认3) /
+`omni_off()` / `omni_on()`。
+
+实现（`scripts/omnidsm/cheats.lua`，全在 `AddSimPostInit`+`AddPlayerPostInit` 里重套，过场不丢）：
+- 地图：`GetWorld().minimap.MiniMap:ShowArea(0,0,0,10000)` 一次全揭（关掉不会重新盖雾）
+- 速度：`locomotor.runspeed = (首次记录的 base) * mult`（兼容非 Wilson）
+- 科技：`builder.science/magic/ancient_bonus = 10` + `EvaluateTechTrees()`（材料仍需要）
+- 锁血：`health:SetMinHealth(10)` —— 引擎 `Health:SetVal` 自带 minhealth 钳制，掉到 10 触发
+  `minhealth` 事件而非 `death`
+- 伤害：`combat.damagemultiplier = n`（`Combat:CalcDamage` 直接用）
