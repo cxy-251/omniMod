@@ -83,3 +83,23 @@
 
 功能清单见 `README.md`：`cheatmenu` / `treeshake_bear` / `autopickup` / `janitor`。
 第一个大概率做 `cheatmenu`（屏幕按钮+菜单，无热键）。
+
+---
+
+## 中文 `?` — 第二轮修复 (2026-09-06)
+
+彻底重开后仍 `?`。日志：boot #1 没加载 `chinese_s.po`（说明 profile 里语言没持久化，
+`Profile:GetLanguageID()` 返回 ENGLISH），要到 boot #2/#3 才加载中文。而 `main.lua` 里
+`require("languages/language")`(第169行) 在 `require("fonts")`(第211行) **之前**，所以只要
+开机时 locale 已是中文，`SetUseUnicode(true)` 就会在字体加载前生效。
+
+**做了两件事**：
+1. `settings.ini` `use_small_textures` 改回 `false`（我之前设的 `true` 可能让引擎加载
+   CJK 大图集 `fallback_full_(outline_)packed.zip`(2048² .tex) 出问题）。
+2. **patch `data/scripts/languages/language.lua`** 的 `GetCurrentLocale()` →
+   直接 `return LOC.GetLocale(LANGUAGE.CHINESE_S)`，强制开机即中文，绕开不持久化的 profile。
+   原文件备份 `BK/language.lua.orig`；原逻辑在补丁里注释保留，删掉那一行 return 即恢复。
+   （`data/scripts/` 是散文件、无 `scripts.zip` 遮蔽、单机版不校验签名，改了直接生效。）
+
+若还 `?` → 说明是字体 fallback 本身坏了（不是加载顺序），plan C：重打包 / 替换
+`fallback_full_(outline_)packed.zip`（可从 DST 或 Noto Sans CJK 重新生成 BMFont）。
