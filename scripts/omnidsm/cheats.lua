@@ -5,7 +5,7 @@
     omni()                 查看所有状态
     omni_map(true/false)   地图全开        （默认 开）
     omni_speed(n)          行走速度倍率     （默认 2；omni_speed(1) 恢复正常）
-    omni_tech(true/false)  科技全解锁       （默认 开；材料仍需要）
+    omni_tech(true/false)  免费建造（所有东西直接造，不要材料）  （默认 开）
     omni_hp(true/false)    生命下限锁 10    （默认 开；能掉血但不会低于 10）
     omni_dmg(n)            伤害倍率         （默认 3；omni_dmg(1) 恢复正常）
     omni_off() / omni_on() 全关 / 全恢复默认
@@ -42,11 +42,15 @@ local function apply_player()
         lm.runspeed = lm._omnidsm_base * (state.speed or 1)
     end
 
+    -- 免费建造：freebuildmode 让 CanBuild/KnowsRecipe 直接返回 true —— 所有配方可造、
+    -- 不检查材料。再把三系科技加成拉满 + 刷新配方 UI，保证所有制作栏都显示出来。
     local b = p.components.builder
     if b then
+        b.freebuildmode = state.tech and true or false
         local v = state.tech and TECH_BONUS or 0
         b.science_bonus, b.magic_bonus, b.ancient_bonus = v, v, v
         if b.EvaluateTechTrees then b:EvaluateTechTrees() end
+        if b.inst then b.inst:PushEvent("unlockrecipe") end
     end
 
     local h = p.components.health
@@ -73,7 +77,7 @@ end
 -- ---- 控制台指令（挂全局）----
 G.omni = function()
     print(string.format(
-        "[omni] 地图全开=%s  速度x%s  科技全解锁=%s  锁血(>=%d)=%s  伤害x%s",
+        "[omni] 地图全开=%s  速度x%s  免费建造=%s  锁血(>=%d)=%s  伤害x%s",
         fmt(state.map), fmt(state.speed), fmt(state.tech), HP_FLOOR, fmt(state.hp), fmt(state.dmg)))
 end
 G.omni_map   = function(on) state.map   = (on ~= false);          apply_all();    G.omni() end

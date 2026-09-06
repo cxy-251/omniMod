@@ -15,7 +15,7 @@
 ]]
 
 local MODNAME = "OmniDontStarveMod"
-local VERSION = "0.0.3"
+local VERSION = "0.0.4"
 
 local FEATURES = {
     "unlockchars",   -- 解锁所有人物
