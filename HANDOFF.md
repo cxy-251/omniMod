@@ -231,3 +231,35 @@ DST「建游戏」带洞穴 = Master + Caves 两个 server 子进程，走 127.0
 ### 待移植 batch 2/3
 box（DST 容器 `containers.params`）、janitor、healthinfo/foodinfo/hovertip、cookstack、
 status、worldgen（`SURVIVAL_TOGETHER`）。
+
+---
+
+## 更新 (2026-09-07 #5)：磁盘狂读的真凶 = KDE baloo 文件索引器
+
+用户发现进出世界时 **`baloo_file` 也在疯狂读**。`baloo_file` = KDE Plasma 桌面搜索的
+文件索引器（SteamOS 桌面模式默认开着，已索引 379 万文件 / 2 GiB 索引库）。它的
+`includeFolders` 是 `/home/deck/`，涵盖 `~/.klei/DoNotStarveTogether/`。
+
+**反馈循环**：DST 每次自动存档 / 进出世界 → 重写 6MB 存档 + session 快照 + 日志
+→ baloo 立刻侦测到变化 → 把这些文件全部读回去重新索引 → 再叠加 DST 自己反序列化
+整张地图(425×425)+ 实体的读盘 → SD 卡上就是 40MB/s 持续读 + 卡顿。
+
+**已处理（宿主机侧，不在 mod 里）**：
+- `~/.config/baloofilerc` 加 `exclude folders[$e]=$HOME/.klei/`
+- （`balooctl6 purge` 会全量重建索引、本身狂读盘，已中止；配置对新增写入即时生效）
+- 用户可选：桌面模式里彻底 `balooctl6 disable`（游戏机不需要桌面文件搜索）
+
+**仍然存在**：DST 冷启动黑屏 + 「回到世界」一次性大量读盘 —— 这部分是 DST 引擎
+本身：反序列化整个存档 + 首次把资源从 SD 卡上的 `databundles/*.zip` 读进来。属于
+DST 在慢速存储上的固有表现，mod 层面能做的有限（地图全开已改成一次性，不再是元凶）。
+
+### mod v0.3.2
+- `cheats`: 生物血量悬停改成钩 `widgets/hoverer:OnUpdate`（联机版 hoverer 只在有
+  左键动作时才拼名字，指到被动生物没动作 -> 啥也不显示）。现在指到任何有 health 的
+  实体都强制补 `[当前/最大] 攻X`。
+- v0.3.1: 修 `FAST_TAGS` 定义顺序（之前 `ipairs(nil)` 每几秒刷一屏报错写爆日志 =
+  用户看到的"疯狂读写"的一大来源）；`SkillTreeData:GetPointsForSkillXP -> 999`
+  让全技能过 ValidateCharacterData、能存档能过图。
+
+用户已确认：花能采了 ✅ 技能没问题 ✅。待确认：生物血量(v0.3.2 新)、baloo 排除后
+磁盘是否正常。
