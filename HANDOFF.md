@@ -398,3 +398,12 @@ lock/key 之间的隔断（第 334 行那次调用，startnode ≠ startNode）�
 命中时才走 `SeperateStoryByBlanks`（隔成孤岛）。所以加 `islands="never"` →
 `island_percent=0` → 没有地区被隔开，整张图一条链全部陆连，再加 loop 闭合 =
 一整个完整连通的环。（`ring_forest` 现在设 branching/islands/loop 三个 + 覆写。）
+
+### v0.4.3 (2026-09-07) — 森林去分支
+
+用户澄清：要"一个完整的环、没有伸出去的枝杈"，不是环上长分支。那些分支 = **可选任务**
+（`numoptionaltasks=4` 从 `optionaltasks` 里挑，挂在必需任务链上）。
+`ring_forest` 现在还设 `level.numoptionaltasks = 0` + `level.optionaltasks = {}`
+（这俩是 level 顶层字段，不在 overrides 里）→ 只剩 7 个必需任务的链，闭合后是一圈地区。
+力导向布局会把闭合的链排成大致圆形。**不是几何上完美的同心圆** —— DS worldgen 的地区
+是有机块状，引擎做不到规则圆环；这是"无枝杈的连通环"能到的极限。
