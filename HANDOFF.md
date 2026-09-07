@@ -344,3 +344,15 @@ equipslots。是个大件，下一轮做。
   加半透明黑底 `square.tex` tint(0,0,0,.7)，`MoveToBack()`，在包装的 `OnUpdate` 里按
   `text:GetRegionSize()` 调 size/pos。生命值/食物数值那些纯文字现在有底了。
 - 悬停格子放大是原版 `ItemTile` 行为，用户同意留着。
+
+### v0.3.3 (2026-09-07) — 箱子布局/翻页/暂停 再调
+
+- **十字间隙太大**：`GAP` 46 → **14**。
+- **网格太靠上**：`widgetpos` (0,110) → **(0,30)**，网格+底部翻页条整体大致居中。
+- **左右多一些**：每区 8×7 → **10×7**，共 **280 格**。
+- **翻页 UI 之前那版没显示 / 新版是垃圾黑框**：v0.3.2 挂 HUD 的没出来。回到**挂
+  ContainerWidget**（v0.3.1 那样能显示），但放到网格**下方**（local y=-500，会跟 0.6
+  缩放），用**游戏自带 spinner 箭头** `spin_arrow.tex` ImageButton（放大 1.6）+
+  `TITLEFONT` 45 白色描边的 `i / n`，**没有黑框**。
+- **开箱暂停**：改回 `SetPause(true,"inv")` / `SetPause(false)` —— 跟手柄开背包完全一样
+  （世界停、拿东西正常）。去掉了 notarget 那套。

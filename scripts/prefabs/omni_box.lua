@@ -14,10 +14,10 @@ local assets = {
     Asset("ANIM", "anim/treasure_chest.zip"),
 }
 
--- 四个区域，每区 QC×QR，中间十字留宽间隔。总格数 = 4 * QC * QR。
-local QC, QR = 8, 7
+-- 四个区域，每区 QC×QR，中间十字留一点间隔。总格数 = 4 * QC * QR。
+local QC, QR = 10, 7
 local STEP   = 64     -- 单格间距（跟原版箱子接近，悬停放大不挤）
-local GAP    = 46     -- 十字额外间隔
+local GAP    = 14     -- 十字额外间隔（小一点）
 
 local slotpos = {}
 for _, qy in ipairs({ 1, -1 }) do        -- 上、下
@@ -100,7 +100,7 @@ local function fn(Sim)
     inst:AddComponent("container")
     inst.components.container:SetNumSlots(#slotpos)
     inst.components.container.widgetslotpos = slotpos
-    inst.components.container.widgetpos = Vector3(0, 110, 0)  -- 往上挪，给底部翻页条留位置
+    inst.components.container.widgetpos = Vector3(0, 30, 0)  -- 网格 + 底部翻页条整体大致居中
     inst.components.container.side_align_tip = 0
     inst.components.container.type = "chest"
     inst.components.container.itemtestfn = itemtest
