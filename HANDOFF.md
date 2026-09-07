@@ -391,3 +391,10 @@ lock/key 之间的隔断（第 334 行那次调用，startnode ≠ startNode）�
 
 `Story` 是全局 class（`Story = Class(...)` 无 local），`GLOBAL.require("map/storygen")`
 先让它就位再覆写。只对新世界生效。
+
+### v0.4.2 (2026-09-07) — 森林：各地区陆连
+
+`storygen.lua:333` —— 地区之间**默认就是 LockGraph 相连的**，只有 `island_percent`
+命中时才走 `SeperateStoryByBlanks`（隔成孤岛）。所以加 `islands="never"` →
+`island_percent=0` → 没有地区被隔开，整张图一条链全部陆连，再加 loop 闭合 =
+一整个完整连通的环。（`ring_forest` 现在设 branching/islands/loop 三个 + 覆写。）

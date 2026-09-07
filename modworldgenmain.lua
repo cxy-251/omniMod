@@ -1,7 +1,9 @@
 --[[ OmniDontStarveMod — 世界生成改动
 
-  - 巨人国（森林）：真·环形连通世界
-      · branching=never  无分支死路
+  - 巨人国（森林）：一整个完整连通的环，各地区之间直接衔接
+      · branching=never  无分支死路 -> 一条链
+      · islands=never    island_percent=0 -> 任何地区都不会被隔成孤岛，全部用
+        LockGraph 相连（storygen.lua:333 那个分支永不走 blank）
       · loop=always      触发"闭环"逻辑
       · 覆写 Story:SeperateStoryByBlanks —— 原版闭环是把出生点和终点用**不可通行的
         blank 隔开**（所以只是"靠近但不连通"）；这里改成直接 LockGraph 把两头**接上**
@@ -26,8 +28,9 @@ local function set_override(level, key, value)
 end
 
 local function ring_forest(level)
-    set_override(level, "branching", "never")
-    set_override(level, "loop", "always")
+    set_override(level, "branching", "never")   -- 一条链，无分支死路
+    set_override(level, "islands", "never")      -- 各地区全部陆连，不隔孤岛
+    set_override(level, "loop", "always")        -- 首尾闭合
     print("[omniDSM worldgen] 森林 -> 环形连通 (" .. tostring(level.id) .. ")")
 end
 
