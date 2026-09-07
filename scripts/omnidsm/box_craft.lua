@@ -1,22 +1,23 @@
---[[ 隔箱合成：合成/建造时，把「随身箱子」(omni_box) 里的材料也算进去，不用先打开箱子。
+--[[ 随身箱子(omni_box)与物品栏的整合：
      （由 modmain.lua 的 modimport 加载，运行在 mod 环境里）
 
-  改写玩家 inventory 组件的三个方法：
-    Count               -> Has / 配方是否可造 能看见箱子里的
-    GetCraftingIngredient -> 合成取材料时补上箱子里的
-    RemoveItem          -> builder 扣材料时，实体在箱子里就从箱子扣
+  1) 隔箱合成：合成/建造时，把物品栏（含背包）里所有 omni_box 的内容也算进去，
+     不用先打开箱子。改写 inventory 的 Count / GetCraftingIngredient / RemoveItem。
+     已打开的箱子（在 opencontainers）跳过，避免和原生逻辑重复计数。
 
-  已经打开的箱子（在 opencontainers 里）跳过，避免和原生逻辑重复计数。
+  2) 采集自动堆叠进箱子：拿到某物品时，如果哪个箱子里已经有它、且那格没满，
+     就直接堆进箱子那格，而不是占用物品栏。改写 inventory 的 GiveItem。
 ]]
 
 local G = GLOBAL
 
-local function boxes_of(inv)
+-- include_open=true 时连"已打开的箱子"也算进来
+local function boxes_of(inv, include_open)
     local list, seen = {}, {}
     if not inv then return list end
     local function add(v)
-        if v and v.prefab == "omni_box" and v.components and v.components.container
-           and not (inv.opencontainers and inv.opencontainers[v]) and not seen[v] then
+        if v and v.prefab == "omni_box" and v.components and v.components.container and not seen[v]
+           and (include_open or not (inv.opencontainers and inv.opencontainers[v])) then
             seen[v] = true
             list[#list + 1] = v
         end
@@ -30,6 +31,7 @@ local function boxes_of(inv)
 end
 
 AddComponentPostInit("inventory", function(Inventory)
+    ---------------------------------------------------------------- 隔箱合成
     local _Count = Inventory.Count
     function Inventory:Count(item, checkall)
         local n = _Count(self, item, checkall)
@@ -73,6 +75,26 @@ AddComponentPostInit("inventory", function(Inventory)
         end
         return _RI(self, item, wholestack, checkall)
     end
+
+    ---------------------------------------------------------------- 采集自动堆叠进箱子
+    local _GiveItem = Inventory.GiveItem
+    function Inventory:GiveItem(inst, slot, screen_src_pos, skipsound)
+        if not slot and inst and inst.prefab and inst.components and inst.components.stackable
+           and inst.components.inventoryitem and not inst.components.inventoryitem:IsHeld() then
+            for _, box in ipairs(boxes_of(self, true)) do
+                for _, v in pairs(box.components.container.slots) do
+                    if v ~= inst and v.prefab == inst.prefab and v.components.stackable
+                       and not v.components.stackable:IsFull() then
+                        local leftover = v.components.stackable:Put(inst, screen_src_pos)
+                        if v.components.perishable then v.components.perishable:SetPercent(1) end
+                        if leftover == nil then return true end
+                        inst = leftover
+                    end
+                end
+            end
+        end
+        return _GiveItem(self, inst, slot, screen_src_pos, skipsound)
+    end
 end)
 
-print("[omnidsm/box_craft] 隔箱合成已启用")
+print("[omnidsm/box_craft] 隔箱合成 + 采集自动堆叠 已启用")

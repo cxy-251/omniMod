@@ -251,3 +251,16 @@ equipslots。是个大件，下一轮做。
 - 多箱分页合并（`trueportablecellar` 组件）
 - 一键整理按钮（PC 的 `sortcontainers`）
 - 大网格背景框（现在是无框裸槽；PC 自带 `iai_pc_8x15/12x20` 贴图）
+
+### v0.0.9 (2026-09-07)
+
+- **懒人护符还在掉耐久**：查了 `amulet.lua` —— 这个 build 里 `orangeamulet`
+  ("The Lazy Forager") 的耐久是 **finiteuses**（不是 fueled，我上一版改错组件了）。
+  每自动捡一件 `finiteuses:Use(1)`，而 `FiniteUses:Use` 判断 `if not self.unlimited_uses`。
+  修法：`AddPrefabPostInit("orangeamulet")` 设 `finiteuses.unlimited_uses = true` +
+  `SetPercent(1)` —— 永不掉、耐久条一直满。（不是新护符，是原来那个。）
+- **采集自动堆叠进箱子**（`box_craft.lua`）：改写 `Inventory:GiveItem` —— 拿到可堆叠物品且
+  没指定 slot 时，先扫所有箱子（含已打开的），有同名未满的格子就 `stackable:Put` 堆进去，
+  堆满了继续找 / 走原逻辑。perishable 的顺带 `SetPercent(1)`。
+  `boxes_of` 加了 `include_open` 参数（合成那三个方法仍跳过已打开的箱子避免重复计数，
+  GiveItem 这里连打开的也算）。
