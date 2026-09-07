@@ -20,7 +20,7 @@
 GLOBAL.setmetatable(env, { __index = function(_, k) return GLOBAL.rawget(GLOBAL, k) end })
 
 local MODNAME = "OmniDontStarveMod"
-local VERSION = "0.2.3"
+local VERSION = "0.3.0"
 
 -- ---- 自制预制物：随身箱子 ----
 PrefabFiles = { "omni_box" }
@@ -42,6 +42,10 @@ local FEATURES = {
     "box_craft",     -- 隔箱合成：合成时也算随身箱子里的材料
     "janitor",       -- 防崩：定时GC + 清远处垃圾 + 左上角内存显示
     "healthinfo",    -- 鼠标指到生物显示血量/攻击
+    "foodinfo",      -- 鼠标指到食物显示 饥/血/理智 数值
+    "cookstack",     -- 锅里放整叠食材一次做出整叠
+    "status",        -- 组合状态栏：徽章精确数字 + 天数/季节/温度
+    "boxpages",      -- 多箱翻页：一个 UI 翻遍所有随身箱子
     -- "treeshake_bear",
 }
 

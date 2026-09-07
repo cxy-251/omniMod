@@ -303,3 +303,19 @@ equipslots。是个大件，下一轮做。
   和 buff 每帧覆盖。改成 `AddComponentPostInit("combat")` 包 `CalcDamage`，玩家出手时把
   最终伤害 `* state.dmg`。`omni_dmg` 开关不变。
 - **箱子空间**：120 → **192 格**（16×12，槽距 52）。
+
+### v0.3.0 (2026-09-07) — 4 个新功能（都 always-on，无菜单开关）
+
+- **`foodinfo`**：鼠标指到食物在名字后拼 `饥+N 血+N 智+N 鲜N%`。跟 healthinfo 一样两处
+  改（GetDisplayName + GetActionString）。`edible:GetHunger/GetHealth/GetSanity(player)`。
+- **`cookstack`**：抄 Cook Stack Food 精简版。`AddComponentPostInit("stewer")` 包
+  StartCooking（算最小堆叠数、多的返还、记 foodstack）+ Harvest（补 (stack-1)*配方产量 份，
+  按 40 上限分次给）+ OnSave/OnLoad 存 foodstack。`cooking.recipes[pot][product].stacksize`。
+- **`status`**：① `AddClassPostConstruct("widgets/statusdisplays")` 把 heart/stomach/brain
+  的 `.num` `:Show()`（引擎一直在 SetString，只是 Hide 了）② HUD 顶部加一行 Text，
+  周期任务显示 `第 N 天 · 季节 · 温度`（`GetClock().numcycles+1` / `GetSeasonManager().
+  current_season` / `temperature:GetCurrent()`）。
+- **`boxpages`**：`AddClassPostConstruct("widgets/containerwidget")` 包 `Open`，打开的是
+  omni_box 且身上 ≥2 个箱子时，加一排 `◀ i/n ▶`（`spin_arrow.tex`）。翻页 = 关当前箱子 +
+  `Open` 列表里上/下一个，UI 自然重建成新一页。`_omni_pager` 存在 widget 上，重开时先 Kill。
+  **待验证**：翻页闪一下正常；箭头贴图/位置可能要调。
