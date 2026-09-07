@@ -364,3 +364,16 @@ equipslots。是个大件，下一轮做。
 - **悬停底框用饥荒卡片贴图**：`hovertip.lua` 从 `square.tex` 换成
   `images/globalpanels.xml : small_dialog.tex`（设置界面那种卡片），size 多留边距
   （+90 宽 / +60 高）让字落在卡片内圈不压边框。
+
+### v0.4.0 (2026-09-07) — 伤害默认 10x + 世界生成
+
+- **伤害倍率默认 3 → 10**（`state.dmg` 初始值 + `omni_on()` 重置值 + doc）。
+- **`modworldgenmain.lua`（新）**：mod 之前没有 worldgen 入口。
+  - 森林（`SURVIVAL_DEFAULT` / `SURVIVAL_DEFAULT_PLUS`）：`branching="never"` + `loop="always"`
+    → 环形连通世界，无分支死路，首尾相连。
+  - 洞穴（`CAVE_LEVEL_1` / `CAVE_LEVEL_2`）：`branching="never"` → 少拐弯。
+  - 海难/哈姆雷特不动。
+  - `overrides` 是 `{key,value}` 对列表；`set_override` 先删同名再加。
+  - `branching`: default/most/least/never（storygen.lua）；`loop`: never/default/always
+    （forest_map.lua，always → loop_percent=1.0 loop_target="end"）。
+  - **只对新开的世界生效**（旧存档已生成的地图不变）。

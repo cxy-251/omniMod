@@ -8,7 +8,7 @@
     omni_tech(true/false)  免费建造（所有东西直接造，不要材料）  （默认 开）
     omni_work(true/false)  秒砍伐/秒挖矿/秒锤/秒挖 + 采集不出动作（一下完成）  （默认 开）
     omni_hp(true/false)    生命下限锁 10    （默认 开；能掉血但不会低于 10）
-    omni_dmg(n)            伤害倍率         （默认 3；omni_dmg(1) 恢复正常）
+    omni_dmg(n)            伤害倍率         （默认 10；omni_dmg(1) 恢复正常）
     omni_light(true/false) 身上永久光照     （默认 开）
     omni_hpbar(true/false) 鼠标指到生物显示血量/攻击  （默认 开）
     omni_sanity()          理智一键回满
@@ -22,7 +22,7 @@
 
 local G = GLOBAL
 
-local state = { map = true, speed = 2, tech = true, work = true, hp = true, dmg = 3,
+local state = { map = true, speed = 2, tech = true, work = true, hp = true, dmg = 10,
                 light = true, hpbar = true, janitor = true }
 local HP_FLOOR   = 10
 local TECH_BONUS = 10
@@ -180,7 +180,7 @@ G.omni_off = function()
     apply_player(); G.omni()
 end
 G.omni_on = function()
-    state.map, state.speed, state.tech, state.work, state.hp, state.dmg = true, 2, true, true, true, 3
+    state.map, state.speed, state.tech, state.work, state.hp, state.dmg = true, 2, true, true, true, 10
     state.light, state.hpbar, state.janitor = true, true, true
     apply_all(); G.omni()
 end
