@@ -121,3 +121,60 @@ git 已 init。`modinfo.lua`（api 10，all_clients_require_mod）+ `modmain.lua
 删掉了 `013 - Don't Starve/_disabled_thirdparty_mods/`（39 个禁用的第三方 mod，
 132M，游戏不加载，创意工坊可重下）。013 现 3.2G，全为必要文件（data 3.1G = 本体
 + RoG/SW/Hamlet 三 DLC，bin 37M）。
+
+---
+
+## 更新 (2026-09-07 #3)：原生 Linux 版离线化完成 ✅
+
+用户在 Steam 里把 DST 兼容性设成「Steam Linux Runtime」后重下，depot 变 **322332**
+（原生 Linux x64，`bin64/dontstarve_steam_x64` ELF）。已完成：
+
+**冻结出 Steam 管理**（同 SC2 / 单机DS）：
+- 旧 Windows `014` 改名 `014 - Don't Starve Together.WINDOWS-OLD`（4.2G，待用户确认后删）
+- `steamapps/common/Don't Starve Together/` → `mv` 到
+  `standalone_games/steam_games/014 - Don't Starve Together/`（同盘秒移）
+- `steamapps/appmanifest_322330.acf` → `.acf.disabled`（防 Steam 自动更新覆盖补丁）
+
+**gbe_fork（Linux .so，release-2026_08_23 regular）**：
+- `bin64/lib64/libsteam_api.so` ← gbe x64（正版存 `.valve-orig` + backup 的 `gbe_fork-lin-x64/`）
+  ＋ `steamclient.so`
+- `bin/lib32/libsteam_api.so` ← gbe x86（同样备份；32 位 `bin/dontstarve` 已改名 `.disabled32`
+  防 omni-deck 误选）
+- `steam_settings/` 放在 bin64/ bin64/lib64/ bin/ bin/lib32/ 和根目录：appid 322330、
+  `disable_networking=1`+`offline=1`+`disable_lobby_creation=1`、`unlock_all=1`、
+  `language=schinese`、假身份 SteamID 76561197960287930、
+  `steam_interfaces.txt`（`generate_interfaces_x64` 对正版 .so 生成，30 个接口，DST 747465）
+- `steam_appid.txt` = 322330（根 + bin64 + bin64/lib64 + bin + bin/lib32）
+
+**启动 wrapper**：`bin64/dontstarve` 重写 —— 写 steam_appid、启动前备份
+`~/.klei/DoNotStarveTogether/Cluster_*`（留最近 15 份）、优先在 **Steam scout 运行时**
+（`~/.local/share/Steam/ubuntu12_32/steam-runtime/run.sh`）里起 64 位引擎
+（提供 `libcurl-gnutls.so.4`，这是引擎硬 NEEDED，SteamOS 系统没有）。
+stock 脚本存 backup 的 `dontstarve.bin64.stock`。
+
+**mod 启用**：`mods/omniDontStarveTogetherMod` → symlink 到项目；`mods/modsettings.lua`
+重写为 `ForceEnableMod` + `DisableModDisabling()` + `DisableLocalModWarning()`
+（stock 存 `modsettings.lua.stock`）。第三方 workshop mod：本次原生下载的 `mods/` 本来就干净。
+
+**验证**（timeout 冒烟测试，读 `~/.klei/DoNotStarveTogether/omnideck-launch.log`）：
+- `Don't Starve Together: 747465 LINUX_STEAM` `Mode: 64-bit`
+- `Initializing distribution platform ... Steam AppBuildID: 10 ... Done` = **gbe 起来了**
+- `Offline user ID: OU_76561197960287930` = 假身份生效
+- `locale=CN&lang=schinese` = **中文生效**（DST 自带完整 CJK，无单机版的 `?` 问题）
+- `[OmniDontStarveTogetherMod] v0.0.1 loaded (0 feature(s))` + `Registering prefabs` = 自制 mod 强制加载成功
+- `Load FE: done` + `focus gained` = 进到主菜单
+- omni-deck 打分：`bin64/dontstarve`（260 分）稳选，无 `.exe` → 原生直启不走 Proton
+
+**已知无害项**：
+- 主菜单 MOTD 图片下载每次 5s 超时后重试（离线，`klei-motd.klei.com` 连不上）——
+  不致命，只是菜单有点烦。要彻底静音得改 /etc/hosts（需 sudo），暂不处理。
+- `skilltree ... unrecoverable. Skill tree will be cleared.` —— 角色技能树需要联网拉，
+  离线没有。单人沙盒+作弊玩法用不到。
+- 首次运行 `Could not load modindex/morgue/...` —— 正常，文件还没生成。
+
+## 待做：mod 功能移植（对标单机版 omniDontStarveMod v0.5.1）
+
+脚手架 + 离线化都完成了。下一步开始往 `scripts/omnidst/` 写功能，`FEATURES` 里逐个开。
+单人自建房 → `TheWorld.ismastersim` 客户端为 true，`ThePlayer` 即房主，**不用 RPC**。
+顺序建议：cheats（服务器侧改组件）→ cheatmenu（客户端 Screen）→ box（containers.params）
+→ janitor → worldgen（`SURVIVAL_TOGETHER`）。unlockchars 不需要（DST 默认全解锁）。
