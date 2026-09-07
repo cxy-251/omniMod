@@ -2,32 +2,29 @@
      （由 modmain.lua 的 modimport 加载，运行在 mod 环境里）
 
   打开：按 Start / Esc（暂停）→ 暂停菜单里选「作弊菜单」。
-  操作：方向键上下 或 鼠标悬停 选行；A 或 鼠标左键 切换/循环数值；B 或 Esc 返回。
+  操作：方向键 选行；A / 鼠标左键 切换/循环数值；B / Esc 返回。
 
-  依赖 cheats 模块（FEATURES 里排在前面），读 GLOBAL.OMNIDSM.state，
-  改动走已有的 GLOBAL.omni_* 函数。
+  用 TextButton 自己排两列 —— 不用 Menu 的 ImageButton，避免文字被固定底图裁掉。
+  依赖 cheats 模块，读 GLOBAL.OMNIDSM.state，改动走 GLOBAL.omni_* 函数。
 
-  ★ 关键坑：游戏运行时全局（TheFrontEnd / SetPause / TITLEFONT ...）在 mod 加载时
-    还不存在，**不能在文件作用域 local 缓存**，必须在用到时才 G.xxx 取。
-    只有 widgets 这些早就加载好的 require 结果可以在文件作用域缓存。
+  ★ 游戏运行时全局在 mod 加载时还不存在 —— 用到时才 G.xxx 取，别在文件作用域缓存。
 ]]
 
 local G = GLOBAL
 
-local Screen = G.require("widgets/screen")
-local Widget = G.require("widgets/widget")
-local Text   = G.require("widgets/text")
-local Image  = G.require("widgets/image")
-local Menu   = G.require("widgets/menu")
+local Screen     = G.require("widgets/screen")
+local Widget     = G.require("widgets/widget")
+local Text       = G.require("widgets/text")
+local Image      = G.require("widgets/image")
+local TextButton = G.require("widgets/textbutton")
 
 local SPEED_PRESETS = { 1, 1.5, 2, 3, 5, 8 }
 local DMG_PRESETS   = { 1, 2, 3, 5, 10, 25 }
+local ROW_H = 44
 
 local function cycle(list, cur)
     for i, v in ipairs(list) do
-        if math.abs(v - (cur or 0)) < 1e-6 then
-            return list[i % #list + 1]
-        end
+        if math.abs(v - (cur or 0)) < 1e-6 then return list[i % #list + 1] end
     end
     return list[1]
 end
@@ -53,65 +50,71 @@ local CheatMenu = Class(Screen, function(self)
 
     self.bg = self.root:AddChild(Image("images/globalpanels.xml", "small_dialog.tex"))
     self.bg:SetVRegPoint(G.ANCHOR_MIDDLE); self.bg:SetHRegPoint(G.ANCHOR_MIDDLE)
-    self.bg:SetScale(2.2, 1.95, 1)
+    self.bg:SetScale(2.5, 2.0, 1)
 
     self.title = self.root:AddChild(Text(G.TITLEFONT, 40))
-    self.title:SetPosition(0, 185, 0)
+    self.title:SetPosition(0, 190, 0)
     self.title:SetString("作弊菜单")
 
     self.hint = self.root:AddChild(Text(G.BUTTONFONT, 19))
-    self.hint:SetPosition(0, -195, 0)
-    self.hint:SetColour(0.8, 0.8, 0.8, 1)
-    self.hint:SetString("方向键/鼠标 选择    A/左键 切换    B/Esc 返回")
+    self.hint:SetPosition(0, -200, 0)
+    self.hint:SetColour(0.85, 0.85, 0.85, 1)
+    self.hint:SetString("方向键 选择    A / 左键 切换    B / Esc 返回")
 
-    -- 标签短，两列排。
     local LROWS = {
-        { label = function() return "地图  " .. onoff(st().map) end,
+        { label = function() return "地图全开：" .. onoff(st().map) end,
           act = function() G.omni_map(not st().map) end },
-        { label = function() return "速度 x" .. tostring(st().speed) end,
+        { label = function() return "行走速度：x" .. tostring(st().speed) end,
           act = function() G.omni_speed(cycle(SPEED_PRESETS, st().speed)) end },
-        { label = function() return "免建造  " .. onoff(st().tech) end,
+        { label = function() return "免费建造：" .. onoff(st().tech) end,
           act = function() G.omni_tech(not st().tech) end },
-        { label = function() return "秒采伐  " .. onoff(st().work) end,
+        { label = function() return "秒采伐挖矿：" .. onoff(st().work) end,
           act = function() G.omni_work(not st().work) end },
-        { label = function() return "锁血  " .. onoff(st().hp) end,
+        { label = function() return "锁血不死：" .. onoff(st().hp) end,
           act = function() G.omni_hp(not st().hp) end },
-        { label = function() return "伤害 x" .. tostring(st().dmg) end,
+        { label = function() return "伤害倍率：x" .. tostring(st().dmg) end,
           act = function() G.omni_dmg(cycle(DMG_PRESETS, st().dmg)) end },
-        { label = function() return "光照  " .. onoff(st().light) end,
+        { label = function() return "身上光照：" .. onoff(st().light) end,
           act = function() G.omni_light(not st().light) end },
     }
     local RROWS = {
-        { label = function() return "血量  " .. onoff(st().hpbar) end,
+        { label = function() return "生物血量：" .. onoff(st().hpbar) end,
           act = function() G.omni_hpbar(not st().hpbar) end },
-        { label = function() return "防崩  " .. onoff(st().janitor) end,
+        { label = function() return "防崩管家：" .. onoff(st().janitor) end,
           act = function() G.omni_janitor(not st().janitor) end },
-        { label = function() return "回理智" end, act = function() G.omni_sanity() end },
-        { label = function() return "返回"   end, act = function() self:Close() end },
+        { label = function() return "回复理智" end, act = function() G.omni_sanity() end },
+        { label = function() return "返回" end,     act = function() self:Close() end },
     }
-    self.cols = { { rows = LROWS }, { rows = RROWS } }
+    self.cols = { { rows = LROWS, x = -175 }, { rows = RROWS, x = 175 } }
 
-    for ci, col in ipairs(self.cols) do
-        local items = {}
+    -- 建每列的 TextButton
+    for _, col in ipairs(self.cols) do
+        col.btns = {}
         for i, r in ipairs(col.rows) do
-            items[i] = { text = r.label(), cb = function() r.act(); self:Refresh() end }
+            local b = self.root:AddChild(TextButton(""))
+            b:SetFont(G.BUTTONFONT)
+            b:SetTextSize(30)
+            b:SetColour(1, 1, 1, 1)
+            b:SetOverColour(1, 0.85, 0.3, 1)
+            b:SetText(r.label())
+            b:SetPosition(col.x, 150 - (i - 1) * ROW_H, 0)
+            b:SetOnClick(function() r.act(); self:Refresh() end)
+            col.btns[i] = b
         end
-        col.menu = self.root:AddChild(Menu(items, -40, false))
-        col.menu:SetPosition(ci == 1 and -150 or 150, 130, 0)
-        col.menu:SetTextSize(28)
     end
 
-    -- 左右列之间的手柄焦点连线
-    local L, R = self.cols[1].menu.items, self.cols[2].menu.items
-    for i, it in ipairs(L) do
-        it:SetFocusChangeDir(G.MOVE_RIGHT, R[math.min(i, #R)])
+    -- 焦点连线：列内上下，列间左右
+    local L, R = self.cols[1].btns, self.cols[2].btns
+    for _, col in ipairs(self.cols) do
+        for i, b in ipairs(col.btns) do
+            if col.btns[i - 1] then b:SetFocusChangeDir(G.MOVE_UP, col.btns[i - 1]) end
+            if col.btns[i + 1] then b:SetFocusChangeDir(G.MOVE_DOWN, col.btns[i + 1]) end
+        end
     end
-    for i, it in ipairs(R) do
-        it:SetFocusChangeDir(G.MOVE_LEFT, L[math.min(i, #L)])
-    end
+    for i, b in ipairs(L) do b:SetFocusChangeDir(G.MOVE_RIGHT, R[math.min(i, #R)]) end
+    for i, b in ipairs(R) do b:SetFocusChangeDir(G.MOVE_LEFT,  L[math.min(i, #L)]) end
 
-    self.default_focus = self.cols[1].menu
-    self.cols[1].menu:SetFocus(1)
+    self.default_focus = L[1]
 
     if G.TheInputProxy then G.TheInputProxy:SetCursorVisible(true) end
 end)
@@ -119,7 +122,7 @@ end)
 function CheatMenu:Refresh()
     for _, col in ipairs(self.cols) do
         for i, r in ipairs(col.rows) do
-            col.menu:EditItem(i, r.label())
+            col.btns[i]:SetText(r.label())
         end
     end
 end
@@ -137,7 +140,7 @@ function CheatMenu:OnControl(control, down)
     end
 end
 
--- 往暂停菜单里塞一项「作弊菜单」（鼠标可点，手柄可选）
+-- 往暂停菜单里塞一项「作弊菜单」
 AddClassPostConstruct("screens/pausescreen", function(ps)
     if not ps.menu or not ps.menu.AddItem then return end
     ps.menu:AddItem("作弊菜单", function()

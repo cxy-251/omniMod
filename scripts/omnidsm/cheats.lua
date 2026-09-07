@@ -65,10 +65,7 @@ local function apply_player()
         h:SetMinHealth(state.hp and HP_FLOOR or 0)
     end
 
-    local c = p.components.combat
-    if c then
-        c.damagemultiplier = state.dmg or 1
-    end
+    -- 伤害倍率见下面的 CalcDamage 包装（直接改 combat.damagemultiplier 会被角色/buff 覆盖）
 
     -- 秒砍伐：把玩家 worker 组件的各工作效率拉满（空手也算），可随开关还原
     local wk = p.components.worker
@@ -89,6 +86,20 @@ local function apply_player()
         p.Light:Enable(state.light and true or false)
     end
 end
+
+-- ---- 伤害倍率：包装 Combat:CalcDamage，玩家出手时把最终伤害 ×state.dmg ----
+-- 比改 combat.damagemultiplier 稳 —— 后者会被沃尔夫冈的力量、各种 buff 每帧覆盖掉。
+AddComponentPostInit("combat", function(Combat)
+    local _Calc = Combat.CalcDamage
+    function Combat:CalcDamage(target, weapon, mult)
+        local d = _Calc(self, target, weapon, mult)
+        if state.dmg and state.dmg ~= 1 and d and d > 0
+           and self.inst == (G.GetPlayer and G.GetPlayer()) then
+            d = d * state.dmg
+        end
+        return d
+    end
+end)
 
 -- 生物血量显示搬到独立模块 healthinfo.lua（要同时改 GetDisplayName 和 BufferedAction:
 -- GetActionString 两处才能在手持工具时也显示）。

@@ -292,3 +292,14 @@ equipslots。是个大件，下一轮做。
   右 6（血量/防崩/回理智/全默认/全关闭/返回），两个竖排 `Menu`，用
   `SetFocusChangeDir(MOVE_LEFT/RIGHT)` 按行号配对连焦点。标签全缩到 ≤3 字避免截断，
   字号 28，面板缩回 2.2×1.95。
+
+### v0.2.3 (2026-09-07)
+
+- **菜单文字截断**：`Menu` 用的 `ImageButton` 底图宽度固定会裁字。改成自己用
+  **`TextButton`**（纯文字、无底图、不裁）排两列：`self.root:AddChild(TextButton(""))`，
+  `SetPosition(col.x, 150-(i-1)*44)`，`SetOnClick`，手动 `SetFocusChangeDir`
+  MOVE_UP/DOWN（列内）+ MOVE_LEFT/RIGHT（列间）。`default_focus = L[1]`。标签放回全名。
+- **伤害倍率没生效**：`apply_player` 里直接设 `combat.damagemultiplier` 会被角色（沃尔夫冈）
+  和 buff 每帧覆盖。改成 `AddComponentPostInit("combat")` 包 `CalcDamage`，玩家出手时把
+  最终伤害 `* state.dmg`。`omni_dmg` 开关不变。
+- **箱子空间**：120 → **192 格**（16×12，槽距 52）。

@@ -14,8 +14,8 @@ local assets = {
     Asset("ANIM", "anim/treasure_chest.zip"),
 }
 
-local COLS, ROWS = 12, 10
-local STEP = 60
+local COLS, ROWS = 16, 12
+local STEP = 52
 
 -- 程序化生成 10×6 槽位坐标，居中
 local slotpos = {}
