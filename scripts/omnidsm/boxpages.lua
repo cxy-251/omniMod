@@ -2,8 +2,8 @@
 
   - 打开任意「随身箱子」→ 箱子界面下方出现  ◀  i / n  ▶ ，翻遍所有箱子。
     翻页 = 关当前箱子 + 打开列表里上/下一个。
-  - 打开随身箱子时 SetPause(true,"inv")（跟手柄开背包一样的暂停 —— 世界停，
-    但从箱子里拿东西照常），关闭时 SetPause(false)。
+  - 打开随身箱子时给玩家 notarget（生物不来打你），关闭时摘掉。
+    （之前试过 SetPause，会导致箱子关不掉，弃用。）
   always-on。
 ]]
 
@@ -26,12 +26,21 @@ local function my_boxes(doer)
     return list
 end
 
-local paused_by_box = false
-local function box_pause()
-    if not paused_by_box then G.SetPause(true, "inv"); paused_by_box = true end
+local shielded
+local function box_shield(doer)
+    if shielded and shielded:IsValid() and shielded._omni_notarget then
+        shielded:RemoveTag("notarget"); shielded._omni_notarget = nil
+    end
+    shielded = nil
+    if doer and doer:IsValid() and not doer:HasTag("notarget") then
+        doer:AddTag("notarget"); doer._omni_notarget = true; shielded = doer
+    end
 end
-local function box_unpause()
-    if paused_by_box then G.SetPause(false); paused_by_box = false end
+local function box_unshield()
+    if shielded and shielded:IsValid() and shielded._omni_notarget then
+        shielded:RemoveTag("notarget"); shielded._omni_notarget = nil
+    end
+    shielded = nil
 end
 
 AddClassPostConstruct("widgets/containerwidget", function(self)
@@ -78,7 +87,7 @@ AddClassPostConstruct("widgets/containerwidget", function(self)
     self.Open = function(self, container, doer)
         _Open(self, container, doer)
         if container and container.prefab == "omni_box" and doer then
-            box_pause()
+            box_shield(doer)
             build_pager(container, doer)
         elseif self._omni_pager then
             self._omni_pager:Kill(); self._omni_pager = nil
@@ -88,7 +97,7 @@ AddClassPostConstruct("widgets/containerwidget", function(self)
     local _Close = self.Close
     self.Close = function(self, ...)
         if self._omni_pager then self._omni_pager:Kill(); self._omni_pager = nil end
-        box_unpause()
+        box_unshield()
         return _Close(self, ...)
     end
 end)

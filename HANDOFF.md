@@ -356,3 +356,11 @@ equipslots。是个大件，下一轮做。
   `TITLEFONT` 45 白色描边的 `i / n`，**没有黑框**。
 - **开箱暂停**：改回 `SetPause(true,"inv")` / `SetPause(false)` —— 跟手柄开背包完全一样
   （世界停、拿东西正常）。去掉了 notarget 那套。
+
+### v0.3.4 (2026-09-07)
+
+- **箱子关不掉**：v0.3.3 的 `SetPause(true,"inv")` 把关闭输入也吞了。改回 **notarget**
+  （开箱给玩家挂 `notarget` 生物不来打，关箱摘掉，只摘自己加的 `_omni_notarget`）。
+- **悬停底框用饥荒卡片贴图**：`hovertip.lua` 从 `square.tex` 换成
+  `images/globalpanels.xml : small_dialog.tex`（设置界面那种卡片），size 多留边距
+  （+90 宽 / +60 高）让字落在卡片内圈不压边框。
