@@ -69,6 +69,22 @@ if GLOBAL.Story and GLOBAL.Story.SeperateStoryByBlanks then
         end
     end
     print("[omniDSM worldgen] Story:SeperateStoryByBlanks 已覆写（真闭环）")
+
+    -- 每个"地区"其实是好几个小房间连成的小图；在一条链上，地区用其中 2 个房间接
+    -- 前后邻居，多出来的房间就成了伸出去的"枝杈/瓣"。把每种房间的数量压到 1，
+    -- 地区变瘦、枝杈就少了（代价：每个区里的资源/怪少一点，关键内容还在）。
+    if GLOBAL.Story.GenerateNodesFromTask then
+        local _GNFT = GLOBAL.Story.GenerateNodesFromTask
+        function GLOBAL.Story:GenerateNodesFromTask(task, clf)
+            if self.gen_params and self.gen_params.branching == "never" and task and task.room_choices then
+                for k, v in pairs(task.room_choices) do
+                    if type(v) == "number" and v > 1 then task.room_choices[k] = 1 end
+                end
+            end
+            return _GNFT(self, task, clf)
+        end
+        print("[omniDSM worldgen] 地区房间数压到最小（减枝杈）")
+    end
 end
 
 print("[omniDSM worldgen] modworldgenmain 已加载")
