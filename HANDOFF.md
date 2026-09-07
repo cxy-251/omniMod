@@ -319,3 +319,13 @@ equipslots。是个大件，下一轮做。
   omni_box 且身上 ≥2 个箱子时，加一排 `◀ i/n ▶`（`spin_arrow.tex`）。翻页 = 关当前箱子 +
   `Open` 列表里上/下一个，UI 自然重建成新一页。`_omni_pager` 存在 widget 上，重开时先 Kill。
   **待验证**：翻页闪一下正常；箭头贴图/位置可能要调。
+
+### v0.3.1 (2026-09-07) — 箱子/翻页 UI 修
+
+- **格子悬停放大挤到相邻格**：不是 bug，`ItemTile:OnGainFocus` 原版就 `ScaleTo(2x)`；
+  只是我们 192 格槽距 52 太密。箱子改 **14×14 / 槽距 72**（跟原版箱子一致），2x 放大不再挤。
+- **翻页 UI 箱子关了还在**：`boxpages.lua` 只在下次 Open 时 Kill 旧的。现在**同时包
+  `ContainerWidget:Close`** → 一关箱子就 `kill_pager()`。
+- **翻页 UI 黑夜看不清**：从"挂在 ContainerWidget 里（0.6 缩放、位置怪）"改成**挂在
+  `doer.HUD.controls` 上、固定屏幕位置**（底部中间上方 205px），加**深色底 square.tex
+  tint(0,0,0,.72)** + 白色亮字 + `<` `>` 用 TextButton（亮白、悬停变黄）。

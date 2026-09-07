@@ -14,8 +14,8 @@ local assets = {
     Asset("ANIM", "anim/treasure_chest.zip"),
 }
 
-local COLS, ROWS = 16, 12
-local STEP = 52
+local COLS, ROWS = 14, 14
+local STEP = 72   -- 跟原版箱子槽距一致，悬停放大时不会挤到相邻格
 
 -- 程序化生成 10×6 槽位坐标，居中
 local slotpos = {}
