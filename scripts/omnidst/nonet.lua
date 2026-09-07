@@ -33,4 +33,29 @@ if G.TheFrontEnd then
     G.TheFrontEnd.ShouldShowUpdateAvailable = function() return false end
 end
 
+-- 3) 主菜单点 Play / 返回主菜单时会弹「连不上 Steam，是否离线游戏？」
+--    —— 我们永远离线玩，自动点「离线游戏」。
+--    识别方式：弹窗按钮里有 "Play Offline"（PLAYOFFLINE）这一项。
+do
+    local PLAYOFFLINE = G.STRINGS and G.STRINGS.UI and G.STRINGS.UI.MAINSCREEN
+                        and G.STRINGS.UI.MAINSCREEN.PLAYOFFLINE
+    if PLAYOFFLINE then
+        AddClassPostConstruct("screens/redux/popupdialog", function(self)
+            local btns = self.buttons
+            if type(btns) ~= "table" then return end
+            for _, b in ipairs(btns) do
+                if b.text == PLAYOFFLINE and type(b.cb) == "function" then
+                    local cb = b.cb
+                    local host = self.inst or G.TheGlobalInstance
+                    host:DoTaskInTime(0, function()
+                        if self and self.inst and self.inst:IsValid() then cb() end
+                    end)
+                    print("[omnidst/nonet] 自动选择「离线游戏」")
+                    return
+                end
+            end
+        end)
+    end
+end
+
 print("[omnidst/nonet] 已加载")

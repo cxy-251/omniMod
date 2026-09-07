@@ -114,20 +114,43 @@ AddComponentPostInit("combat", function(Combat)
     end
 end)
 
------------------------------------------------------------------ 秒砍伐 / 秒挖矿
+----------------------------------------------------------------- 秒砍伐 / 秒挖矿 / 秒锤 / 秒挖
+-- 联机版里 CHOP/MINE/HAMMER/DIG 走 actions.lua 的 DoToolWork -> 直接调
+-- Workable:WorkedBy_Internal（跳过 WorkedBy）。所以要包 **类** 上的 WorkedBy_Internal。
 local _wdbg = 0
-AddComponentPostInit("workable", function(Workable)
-    local _WorkedBy = Workable.WorkedBy
-    function Workable:WorkedBy(worker, numworks)
-        if state.work and worker and worker.components and worker.components.inventory
-           and worker == G.ThePlayer and (self.workleft or 0) > 0 then
-            numworks = self.workleft
-            if _wdbg < 5 then
-                _wdbg = _wdbg + 1
-                print("[omnidst/cheats] 秒砍伐生效 -> " .. tostring(self.inst and self.inst.prefab))
+do
+    local ok, WK = G.pcall(G.require, "components/workable")
+    if ok and WK and WK.WorkedBy_Internal then
+        local _wbi = WK.WorkedBy_Internal
+        function WK:WorkedBy_Internal(worker, numworks)
+            if state.work and worker ~= nil and worker.components and worker.components.inventory
+               and worker:HasTag("player") and (self.workleft or 0) > 0 then
+                numworks = self.workleft
+                if _wdbg < 5 then
+                    _wdbg = _wdbg + 1
+                    print("[omnidst/cheats] 秒砍伐生效 -> " .. tostring(self.inst and self.inst.prefab))
+                end
+            end
+            return _wbi(self, worker, numworks)
+        end
+        print("[omnidst/cheats] Workable:WorkedBy_Internal 已包裹")
+    end
+end
+
+----------------------------------------------------------------- 采集不出动作：把长/中/短动作压到 3 帧
+-- 采草/摘果/挖花/收割 走 SGwilson 的 dolongaction / domediumaction / doshortaction。
+AddStategraphPostInit("wilson", function(sg)
+    for _, sname in ipairs({ "dolongaction", "domediumaction", "doshortaction" }) do
+        local s = sg.states and sg.states[sname]
+        if s and s.onenter then
+            local _onenter = s.onenter
+            s.onenter = function(inst, ...)
+                _onenter(inst, ...)
+                if state.work and inst.sg and inst.sg.SetTimeout then
+                    inst.sg:SetTimeout(3 * (G.FRAMES or (1 / 30)))
+                end
             end
         end
-        return _WorkedBy(self, worker, numworks)
     end
 end)
 
