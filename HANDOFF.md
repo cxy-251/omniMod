@@ -377,3 +377,17 @@ equipslots。是个大件，下一轮做。
   - `branching`: default/most/least/never（storygen.lua）；`loop`: never/default/always
     （forest_map.lua，always → loop_percent=1.0 loop_target="end"）。
   - **只对新开的世界生效**（旧存档已生成的地图不变）。
+
+### v0.4.1 (2026-09-07) — 森林真闭环
+
+用户反馈：`loop="always"` 只让世界尽头**靠近**出生地、不连通。查 `storygen.lua`：
+`loop` 触发的是 `Story:SeperateStoryByBlanks(self.startNode, finalNode)` —— 它在两头之间
+塞一个 `GROUND.IMPASSABLE` 的 blank 节点（`ForceDisconnected` tag），所以是"近但有墙"。
+
+`modworldgenmain.lua` 覆写 `GLOBAL.Story.SeperateStoryByBlanks`：只拦"闭环"那次调用
+（`startnode == self.startNode`），改成 `self.rootNode:LockGraph(..., {type="none",
+key=KEYS.NONE})` 直接把出生节点和终点节点**接上**（可通行）→ 能绕圈走回出生地。
+lock/key 之间的隔断（第 334 行那次调用，startnode ≠ startNode）保持原样。
+
+`Story` 是全局 class（`Story = Class(...)` 无 local），`GLOBAL.require("map/storygen")`
+先让它就位再覆写。只对新世界生效。
