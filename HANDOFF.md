@@ -73,3 +73,25 @@ DST 改写要点：
 `~/Games/claude/omniDontStarveTogetherMod/`（与 omniMod / sc2Mod / omniDontStarveMod 同级），
 git 已 init。`modinfo.lua`（api 10，all_clients_require_mod）+ `modmain.lua`（`FEATURES={}`）
 + `scripts/omnidst/`。deploy 脚本待写（要处理 DST 的 mod 启用机制）。
+
+---
+
+## 更新 (2026-09-07)：改用原生 Linux 版 + 只做单人
+
+用户指出：DST 有原生 Linux 版，而且他 Steam 里就有这个游戏；他只单人玩，不需要联机功能。
+
+- **SD 卡上的 `014 - Don't Starve Together` 是 Windows 版**（`.exe`），只能 Proton 跑。
+  **弃用它**。已把它上面的 gbe 改动全部回退（`steam_api64.dll` 换回正版、删掉
+  `steam_settings/` 和 `steam_appid.txt`）。Windows 版的 gbe 文件还留在
+  `~/.klei/dst-omnideck-backup-*/gbe_fork-win-x64/` 备用。
+- **让用户从 Steam 重新下载 DST** → 会装到 `~/.local/share/Steam/steamapps/common/
+  Don't Starve Together/`（现在是空壳，Steam 会填满），是**原生 Linux 版**
+  （`bin64/dontstarve_steam_x64` ELF，不是 .exe）。
+- 下完之后：跟单机版一模一样的路子 —— **Linux .so 版 gbe_fork**（不是 Windows .dll）、
+  中文、`dst-omnideck-backup` 存正版 `.so`。可选：像 SC2/单机DS 那样复制成 SD 卡冻结副本
+  再脱离 Steam 管理（防自动更新破坏 mod/存档）。
+- **只做单人**：solo 自建房里 `TheWorld.ismastersim` 在客户端就是 true，`ThePlayer`
+  就是房主 —— **不用写 RPC**，作弊直接在 `ismastersim` 里改就行。功能移植大大简化，
+  跟单机版差别没那么大了（主要是 `TheWorld`/`ThePlayer` 命名 + 容器中心化）。
+
+**下一步**：等用户从 Steam 下完 DST（原生 Linux 版）。
