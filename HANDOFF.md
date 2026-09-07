@@ -95,3 +95,29 @@ git 已 init。`modinfo.lua`（api 10，all_clients_require_mod）+ `modmain.lua
   跟单机版差别没那么大了（主要是 `TheWorld`/`ThePlayer` 命名 + 容器中心化）。
 
 **下一步**：等用户从 Steam 下完 DST（原生 Linux 版）。
+
+---
+
+## 更新 (2026-09-07 #2)：用户重下 DST，Steam 又给了 Windows 版
+
+用户从 Steam 重新下载 DST 到 `FUCKDECK/steamapps/common/Don't Starve Together/`
+（4.4G，`appmanifest_322330.acf` StateFlags 4）。**但装的还是 Windows 版**：
+`InstalledDepots` = **322331**（DST Windows 内容库），带 `bin64/dontstarve_steam_x64.exe`
++ `DXRedist/` + `VCRedist/`。Linux 版应为 depot **322332**。
+
+原因：Deck 的「为所有其他游戏启用 Steam Play」全局开关，对有原生 Linux 版的游戏
+会让 Steam 抓 Windows 库、跳过 Linux 库。CompatToolMapping 里 322330 没有强制条目。
+
+**用户已决定：走原生 Linux 版。** 让用户在桌面模式：
+右键 DST → 属性 → 兼容性 → 勾「强制使用特定 Steam Play 兼容性工具」→ 选
+**「Steam Linux Runtime 3.0 (sniper)」**（不是 Proton）→ Steam 重下 depot 322332
+（~550M）。验证：`bin64/dontstarve_steam_x64` 是 ELF、无 DXRedist/VCRedist。
+
+下完后再做离线化（Linux `.so` gbe_fork，不是 win dll）。Windows gbe 备份仍在
+`~/.klei/dst-omnideck-backup-*/gbe_fork-win-x64/`。
+
+## 单机版 013 顺手瘦身
+
+删掉了 `013 - Don't Starve/_disabled_thirdparty_mods/`（39 个禁用的第三方 mod，
+132M，游戏不加载，创意工坊可重下）。013 现 3.2G，全为必要文件（data 3.1G = 本体
++ RoG/SW/Hamlet 三 DLC，bin 37M）。
