@@ -31,11 +31,13 @@ local function ring_forest(level)
     set_override(level, "branching", "never")   -- 必需任务连成一条链，无分支死路
     set_override(level, "islands", "never")      -- 各地区全部陆连，不隔孤岛
     set_override(level, "loop", "always")        -- 首尾闭合
-    -- 去掉可选任务 —— 它们是挂在主链上的"分支地区"。只留必需任务的那条链，
-    -- 闭合之后就是一圈地区、没有伸出去的枝杈（力导向布局会把闭合的链排成大致圆形）。
+    -- 去掉可选任务 —— 它们是挂在主链上的"分支地区"。
     level.numoptionaltasks = 0
     level.optionaltasks = {}
-    print("[omniDSM worldgen] 森林 -> 环形连通、去分支 (" .. tostring(level.id) .. ")")
+    -- 去掉每个地区外挂的 BG 填充房间（AddBGNodes，默认每区 0~2 个）—— 剩下的小枝杈
+    -- 大多是它。设 {0,0} 之后地区链更干净。
+    level.background_node_range = { 0, 0 }
+    print("[omniDSM worldgen] 森林 -> 环形连通、去分支去BG (" .. tostring(level.id) .. ")")
 end
 
 local function simple_cave(level)
