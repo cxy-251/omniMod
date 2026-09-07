@@ -18,21 +18,20 @@
 GLOBAL.setmetatable(env, { __index = function(_, k) return GLOBAL.rawget(GLOBAL, k) end })
 
 local MODNAME = "OmniDontStarveTogetherMod"
-local VERSION = "0.3.2"
+local VERSION = "0.4.0"
 
 local FEATURES = {
-    "nonet",       -- 断掉 MOTD / 更新检查等游戏自己发起的联网
+    "nonet",       -- 断掉 MOTD / 更新检查 / 数据上报
     "unlockall",   -- 角色本就全解锁；技能树全开
-    "cheats",      -- 地图全开/移速/免费建造/秒采伐/锁血/伤害/光照 —— 服务器侧
+    "cheats",      -- 地图全开/移速/免费建造/秒采伐/锁血/伤害/光照/生物血量 —— 服务器侧
     "cheatmenu",   -- 暂停菜单 → 作弊菜单（手柄+键鼠）
     "lazyforager", -- 橙色护符不掉耐久
+    "janitor",     -- 防崩：定时 GC + 左上角内存显示
+    "foodinfo",    -- 悬停食物 饥/血/智/鲜
+    "hovertip",    -- 悬停提示深色底
+    "cookstack",   -- 一锅煮整叠
+    "status",      -- 组合状态栏：徽章数字 + 天数/季节/温度
     -- "box",         -- 随身箱子（DST 容器走 containers.params + widgetsetup）
-    -- "janitor",     -- 防崩
-    -- "healthinfo",  -- 悬停生物血量（cheats 里已有简版）
-    -- "foodinfo",    -- 悬停食物数值
-    -- "hovertip",    -- 悬停底框
-    -- "cookstack",   -- 一锅煮整叠
-    -- "status",      -- 组合状态栏
     -- "worldgen",    -- 环形世界（modworldgenmain.lua）
 }
 
