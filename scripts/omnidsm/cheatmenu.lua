@@ -87,8 +87,6 @@ local CheatMenu = Class(Screen, function(self)
         { label = function() return "防崩  " .. onoff(st().janitor) end,
           act = function() G.omni_janitor(not st().janitor) end },
         { label = function() return "回理智" end, act = function() G.omni_sanity() end },
-        { label = function() return "全默认" end, act = function() G.omni_on() end },
-        { label = function() return "全关闭" end, act = function() G.omni_off() end },
         { label = function() return "返回"   end, act = function() self:Close() end },
     }
     self.cols = { { rows = LROWS }, { rows = RROWS } }
