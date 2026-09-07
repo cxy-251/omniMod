@@ -329,3 +329,18 @@ equipslots。是个大件，下一轮做。
 - **翻页 UI 黑夜看不清**：从"挂在 ContainerWidget 里（0.6 缩放、位置怪）"改成**挂在
   `doer.HUD.controls` 上、固定屏幕位置**（底部中间上方 205px），加**深色底 square.tex
   tint(0,0,0,.72)** + 白色亮字 + `<` `>` 用 TextButton（亮白、悬停变黄）。
+
+### v0.3.2 (2026-09-07) — 箱子布局四区 + 翻页条位置 + 悬停底框 + 开箱防打
+
+- **箱子四区十字布局**：`omni_box.lua` 从单一网格改成 **4 个区、每区 8×7**（共 224 格），
+  中间十字留 `GAP=46` 宽间隔（`cx/cy = q * (Q*STEP/2 + GAP/2)`）。`widgetpos` 上移到
+  `(0,110)` 给底部翻页条腾位置。
+- **翻页条挡住格子**：改到屏幕**底部中间**（`ANCHOR_BOTTOM`, `SetPosition(0,90)`），
+  bg 缩小到 220×40，在物品栏之上、箱子网格之下，不再压着格子。
+- **开箱不被打**：`boxpages.lua` 打开 omni_box 时给玩家 `AddTag("notarget")`，关闭时摘掉
+  （只摘自己加的，`_omni_added_notarget` 标记）。没用硬 `SetPause` —— 那会把"从箱子拿
+  东西"也一起卡住。
+- **悬停提示底框**（`hovertip.lua` 新模块）：`AddClassPostConstruct("widgets/hoverer")`
+  加半透明黑底 `square.tex` tint(0,0,0,.7)，`MoveToBack()`，在包装的 `OnUpdate` 里按
+  `text:GetRegionSize()` 调 size/pos。生命值/食物数值那些纯文字现在有底了。
+- 悬停格子放大是原版 `ItemTile` 行为，用户同意留着。

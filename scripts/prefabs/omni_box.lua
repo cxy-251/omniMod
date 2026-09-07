@@ -14,17 +14,24 @@ local assets = {
     Asset("ANIM", "anim/treasure_chest.zip"),
 }
 
-local COLS, ROWS = 14, 14
-local STEP = 72   -- 跟原版箱子槽距一致，悬停放大时不会挤到相邻格
+-- 四个区域，每区 QC×QR，中间十字留宽间隔。总格数 = 4 * QC * QR。
+local QC, QR = 8, 7
+local STEP   = 64     -- 单格间距（跟原版箱子接近，悬停放大不挤）
+local GAP    = 46     -- 十字额外间隔
 
--- 程序化生成 10×6 槽位坐标，居中
 local slotpos = {}
-for row = 0, ROWS - 1 do
-    for col = 0, COLS - 1 do
-        table.insert(slotpos, Vector3(
-            (col - (COLS - 1) / 2) * STEP,
-            ((ROWS - 1) / 2 - row) * STEP,
-            0))
+for _, qy in ipairs({ 1, -1 }) do        -- 上、下
+    for _, qx in ipairs({ -1, 1 }) do    -- 左、右
+        local cx = qx * (QC * STEP / 2 + GAP / 2)
+        local cy = qy * (QR * STEP / 2 + GAP / 2)
+        for r = 0, QR - 1 do
+            for c = 0, QC - 1 do
+                table.insert(slotpos, Vector3(
+                    cx + (c - (QC - 1) / 2) * STEP,
+                    cy + ((QR - 1) / 2 - r) * STEP,
+                    0))
+            end
+        end
     end
 end
 
@@ -93,7 +100,7 @@ local function fn(Sim)
     inst:AddComponent("container")
     inst.components.container:SetNumSlots(#slotpos)
     inst.components.container.widgetslotpos = slotpos
-    inst.components.container.widgetpos = Vector3(0, 60, 0)
+    inst.components.container.widgetpos = Vector3(0, 110, 0)  -- 往上挪，给底部翻页条留位置
     inst.components.container.side_align_tip = 0
     inst.components.container.type = "chest"
     inst.components.container.itemtestfn = itemtest
