@@ -20,7 +20,7 @@
 GLOBAL.setmetatable(env, { __index = function(_, k) return GLOBAL.rawget(GLOBAL, k) end })
 
 local MODNAME = "OmniDontStarveMod"
-local VERSION = "0.4.5"
+local VERSION = "0.5.0"
 
 -- ---- 自制预制物：随身箱子 ----
 PrefabFiles = { "omni_box" }
@@ -47,6 +47,7 @@ local FEATURES = {
     "status",        -- 组合状态栏：徽章精确数字 + 天数/季节/温度
     "boxpages",      -- 多箱翻页 + 开箱防打
     "hovertip",      -- 悬停提示加深色底框
+    "savedelete",    -- 主菜单加「删除存档」按钮
     -- "treeshake_bear",
 }
 

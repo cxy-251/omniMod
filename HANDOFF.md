@@ -407,3 +407,16 @@ lock/key 之间的隔断（第 334 行那次调用，startnode ≠ startNode）�
 （这俩是 level 顶层字段，不在 overrides 里）→ 只剩 7 个必需任务的链，闭合后是一圈地区。
 力导向布局会把闭合的链排成大致圆形。**不是几何上完美的同心圆** —— DS worldgen 的地区
 是有机块状，引擎做不到规则圆环；这是"无枝杈的连通环"能到的极限。
+
+### v0.5.0 (2026-09-07) — worldgen 收敛 + 删除存档按钮
+
+- **回退减枝杈的改动**（用户不要了，外环枝杈可存在）：删掉 `background_node_range={0,0}`、
+  `numoptionaltasks=0`/`optionaltasks={}`、`GenerateNodesFromTask` room_choices 压缩。
+  森林只保留：`branching=never` + `islands=never` + `loop=always` + `SeperateStoryByBlanks`
+  覆写（真闭环）。
+- **一张图里所有内容都生成**：`ring_forest` 设 `level.numoptionaltasks = #level.optionaltasks`
+  （之前误删了可选任务；现在 7 必需 + 全部 11 可选 = 18 个地区全上）。
+- **`savedelete.lua`（新）**：`AddClassPostConstruct("screens/mainscreen")` 包 `MainMenu`，
+  每次重建主菜单在末尾补一项「删除存档」→ 确认弹窗 → 循环
+  `SaveGameIndex:DeleteSlot(1..NUM_SAVE_SLOTS)`。（DS 本来在 主菜单→Play→选存档槽→
+  SlotDetailsScreen 里有 Delete，但用户找不到/流程没走到。）
