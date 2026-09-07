@@ -263,3 +263,20 @@ DST 在慢速存储上的固有表现，mod 层面能做的有限（地图全开
 
 用户已确认：花能采了 ✅ 技能没问题 ✅。待确认：生物血量(v0.3.2 新)、baloo 排除后
 磁盘是否正常。
+
+---
+
+## 更新 (2026-09-07 #6)：整机去索引 + 三个游戏搬到内置 SSD
+
+- **KDE baloo 文件索引器整机关闭**（`balooctl6 disable`）。它索引 `/home/deck/` 全部，
+  DST 每次存档 / 进出世界 baloo 都跟着重读整个存档目录 —— 这是 SD 卡上 40MB/s 持续读 +
+  卡顿的最大外部原因。跟 Windows Search Indexer 一回事，游戏机不需要。
+- **012 缺氧 / 013 饥荒单机 / 014 饥荒联机 从 SD 卡搬到内置 NVMe**：
+  `~/Games/omni-deck/steam_games/`（omni-deck 的 `SCRIPT_DIR/steam_games` 扫描路径，
+  DISPLAY_NAMES 已有这三个键，卡片名不变）。内置盘随机 IO 快一个数量级 —— DST 冷启动
+  `Load FE: done` 从 ~25s 降到 ~10s。
+- 废弃的 `014 - Don't Starve Together.WINDOWS-OLD`（4.2G）已删（gbe 备份仍在 backup 目录）。
+- 硬编码路径已更新：`omniMod/OmniMod.csproj` `_FrozenGameDir`、
+  `omniDontStarveMod/deploy.sh`+`undeploy.sh`、`omniDontStarveTogetherMod/deploy.sh`。
+  013 的 mod symlink 指向项目目录（未变），跟着游戏目录一起搬，仍有效。
+- 从新位置冒烟测试：DST 5 feature 全加载、gbe 起、进主菜单，一切正常。
