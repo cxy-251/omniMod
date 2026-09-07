@@ -33,6 +33,11 @@ if G.TheFrontEnd then
     G.TheFrontEnd.ShouldShowUpdateAvailable = function() return false end
 end
 
+-- 2b) 关掉数据统计上报（stats.lua 的 SendTrackingStats / RecordSessionStartStats 等
+--     都 `if not STATS_ENABLE then return`）—— 这就是开机那次 dst.metrics.klei.com 5 秒超时。
+G.STATS_ENABLE = false
+G.METRICS_ENABLED = false
+
 -- 3) 主菜单点 Play / 返回主菜单时会弹「连不上 Steam，是否离线游戏？」
 --    —— 我们永远离线玩，自动点「离线游戏」。
 --    识别方式：弹窗按钮里有 "Play Offline"（PLAYOFFLINE）这一项。

@@ -17,6 +17,7 @@ local G = GLOBAL
 local function unlock_skilltree(inst)
     if not (G.TheWorld and G.TheWorld.ismastersim) then return end
     if not (inst and inst:IsValid() and inst.prefab) then return end
+    if inst._omni_skills_done then return end   -- 每个角色实例只跑一次（每次 ActivateSkill 都写盘）
 
     local stu = inst.components.skilltreeupdater
     if stu == nil then return end   -- 该角色没有技能树组件
@@ -25,11 +26,25 @@ local function unlock_skilltree(inst)
     if not ok or not defs or not defs.SKILLTREE_DEFS then return end
     local tree = defs.SKILLTREE_DEFS[inst.prefab]
     if tree == nil then
+        inst._omni_skills_done = true
         print("[omnidst/unlockall] " .. tostring(inst.prefab) .. " 没有技能树，跳过")
         return
     end
 
-    -- 1) 关掉校验（实例的 skilltree 和全局 TheSkillTree 都要）
+    -- 已经点满就别再点了（避免重复写盘）
+    local activated = stu.GetActivatedSkills and stu:GetActivatedSkills() or nil
+    local total_real = 0
+    for _, sd in pairs(tree) do
+        if type(sd) == "table" and sd.rpc_id ~= nil then total_real = total_real + 1 end
+    end
+    local have = 0
+    if activated then for _ in pairs(activated) do have = have + 1 end end
+    if total_real > 0 and have >= total_real then
+        inst._omni_skills_done = true
+        return
+    end
+
+    -- 1) 关掉校验
     if stu.SetSkipValidation then stu:SetSkipValidation(true) end
     if stu.skilltree then stu.skilltree.skip_validation = true end
     if G.TheSkillTree then G.TheSkillTree.skip_validation = true end
@@ -47,13 +62,13 @@ local function unlock_skilltree(inst)
             if okk then n = n + 1 end
         end
     end
+    inst._omni_skills_done = true
     print(("[omnidst/unlockall] %s 技能树已全开（%d 个技能）"):format(inst.prefab, n))
 end
 
 AddPlayerPostInit(function(inst)
-    inst:DoTaskInTime(2, unlock_skilltree)
-    inst:DoTaskInTime(6, unlock_skilltree)   -- 兜底：第一次可能 skilltree 还没换成 TheSkillTree
-    inst:ListenForEvent("ms_respawnedfromghost", function() inst:DoTaskInTime(1, unlock_skilltree) end)
+    inst:DoTaskInTime(3, unlock_skilltree)
+    inst:DoTaskInTime(8, unlock_skilltree)   -- 兜底：第一次可能 skilltree 还没换成 TheSkillTree（有 done 标记，不会重复干活）
 end)
 
 -- 控制台手动补一发

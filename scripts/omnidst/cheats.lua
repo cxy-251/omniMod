@@ -30,18 +30,19 @@ local function is_server() return G.TheWorld ~= nil and G.TheWorld.ismastersim e
 local function me() return G.ThePlayer end
 
 ----------------------------------------------------------------- 地图全开
-local _last_reveal = 0
+-- 地图全开：只在「本次世界会话」里做一次。反复全图 RevealArea 会让小地图纹理
+-- 一直重刷 + 频繁写盘（SD 卡上很卡），所以做完就打标记，不再重复。
+local _revealed_world = nil
 local function apply_map(force)
     if not state.map then return end
     local p = me()
     if not (p and p.player_classified and p.player_classified.MapExplorer) then return end
     local map = G.TheWorld and G.TheWorld.Map
     if not map then return end
-    local now = (G.GetTime and G.GetTime()) or 0
-    if not force and (now - _last_reveal) < 5 then return end
-    _last_reveal = now
+    if not force and _revealed_world == G.TheWorld then return end
+    _revealed_world = G.TheWorld
     local w, h = map:GetSize()
-    local step = 8
+    local step = 10
     local TGM = G.TileGroupManager
     for tx = 0, w, step do
         for ty = 0, h, step do
@@ -52,6 +53,7 @@ local function apply_map(force)
             end
         end
     end
+    print("[omnidst/cheats] 地图已全开（本次会话一次性）")
 end
 
 ----------------------------------------------------------------- 玩家属性
@@ -88,6 +90,15 @@ local function apply_player(p)
         local eff = state.work and 999 or nil
         for _, a in ipairs({ G.ACTIONS.CHOP, G.ACTIONS.MINE, G.ACTIONS.HAMMER, G.ACTIONS.DIG }) do
             if a then wk:SetAction(a, eff or 1) end
+        end
+    end
+
+    -- 采集提速：挂 / 摘 游戏自带的快速采集 tag（不打断动作，安全）
+    for _, tag in ipairs(FAST_TAGS) do
+        if state.work then
+            if not p:HasTag(tag) then p:AddTag(tag) end
+        else
+            if p:HasTag(tag) then p:RemoveTag(tag) end
         end
     end
 
@@ -137,22 +148,10 @@ do
     end
 end
 
------------------------------------------------------------------ 采集不出动作：把长/中/短动作压到 3 帧
--- 采草/摘果/挖花/收割 走 SGwilson 的 dolongaction / domediumaction / doshortaction。
-AddStategraphPostInit("wilson", function(sg)
-    for _, sname in ipairs({ "dolongaction", "domediumaction", "doshortaction" }) do
-        local s = sg.states and sg.states[sname]
-        if s and s.onenter then
-            local _onenter = s.onenter
-            s.onenter = function(inst, ...)
-                _onenter(inst, ...)
-                if state.work and inst.sg and inst.sg.SetTimeout then
-                    inst.sg:SetTimeout(3 * (G.FRAMES or (1 / 30)))
-                end
-            end
-        end
-    end
-end)
+-- 采集提速：不动 SGwilson 的 state 计时（那会打断 doshortaction 第 6 帧的
+-- PerformBufferedAction，导致「花/胡萝卜采集不了」）。改成给玩家挂上游戏自带的
+-- 快速采集 tag —— 采草/摘果/挖花走 doshortaction（约 6 帧完成），农作物走 domediumaction。
+local FAST_TAGS = { "fastpicker", "farmplantfastpicker", "quagmire_fasthands" }
 
 ----------------------------------------------------------------- 生物血量悬停显示（简版）
 do
@@ -226,15 +225,14 @@ end
 AddSimPostInit(function()
     if not is_server() then return end
     if G.TheWorld and G.TheWorld.DoTaskInTime then
-        G.TheWorld:DoTaskInTime(1, apply_all)
-        G.TheWorld:DoTaskInTime(4, apply_all)
-        G.TheWorld:DoPeriodicTask(30, function() apply_map(false) end)
+        G.TheWorld:DoTaskInTime(2, apply_all)
+        G.TheWorld:DoTaskInTime(6, function() apply_player() end)
     end
 end)
 AddPlayerPostInit(function(p)
     if p and p.DoTaskInTime then
-        p:DoTaskInTime(1, function() apply_player(p) end)
-        p:DoTaskInTime(3, function() apply_player(p); apply_map(true) end)
+        p:DoTaskInTime(2, function() apply_player(p) end)
+        p:DoTaskInTime(5, function() apply_player(p); apply_map(false) end)
     end
 end)
 
