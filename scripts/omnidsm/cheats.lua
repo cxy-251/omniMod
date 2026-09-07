@@ -9,6 +9,7 @@
     omni_work(true/false)  秒砍伐/秒挖矿/秒锤/秒挖 + 采集不出动作（一下完成）  （默认 开）
     omni_hp(true/false)    生命下限锁 10    （默认 开；能掉血但不会低于 10）
     omni_dmg(n)            伤害倍率         （默认 3；omni_dmg(1) 恢复正常）
+    omni_full()            血 / 饱食 / 理智 一键回满
     omni_off() / omni_on() 全关 / 全恢复默认
 
   随身箱子在 建造栏 → 生存 里造（不是控制台）。
@@ -136,6 +137,15 @@ G.omni_tech  = function(on) state.tech  = (on ~= false);      apply_player(); G.
 G.omni_work  = function(on) state.work  = (on ~= false);      G.omni() end
 G.omni_hp    = function(on) state.hp    = (on ~= false);      apply_player(); G.omni() end
 G.omni_dmg   = function(n)  state.dmg   = G.tonumber(n) or 1; apply_player(); G.omni() end
+G.omni_full = function()
+    local p = player()
+    if not (p and p.components) then print("[omni] 没有玩家") return end
+    for _, name in ipairs({ "health", "hunger", "sanity" }) do
+        local c = p.components[name]
+        if c and c.SetPercent then c:SetPercent(1) end
+    end
+    print("[omni] 血 / 饱食 / 理智 已回满")
+end
 G.omni_off = function()
     state.map, state.speed, state.tech, state.work, state.hp, state.dmg = false, 1, false, false, false, 1
     apply_player(); G.omni()
