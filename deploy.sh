@@ -3,7 +3,7 @@
 # 改代码即时生效（symlink，不复制）。撤销用 ./undeploy.sh。
 set -e
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GAME="/run/media/deck/FUCKDECK/standalone_games/steam_games/013 - Don't Starve"
+GAME="/home/deck/Games/omni-deck/steam_games/013 - Don't Starve"
 DEST="$GAME/mods/omniDontStarveMod"
 MS="$GAME/mods/modsettings.lua"
 

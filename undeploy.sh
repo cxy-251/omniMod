@@ -1,7 +1,7 @@
 #!/bin/bash
 # 撤销 deploy.sh：移除 symlink + modsettings.lua 里的 ForceEnableMod 行。
 set -e
-GAME="/run/media/deck/FUCKDECK/standalone_games/steam_games/013 - Don't Starve"
+GAME="/home/deck/Games/omni-deck/steam_games/013 - Don't Starve"
 DEST="$GAME/mods/omniDontStarveMod"
 MS="$GAME/mods/modsettings.lua"
 
