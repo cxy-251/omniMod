@@ -9,6 +9,8 @@
     omni_work(true/false)  秒砍伐/秒挖矿/秒锤/秒挖 + 采集不出动作（一下完成）  （默认 开）
     omni_hp(true/false)    生命下限锁 10    （默认 开；能掉血但不会低于 10）
     omni_dmg(n)            伤害倍率         （默认 3；omni_dmg(1) 恢复正常）
+    omni_light(true/false) 身上永久光照     （默认 开）
+    omni_hpbar(true/false) 鼠标指到生物显示血量/攻击  （默认 开）
     omni_sanity()          理智一键回满
     omni_off() / omni_on() 全关 / 全恢复默认
 
@@ -20,7 +22,8 @@
 
 local G = GLOBAL
 
-local state = { map = true, speed = 2, tech = true, work = true, hp = true, dmg = 3 }
+local state = { map = true, speed = 2, tech = true, work = true, hp = true, dmg = 3,
+                light = true, hpbar = true, janitor = true }
 local HP_FLOOR   = 10
 local TECH_BONUS = 10
 
@@ -73,6 +76,36 @@ local function apply_player()
         local eff = state.work and 999 or 0
         for _, a in ipairs({ G.ACTIONS.CHOP, G.ACTIONS.MINE, G.ACTIONS.HAMMER, G.ACTIONS.DIG }) do
             if a then wk:SetAction(a, eff) end
+        end
+    end
+
+    -- 身上永久光照
+    if not p.Light and p.entity and p.entity.AddLight then p.entity:AddLight() end
+    if p.Light then
+        p.Light:SetFalloff(0.6)
+        p.Light:SetIntensity(0.75)
+        p.Light:SetRadius(state.light and 6 or 0)
+        p.Light:SetColour(1, 1, 1)
+        p.Light:Enable(state.light and true or false)
+    end
+end
+
+-- ---- 鼠标指到生物显示血量/攻击（改写 GetDisplayName，一次性，靠 state.hpbar 开关）----
+do
+    local ES = G.EntityScript
+    if ES and ES.GetDisplayName then
+        local _gdn = ES.GetDisplayName
+        function ES:GetDisplayName(...)
+            local name = _gdn(self, ...)
+            if state.hpbar and type(name) == "string" and self ~= player()
+               and self.components and self.components.health then
+                local hc = self.components.health
+                local dmg = self.components.combat and self.components.combat.defaultdamage or 0
+                name = string.format("%s  [%d/%d]%s", name,
+                    math.floor(hc.currenthealth + 0.5), math.floor(hc.maxhealth + 0.5),
+                    dmg > 0 and ("  攻" .. math.floor(dmg)) or "")
+            end
+            return name
         end
     end
 end
@@ -128,8 +161,9 @@ end)
 -- ---- 控制台指令（挂全局）----
 G.omni = function()
     print(string.format(
-        "[omni] 地图=%s 速度x%s 免费建造=%s 秒砍伐=%s 锁血(>=%d)=%s 伤害x%s",
-        fmt(state.map), fmt(state.speed), fmt(state.tech), fmt(state.work), HP_FLOOR, fmt(state.hp), fmt(state.dmg)))
+        "[omni] 地图=%s 速度x%s 免费建造=%s 秒砍伐=%s 锁血(>=%d)=%s 伤害x%s 光照=%s 血量显示=%s 防崩=%s",
+        fmt(state.map), fmt(state.speed), fmt(state.tech), fmt(state.work), HP_FLOOR, fmt(state.hp),
+        fmt(state.dmg), fmt(state.light), fmt(state.hpbar), fmt(state.janitor)))
 end
 G.omni_map   = function(on) state.map   = (on ~= false);      apply_all();    G.omni() end
 G.omni_speed = function(n)  state.speed = G.tonumber(n) or 1; apply_player(); G.omni() end
@@ -137,6 +171,9 @@ G.omni_tech  = function(on) state.tech  = (on ~= false);      apply_player(); G.
 G.omni_work  = function(on) state.work  = (on ~= false);      G.omni() end
 G.omni_hp    = function(on) state.hp    = (on ~= false);      apply_player(); G.omni() end
 G.omni_dmg   = function(n)  state.dmg   = G.tonumber(n) or 1; apply_player(); G.omni() end
+G.omni_light = function(on) state.light = (on ~= false);     apply_player(); G.omni() end
+G.omni_hpbar = function(on) state.hpbar = (on ~= false);                    G.omni() end
+G.omni_janitor = function(on) state.janitor = (on ~= false);               G.omni() end
 G.omni_sanity = function()
     local p = player()
     if not (p and p.components and p.components.sanity) then print("[omni] 没有玩家") return end
@@ -145,10 +182,12 @@ G.omni_sanity = function()
 end
 G.omni_off = function()
     state.map, state.speed, state.tech, state.work, state.hp, state.dmg = false, 1, false, false, false, 1
+    state.light, state.hpbar, state.janitor = false, false, false
     apply_player(); G.omni()
 end
 G.omni_on = function()
     state.map, state.speed, state.tech, state.work, state.hp, state.dmg = true, 2, true, true, true, 3
+    state.light, state.hpbar, state.janitor = true, true, true
     apply_all(); G.omni()
 end
 

@@ -53,14 +53,14 @@ local CheatMenu = Class(Screen, function(self)
 
     self.bg = self.root:AddChild(Image("images/globalpanels.xml", "small_dialog.tex"))
     self.bg:SetVRegPoint(G.ANCHOR_MIDDLE); self.bg:SetHRegPoint(G.ANCHOR_MIDDLE)
-    self.bg:SetScale(2.0, 2.3, 1)
+    self.bg:SetScale(2.0, 2.9, 1)
 
-    self.title = self.root:AddChild(Text(G.TITLEFONT, 42))
-    self.title:SetPosition(0, 235, 0)
+    self.title = self.root:AddChild(Text(G.TITLEFONT, 40))
+    self.title:SetPosition(0, 275, 0)
     self.title:SetString("作弊菜单")
 
     self.hint = self.root:AddChild(Text(G.BUTTONFONT, 20))
-    self.hint:SetPosition(0, -260, 0)
+    self.hint:SetPosition(0, -300, 0)
     self.hint:SetColour(0.8, 0.8, 0.8, 1)
     self.hint:SetString("上下/鼠标 选择    A/左键 切换    B/Esc 返回")
 
@@ -78,6 +78,12 @@ local CheatMenu = Class(Screen, function(self)
           act = function() G.omni_hp(not st().hp) end },
         { label = function() return "伤害倍率  x" .. tostring(st().dmg) end,
           act = function() G.omni_dmg(cycle(DMG_PRESETS, st().dmg)) end },
+        { label = function() return "身上光照  " .. onoff(st().light) end,
+          act = function() G.omni_light(not st().light) end },
+        { label = function() return "生物血量显示  " .. onoff(st().hpbar) end,
+          act = function() G.omni_hpbar(not st().hpbar) end },
+        { label = function() return "防崩管家  " .. onoff(st().janitor) end,
+          act = function() G.omni_janitor(not st().janitor) end },
         { label = function() return "回复理智" end, act = function() G.omni_sanity() end },
         { label = function() return "全部默认" end, act = function() G.omni_on() end },
         { label = function() return "全部关闭" end, act = function() G.omni_off() end },
@@ -89,8 +95,8 @@ local CheatMenu = Class(Screen, function(self)
         items[i] = { text = r.label(), cb = function() r.act(); self:Refresh() end }
     end
 
-    self.menu = self.root:AddChild(Menu(items, -42, false))
-    self.menu:SetPosition(0, 190, 0)
+    self.menu = self.root:AddChild(Menu(items, -40, false))
+    self.menu:SetPosition(0, 235, 0)
     self.menu:SetTextSize(30)
     self.default_focus = self.menu
     self.menu:SetFocus(1)

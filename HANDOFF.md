@@ -264,3 +264,18 @@ equipslots。是个大件，下一轮做。
   堆满了继续找 / 走原逻辑。perishable 的顺带 `SetPercent(1)`。
   `boxes_of` 加了 `include_open` 参数（合成那三个方法仍跳过已打开的箱子避免重复计数，
   GiveItem 这里连打开的也算）。
+
+### v0.2.0 (2026-09-07) — 防崩管家 + 永久光照 + 生物血量
+
+- **回复理智**：`omni_full` 改回 `omni_sanity`（只回理智），菜单「回复理智」。
+- **身上永久光照**（`cheats.lua` `state.light`，默认开，`omni_light`）：`apply_player` 里
+  `p.entity:AddLight()`（若无）+ SetRadius 6 / Intensity .75 / Enable。跨世界重套。
+- **生物血量显示**（`cheats.lua` `state.hpbar`，默认开，`omni_hpbar`）：抄 Health Info Plus
+  的思路 —— 一次性包 `GLOBAL.EntityScript.GetDisplayName`，鼠标指到有 health 的生物时在
+  名字后面拼 `[cur/max] 攻X`。跳过玩家自己。
+- **防崩管家**（`janitor.lua` 新模块，`state.janitor` 默认开，`omni_janitor`）：
+  `AddSimPostInit` 里挂世界的周期任务 —— 每 30s `collectgarbage("collect")`；
+  每 180s `sweep()` 只删远处(>50)纯垃圾（`persists==false` 的 FX / `ash` /
+  远处彻底腐烂没主的东西，跳过 irreplaceable）；左上角 `Text` 显示 `Lua NN MB · M 分`，
+  >200MB 变红加「建议存盘重进」。HUD 重建后 `ensure_hud` 会重新挂。
+- 菜单加到 13 行，面板放大到 2.0×2.9、行距 40、标题 y=275。
