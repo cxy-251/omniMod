@@ -14,6 +14,20 @@
 
 local G = GLOBAL
 
+-- ★ 关键：把「可分配技能点」改成一个大数。
+--   否则激活全部技能（比如威尔逊 26 个）会超过 15 点上限，
+--   回到世界时 ValidateCharacterData 会以「Too many allocated points 26 > 15」
+--   把技能全清掉，还会反复写盘。改了它，全技能就能存档、能过图。
+do
+    local ok, STData = G.pcall(G.require, "skilltreedata")
+    if ok and STData and STData.GetPointsForSkillXP then
+        function STData:GetPointsForSkillXP(skillxp)
+            return 999
+        end
+        print("[omnidst/unlockall] SkillTreeData:GetPointsForSkillXP 已放开（技能点无上限）")
+    end
+end
+
 local function unlock_skilltree(inst)
     if not (G.TheWorld and G.TheWorld.ismastersim) then return end
     if not (inst and inst:IsValid() and inst.prefab) then return end

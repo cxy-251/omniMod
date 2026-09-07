@@ -29,6 +29,9 @@ local HP_FLOOR = 10
 local function is_server() return G.TheWorld ~= nil and G.TheWorld.ismastersim end
 local function me() return G.ThePlayer end
 
+-- 采集提速用：游戏自带的快速采集 tag（采草/摘果/挖花 -> doshortaction，农作物 -> domediumaction）
+local FAST_TAGS = { "fastpicker", "farmplantfastpicker", "quagmire_fasthands" }
+
 ----------------------------------------------------------------- 地图全开
 -- 地图全开：只在「本次世界会话」里做一次。反复全图 RevealArea 会让小地图纹理
 -- 一直重刷 + 频繁写盘（SD 卡上很卡），所以做完就打标记，不再重复。
@@ -148,10 +151,8 @@ do
     end
 end
 
--- 采集提速：不动 SGwilson 的 state 计时（那会打断 doshortaction 第 6 帧的
--- PerformBufferedAction，导致「花/胡萝卜采集不了」）。改成给玩家挂上游戏自带的
--- 快速采集 tag —— 采草/摘果/挖花走 doshortaction（约 6 帧完成），农作物走 domediumaction。
-local FAST_TAGS = { "fastpicker", "farmplantfastpicker", "quagmire_fasthands" }
+-- （采集提速改用 FAST_TAGS，见文件顶部 + apply_player。不动 SGwilson 计时，
+--   那会打断 doshortaction 第 6 帧的 PerformBufferedAction，导致花/胡萝卜采集不了。）
 
 ----------------------------------------------------------------- 生物血量悬停显示（简版）
 do
@@ -222,17 +223,19 @@ G.omni_on = function()
 end
 
 ----------------------------------------------------------------- 每次世界/角色加载后重套
+-- 全部用 pcall 包一层：万一以后哪里写错了，也不会每帧刷一屏 Lua 报错把日志写爆盘。
+local function safe(f, ...) local ok, e = G.pcall(f, ...); if not ok then print("[omnidst/cheats] !", tostring(e)) end end
+
 AddSimPostInit(function()
     if not is_server() then return end
     if G.TheWorld and G.TheWorld.DoTaskInTime then
-        G.TheWorld:DoTaskInTime(2, apply_all)
-        G.TheWorld:DoTaskInTime(6, function() apply_player() end)
+        G.TheWorld:DoTaskInTime(3, function() safe(apply_all) end)
     end
 end)
 AddPlayerPostInit(function(p)
     if p and p.DoTaskInTime then
-        p:DoTaskInTime(2, function() apply_player(p) end)
-        p:DoTaskInTime(5, function() apply_player(p); apply_map(false) end)
+        p:DoTaskInTime(3, function() safe(apply_player, p) end)
+        p:DoTaskInTime(6, function() safe(apply_player, p); safe(apply_map, false) end)
     end
 end)
 

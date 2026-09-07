@@ -18,7 +18,7 @@
 GLOBAL.setmetatable(env, { __index = function(_, k) return GLOBAL.rawget(GLOBAL, k) end })
 
 local MODNAME = "OmniDontStarveTogetherMod"
-local VERSION = "0.3.0"
+local VERSION = "0.3.1"
 
 local FEATURES = {
     "nonet",       -- 断掉 MOTD / 更新检查等游戏自己发起的联网
