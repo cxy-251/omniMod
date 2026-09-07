@@ -178,3 +178,56 @@ stock 脚本存 backup 的 `dontstarve.bin64.stock`。
 单人自建房 → `TheWorld.ismastersim` 客户端为 true，`ThePlayer` 即房主，**不用 RPC**。
 顺序建议：cheats（服务器侧改组件）→ cheatmenu（客户端 Screen）→ box（containers.params）
 → janitor → worldgen（`SURVIVAL_TOGETHER`）。unlockchars 不需要（DST 默认全解锁）。
+
+---
+
+## 更新 (2026-09-07 #4)：功能移植 batch 1 + 两个大坑
+
+### 坑 1：DST 引擎不加载「跨盘符号链接」的 mod 目录
+`mods/omniDontStarveTogetherMod` 原来是 symlink → `/home/deck/Games/claude/...`（SD 卡
+指向内置盘）。DST 引擎扫 `mods/` 时不解析这种跨文件系统的软链，`LoadModInfo` 拿不到
+modinfo → `known_mods[mod]` 为空 → `GetModsToLoad` 里 force-enable 的 mod「isn't known」
+→ 撞上 DST 自己的 bug（`mainfunctions.lua:1638 known_error_key is not declared`，
+gamelogic 还没加载）→ `Error during game initialization` 整个起不来。
+**解法**：`mods/omniDontStarveTogetherMod` 改成**真实目录**，项目里加 `deploy.sh`
+（rsync 排除 .git/*.md），每次改完 mod 跑一下 `./deploy.sh`。
+（附带教训：不要手删 `client_save/modindex` —— DST 的 `ModIndex:Load` 只在成功读到旧
+index 时才 `UpdateModInfo()` 重扫，没有 index + 有 force-enable mod = 同样的崩。）
+
+### 坑 2：退服/返回主菜单卡在加载页（+ 洞穴分片连不上）
+DST「建游戏」带洞穴 = Master + Caves 两个 server 子进程，走 127.0.0.1:10888 互连。
+离线环境下第一次能连上、能玩，但**客户端退回主菜单时 `DoRestart` 卡死**
+（`[IPC] Sending signal` 后无响应），留下僵尸 server 进程 + `/dev/shm/sem.DST_*` 信号量，
+导致**下一次启动 Caves 分片连不上 Master**（`Connection to master failed` 死循环）。
+**已处理**：
+- 现有世界 `cluster.ini` 改 `shard_enabled = false`、`Caves/` 目录改名挪走 →
+  **单分片无洞穴**，彻底没有分片联网/退出等待。
+- `bin64/dontstarve` wrapper 开头加：`pkill -9` 残留 dontstarve 进程 +
+  `rm -f /dev/shm/sem.DST_* /dev/shm/DST_*`，防上次卡死污染下次启动。
+- gbe `configs.main.ini` 精简为只留 `offline=1`（去掉 disable_networking /
+  disable_lobby_creation / disable_source_query —— 会让退服等一个永不返回的回调）。
+- **给用户的建议**：离开游戏用「退出到桌面」，别用「返回主菜单/断开连接」；
+  omni-deck 按钮重新进。洞穴以后单独再搞（多分片 + 离线 = 麻烦）。
+
+### batch 1 已移植（v0.1.0，`FEATURES` 里已开 4 个）
+- `nonet.lua` —— 禁用 MotdManager（主菜单公告板不再联网 5s 超时重试）+ 关更新提示。
+- `unlockall.lua` —— 角色本就全解锁（DST playerprofile 没有 IsCharacterUnlocked）；
+  技能树：`skilltreeupdater` 上 `skip_validation=true` + 灌满 SKILL_THRESHOLDS 经验 +
+  遍历 `SKILLTREE_DEFS[prefab]` 激活所有有 rpc_id 的技能。玩家生成后 +2s/+6s 跑，
+  过图/复活重跑。控制台 `omni_skills()` 手动补。
+- `cheats.lua` —— 服务器侧（ismastersim）：地图全开（遍历 TheWorld.Map 的 tile 调
+  `player_classified.MapExplorer:RevealArea`）、移速（`locomotor:SetExternalSpeedMultiplier`）、
+  免费建造（`builder.freebuildmode`）、秒砍伐（包 `Workable:WorkedBy`）、worker 效率、
+  锁血下限 10（`health:SetMinHealth`）、伤害倍率（包 `Combat:CalcDamage`）、身上光照、
+  生物血量悬停（包 `EntityScript:GetDisplayName` 简版）。控制台 `omni` / `omni_*`。
+  `G.OMNIDST = {state, ...}`。
+- `cheatmenu.lua` —— `AddClassPostConstruct("screens/redux/pausescreen")` 往暂停菜单
+  加「作弊菜单」项；`CheatMenu` = 两列 TextButton 的 Screen，手柄焦点连线。
+
+**冒烟测试**：4 个 feature 全部 `loaded`，无报错，进到主菜单。
+**还没验证**：进世界后各作弊是否真生效、技能树是否真点满、作弊菜单 UI 是否正常 ——
+需要用户实际游玩确认。
+
+### 待移植 batch 2/3
+box（DST 容器 `containers.params`）、janitor、healthinfo/foodinfo/hovertip、cookstack、
+status、worldgen（`SURVIVAL_TOGETHER`）。

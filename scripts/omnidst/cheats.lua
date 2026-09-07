@@ -1,0 +1,220 @@
+--[[ 一组作弊功能（联机版）。全部**默认打开**。作弊菜单或控制台 omni_* 调整。
+     （modimport 加载，跑在 mod 环境）
+
+  ★ 联机版：改世界/组件的东西只在服务器跑（TheWorld.ismastersim）。单人自建房里
+    客户端就是服务器，ThePlayer 就是房主，所以直接改即可。
+
+  控制台（~ 键）：
+    omni()                查看所有状态
+    omni_map(bool)        地图全开             （默认 开）
+    omni_speed(n)         行走速度倍率          （默认 2）
+    omni_tech(bool)       免费建造（所有东西直接造，不要材料）（默认 开）
+    omni_work(bool)       秒砍/秒挖/秒锤/秒挖   （默认 开）
+    omni_hp(bool)         生命下限锁 10         （默认 开）
+    omni_dmg(n)           伤害倍率              （默认 10）
+    omni_light(bool)      身上永久光照          （默认 开）
+    omni_hpbar(bool)      鼠标指到生物显示血量  （默认 开）
+    omni_sanity()         理智一键回满
+    omni_health()         生命一键回满
+    omni_hunger()         饱食一键回满
+    omni_off() / omni_on()  全关 / 全恢复默认
+]]
+
+local G = GLOBAL
+
+local state = { map = true, speed = 2, tech = true, work = true, hp = true, dmg = 10,
+                light = true, hpbar = true, janitor = true }
+local HP_FLOOR = 10
+
+local function is_server() return G.TheWorld ~= nil and G.TheWorld.ismastersim end
+local function me() return G.ThePlayer end
+
+----------------------------------------------------------------- 地图全开
+local _last_reveal = 0
+local function apply_map(force)
+    if not state.map then return end
+    local p = me()
+    if not (p and p.player_classified and p.player_classified.MapExplorer) then return end
+    local map = G.TheWorld and G.TheWorld.Map
+    if not map then return end
+    local now = (G.GetTime and G.GetTime()) or 0
+    if not force and (now - _last_reveal) < 5 then return end
+    _last_reveal = now
+    local w, h = map:GetSize()
+    local step = 8
+    local TGM = G.TileGroupManager
+    for tx = 0, w, step do
+        for ty = 0, h, step do
+            local tile = map:GetTile(tx, ty)
+            if not TGM or not TGM:IsInvalidTile(tile) then
+                local x, _, z = map:GetTileCenterPoint(tx, ty)
+                p.player_classified.MapExplorer:RevealArea(x, 0, z)
+            end
+        end
+    end
+end
+
+----------------------------------------------------------------- 玩家属性
+local function apply_player(p)
+    p = p or me()
+    if not (p and p.components) then return end
+
+    -- 行走速度：用外部倍率，干净、不会被每帧重算冲掉
+    local lm = p.components.locomotor
+    if lm and lm.SetExternalSpeedMultiplier then
+        lm:SetExternalSpeedMultiplier(p, "omnidst_speed", state.speed or 1)
+    elseif lm then
+        lm._omni_base = lm._omni_base or lm.runspeed
+        lm.runspeed = lm._omni_base * (state.speed or 1)
+    end
+
+    -- 免费建造：赋值会触发 builder 的属性 setter，同步到 replica，制作栏全部点亮
+    local b = p.components.builder
+    if b then
+        if b.freebuildmode ~= (state.tech and true or false) then
+            b.freebuildmode = state.tech and true or false
+        end
+        if b.EvaluateTechTrees then b:EvaluateTechTrees() end
+        p:PushEvent("techlevelchange")
+    end
+
+    -- 生命下限
+    local h = p.components.health
+    if h and h.SetMinHealth then h:SetMinHealth(state.hp and HP_FLOOR or 0) end
+
+    -- 秒砍伐：把玩家 worker 各工作效率拉满
+    local wk = p.components.worker
+    if wk and wk.SetAction and G.ACTIONS then
+        local eff = state.work and 999 or nil
+        for _, a in ipairs({ G.ACTIONS.CHOP, G.ACTIONS.MINE, G.ACTIONS.HAMMER, G.ACTIONS.DIG }) do
+            if a then wk:SetAction(a, eff or 1) end
+        end
+    end
+
+    -- 身上永久光照（本地视觉，单人房同进程直接加）
+    if not p.Light and p.entity and p.entity.AddLight then p.entity:AddLight() end
+    if p.Light then
+        p.Light:SetFalloff(0.6)
+        p.Light:SetIntensity(0.75)
+        p.Light:SetRadius(state.light and 6 or 0)
+        p.Light:SetColour(1, 1, 1)
+        p.Light:Enable(state.light and true or false)
+    end
+end
+
+----------------------------------------------------------------- 伤害倍率
+AddComponentPostInit("combat", function(Combat)
+    local _Calc = Combat.CalcDamage
+    function Combat:CalcDamage(target, weapon, multiplier)
+        local d = _Calc(self, target, weapon, multiplier)
+        if state.dmg and state.dmg ~= 1 and d and d > 0 and self.inst == G.ThePlayer then
+            d = d * state.dmg
+        end
+        return d
+    end
+end)
+
+----------------------------------------------------------------- 秒砍伐 / 秒挖矿
+local _wdbg = 0
+AddComponentPostInit("workable", function(Workable)
+    local _WorkedBy = Workable.WorkedBy
+    function Workable:WorkedBy(worker, numworks)
+        if state.work and worker and worker.components and worker.components.inventory
+           and worker == G.ThePlayer and (self.workleft or 0) > 0 then
+            numworks = self.workleft
+            if _wdbg < 5 then
+                _wdbg = _wdbg + 1
+                print("[omnidst/cheats] 秒砍伐生效 -> " .. tostring(self.inst and self.inst.prefab))
+            end
+        end
+        return _WorkedBy(self, worker, numworks)
+    end
+end)
+
+----------------------------------------------------------------- 生物血量悬停显示（简版）
+do
+    local ES = G.EntityScript
+    if ES and ES.GetDisplayName then
+        local _gdn = ES.GetDisplayName
+        function ES:GetDisplayName(...)
+            local name = _gdn(self, ...)
+            if state.hpbar and type(name) == "string" and self ~= G.ThePlayer
+               and self.components and self.components.health then
+                local hc = self.components.health
+                local cur = hc.currenthealth or (hc.GetCurrent and hc:GetCurrent()) or 0
+                local mx  = hc.maxhealth or (hc.GetMaxWithPenalty and hc:GetMaxWithPenalty()) or 0
+                if mx > 0 then
+                    local atk = self.components.combat and self.components.combat.defaultdamage or 0
+                    name = string.format("%s  [%d/%d]%s", name,
+                        math.floor(cur + 0.5), math.floor(mx + 0.5),
+                        atk > 0 and ("  攻" .. math.floor(atk)) or "")
+                end
+            end
+            return name
+        end
+    end
+end
+
+----------------------------------------------------------------- 应用 / 控制台
+local function apply_all()
+    apply_map(true)
+    apply_player()
+end
+
+local function fmt(v)
+    if type(v) == "boolean" then return v and "开" or "关" end
+    return tostring(v)
+end
+
+G.omni = function()
+    print(string.format(
+        "[omni] 地图=%s 速度x%s 免费建造=%s 秒砍伐=%s 锁血(>=%d)=%s 伤害x%s 光照=%s 血量显示=%s 防崩=%s",
+        fmt(state.map), fmt(state.speed), fmt(state.tech), fmt(state.work), HP_FLOOR, fmt(state.hp),
+        fmt(state.dmg), fmt(state.light), fmt(state.hpbar), fmt(state.janitor)))
+end
+G.omni_map     = function(on) state.map = (on ~= false); apply_map(true); G.omni() end
+G.omni_speed   = function(n)  state.speed = G.tonumber(n) or 1; apply_player(); G.omni() end
+G.omni_tech    = function(on) state.tech = (on ~= false); apply_player(); G.omni() end
+G.omni_work    = function(on) state.work = (on ~= false); apply_player(); G.omni() end
+G.omni_hp      = function(on) state.hp = (on ~= false); apply_player(); G.omni() end
+G.omni_dmg     = function(n)  state.dmg = G.tonumber(n) or 1; G.omni() end
+G.omni_light   = function(on) state.light = (on ~= false); apply_player(); G.omni() end
+G.omni_hpbar   = function(on) state.hpbar = (on ~= false); G.omni() end
+G.omni_janitor = function(on) state.janitor = (on ~= false); G.omni() end
+local function fill(comp)
+    local p = me()
+    if p and p.components[comp] and p.components[comp].SetPercent then p.components[comp]:SetPercent(1) end
+end
+G.omni_sanity = function() fill("sanity"); print("[omni] 理智回满") end
+G.omni_health = function() fill("health"); print("[omni] 生命回满") end
+G.omni_hunger = function() fill("hunger"); print("[omni] 饱食回满") end
+G.omni_off = function()
+    state.map, state.speed, state.tech, state.work, state.hp, state.dmg = false, 1, false, false, false, 1
+    state.light, state.hpbar, state.janitor = false, false, false
+    apply_player(); G.omni()
+end
+G.omni_on = function()
+    state.map, state.speed, state.tech, state.work, state.hp, state.dmg = true, 2, true, true, true, 10
+    state.light, state.hpbar, state.janitor = true, true, true
+    apply_all(); G.omni()
+end
+
+----------------------------------------------------------------- 每次世界/角色加载后重套
+AddSimPostInit(function()
+    if not is_server() then return end
+    if G.TheWorld and G.TheWorld.DoTaskInTime then
+        G.TheWorld:DoTaskInTime(1, apply_all)
+        G.TheWorld:DoTaskInTime(4, apply_all)
+        G.TheWorld:DoPeriodicTask(30, function() apply_map(false) end)
+    end
+end)
+AddPlayerPostInit(function(p)
+    if p and p.DoTaskInTime then
+        p:DoTaskInTime(1, function() apply_player(p) end)
+        p:DoTaskInTime(3, function() apply_player(p); apply_map(true) end)
+    end
+end)
+
+G.OMNIDST = { state = state, apply = apply_all, HP_FLOOR = HP_FLOOR }
+
+print("[omnidst/cheats] 已加载，默认全开")
