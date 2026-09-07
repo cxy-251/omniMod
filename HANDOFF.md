@@ -279,3 +279,16 @@ equipslots。是个大件，下一轮做。
   远处彻底腐烂没主的东西，跳过 irreplaceable）；左上角 `Text` 显示 `Lua NN MB · M 分`，
   >200MB 变红加「建议存盘重进」。HUD 重建后 `ensure_hud` 会重新挂。
 - 菜单加到 13 行，面板放大到 2.0×2.9、行距 40、标题 y=275。
+
+### v0.2.1 (2026-09-07) — 血量显示修复 + 菜单两列
+
+- **生物血量没显示**：hoverer.lua 只有在 `lmb.invobject == nil`（空手）时才用
+  `GetDisplayName()` 拼名字；手里拿工具时走的是动作字符串，不会再拼名字。所以只改
+  `GetDisplayName` 不够。新模块 `healthinfo.lua`（从 cheats.lua 挪出来）抄 Health
+  Info Plus 的双改：① `EntityScript:GetDisplayName`（空手）② `playercontroller:
+  GetLeftMouseAction` 打标记 + `BufferedAction:GetActionString` 补血量（手持工具）。
+  `state.hpbar` 开关不变。
+- **作弊菜单两列**：13 行拆成 左 7（地图/速度/免建造/秒采伐/锁血/伤害/光照）+
+  右 6（血量/防崩/回理智/全默认/全关闭/返回），两个竖排 `Menu`，用
+  `SetFocusChangeDir(MOVE_LEFT/RIGHT)` 按行号配对连焦点。标签全缩到 ≤3 字避免截断，
+  字号 28，面板缩回 2.2×1.95。

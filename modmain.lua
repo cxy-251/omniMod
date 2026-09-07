@@ -20,14 +20,14 @@
 GLOBAL.setmetatable(env, { __index = function(_, k) return GLOBAL.rawget(GLOBAL, k) end })
 
 local MODNAME = "OmniDontStarveMod"
-local VERSION = "0.2.0"
+local VERSION = "0.2.1"
 
 -- ---- 自制预制物：随身箱子 ----
 PrefabFiles = { "omni_box" }
 Assets = { Asset("ANIM", "anim/treasure_chest.zip") }
 GLOBAL.STRINGS.NAMES.OMNI_BOX = "随身箱子"
 GLOBAL.STRINGS.CHARACTERS.GENERIC.DESCRIBE.OMNI_BOX = "全部家当都在里面。"
-GLOBAL.STRINGS.RECIPE_DESC.OMNI_BOX = "60 格 · 食物不腐 · 每格 999 · 可放进物品栏随身带"
+GLOBAL.STRINGS.RECIPE_DESC.OMNI_BOX = "120 格 · 食物反鲜不腐 · 每格 999 · 可放进物品栏随身带"
 
 -- 做进建造栏（生存 tab）。免费建造默认开着，材料随便给一个占位。
 local box_recipe = Recipe("omni_box", { Ingredient("cutgrass", 1) }, RECIPETABS.SURVIVAL, TECH.NONE)
@@ -41,6 +41,7 @@ local FEATURES = {
     "lazyforager",   -- 橙色护符（懒人护符）不掉耐久
     "box_craft",     -- 隔箱合成：合成时也算随身箱子里的材料
     "janitor",       -- 防崩：定时GC + 清远处垃圾 + 左上角内存显示
+    "healthinfo",    -- 鼠标指到生物显示血量/攻击
     -- "treeshake_bear",
 }
 

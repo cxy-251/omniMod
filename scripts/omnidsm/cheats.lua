@@ -90,25 +90,8 @@ local function apply_player()
     end
 end
 
--- ---- 鼠标指到生物显示血量/攻击（改写 GetDisplayName，一次性，靠 state.hpbar 开关）----
-do
-    local ES = G.EntityScript
-    if ES and ES.GetDisplayName then
-        local _gdn = ES.GetDisplayName
-        function ES:GetDisplayName(...)
-            local name = _gdn(self, ...)
-            if state.hpbar and type(name) == "string" and self ~= player()
-               and self.components and self.components.health then
-                local hc = self.components.health
-                local dmg = self.components.combat and self.components.combat.defaultdamage or 0
-                name = string.format("%s  [%d/%d]%s", name,
-                    math.floor(hc.currenthealth + 0.5), math.floor(hc.maxhealth + 0.5),
-                    dmg > 0 and ("  攻" .. math.floor(dmg)) or "")
-            end
-            return name
-        end
-    end
-end
+-- 生物血量显示搬到独立模块 healthinfo.lua（要同时改 GetDisplayName 和 BufferedAction:
+-- GetActionString 两处才能在手持工具时也显示）。
 
 local function apply_all()
     apply_map()
