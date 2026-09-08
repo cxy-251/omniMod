@@ -84,8 +84,6 @@ local CheatMenu = Class(Screen, function(self)
         { label = function() return "回复理智" end,  act = function() G.omni_sanity() end },
         { label = function() return "回复生命" end,  act = function() G.omni_health() end },
         { label = function() return "回复饱食" end,  act = function() G.omni_hunger() end },
-        { label = function() return "重载 Mod (c_reset)" end,
-          act = function() self:Close(); if G.c_reset then G.c_reset() end end },
         { label = function() return "返回" end,      act = function() self:Close() end },
     }
     self.cols = { { rows = LROWS, x = -190 }, { rows = RROWS, x = 190 } }
