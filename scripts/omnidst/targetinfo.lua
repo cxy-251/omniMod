@@ -102,47 +102,50 @@ local function build_text(t)
     return table.concat(parts, "   ")
 end
 
-local bar_root
-local function make_bar()
-    if bar_root and bar_root.inst and bar_root.inst:IsValid() then return end
-    local p = G.ThePlayer
-    if not (p and p.HUD and p.HUD.controls) then return end
+-- 跟 status.lua 完全一样的挂法：AddClassPostConstruct 到 widgets/controls，
+-- 直接往 controls 上加 Image + Text，用 line.inst:DoPeriodicTask 刷新。
+local _dbg = 0
+AddClassPostConstruct("widgets/controls", function(self)
+    local Text  = G.require("widgets/text")
+    local Image = G.require("widgets/image")
 
-    local Text   = G.require("widgets/text")
-    local Image  = G.require("widgets/image")
-    local Widget = G.require("widgets/widget")
-
-    local root = p.HUD.controls:AddChild(Widget("omni_targetinfo"))
-    bar_root = root
-    root:SetVAnchor(G.ANCHOR_BOTTOM)
-    root:SetHAnchor(G.ANCHOR_MIDDLE)
-    root:SetPosition(0, 210, 0)
-
-    local bg = root:AddChild(Image("images/global.xml", "square.tex"))
-    bg:SetTint(0, 0, 0, 0.6)
+    local bg = self:AddChild(Image("images/global.xml", "square.tex"))
+    bg:SetVAnchor(G.ANCHOR_BOTTOM)
+    bg:SetHAnchor(G.ANCHOR_MIDDLE)
+    bg:SetPosition(0, 218, 0)
+    bg:SetTint(0, 0, 0, 0.62)
     bg:SetClickable(false)
+    bg:MoveToFront()
 
-    local txt = root:AddChild(Text(G.NUMBERFONT or G.BODYTEXTFONT or G.DEFAULTFONT, 22))
-    txt:SetColour(1, 1, 1, 1)
+    local line = self:AddChild(Text(G.NUMBERFONT or G.BODYTEXTFONT or G.DEFAULTFONT, 22))
+    line:SetVAnchor(G.ANCHOR_BOTTOM)
+    line:SetHAnchor(G.ANCHOR_MIDDLE)
+    line:SetPosition(0, 218, 0)
+    line:SetColour(1, 1, 1, 1)
+    line:MoveToFront()
+    self._omni_targetinfo = line
 
-    -- 每帧刷新（跟 status.lua 一样挂在 widget 的 .inst 上，实测能 tick）
-    txt.inst:DoPeriodicTask(0, function()
-        if not (root.inst and root.inst:IsValid()) then return end
+    -- 开局 10 秒先亮一下，方便确认位置
+    line:SetString("〔目标信息条已就位〕")
+    bg:SetSize(280, 34)
+
+    line.inst:DoPeriodicTask(0.1, function()
+        if not line.inst:IsValid() then return end
         local ok, s = G.pcall(function() return build_text(get_target()) end)
+        _dbg = _dbg + 1
+        if _dbg <= 6 then
+            print("[omnidst/targetinfo] tick " .. _dbg .. ": target=" ..
+                tostring(get_target()) .. "  text=" .. tostring(ok and s))
+        end
         if not ok or s == nil or s == "" then
-            root:Hide()
+            line:Hide(); bg:Hide()
             return
         end
-        txt:SetString(s)
-        local w, h = txt:GetRegionSize()
-        bg:SetSize((w or 40) + 26, (h or 22) + 14)
-        root:Show()
+        line:SetString(s)
+        local w, h = line:GetRegionSize()
+        bg:SetSize((w or 60) + 28, (h or 22) + 14)
+        line:Show(); bg:Show()
     end)
-end
-
-AddPlayerPostInit(function(p)
-    p:DoTaskInTime(1, make_bar)
-    p:DoTaskInTime(4, make_bar)
 end)
 
 print("[omnidst/targetinfo] 目标信息条已加载")

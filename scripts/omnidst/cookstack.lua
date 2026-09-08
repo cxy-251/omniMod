@@ -48,8 +48,11 @@ AddPlayerPostInit(function(inst)
 end)
 print("[omnidst/cookstack] 便携烹饪锅已对所有人物解锁（造 + 摆放 + 使用）")
 
--- 3) 一锅煮整叠
+-- 3) 一锅煮整叠 + 急速烹饪
 AddComponentPostInit("stewer", function(self)
+    -- 急速烹饪：把烹饪时间压到 2%
+    self.cooktimemult = (self.cooktimemult or 1) * 0.02
+
     local _Start = self.StartCooking
     self.StartCooking = function(self, doer, ...)
         local cont = self.inst.components.container
@@ -59,29 +62,28 @@ AddComponentPostInit("stewer", function(self)
                 if v.components.stackable then
                     stack = math.min(stack, v.components.stackable:StackSize())
                 else
-                    stack = 1; break
+                    stack = 1
                 end
             end
             if stack == 9999 or stack < 1 then stack = 1 end
 
-            if stack > 1 then
-                for _, v in pairs(cont.slots) do
-                    local st = v.components.stackable
-                    if st and st:StackSize() > stack then
-                        local extra = st:StackSize() - stack
-                        local back = G.SpawnPrefab(v.prefab)
-                        if back then
-                            if back.components.stackable then back.components.stackable:SetStackSize(extra) end
-                            if back.components.perishable and v.components.perishable then
-                                back.components.perishable:SetPercent(v.components.perishable:GetPercent())
-                            end
-                            if doer and doer.components.inventory then
-                                doer.components.inventory:GiveItem(back, nil, self.inst:GetPosition())
-                            else
-                                back.Transform:SetPosition(self.inst.Transform:GetWorldPosition())
-                            end
-                            st:SetStackSize(stack)
+            -- 无论 stack 是几，都把每格多出来的返还，格子只留 stack —— 这样绝不会「吃掉」多余食材
+            for _, v in pairs(cont.slots) do
+                local st = v.components.stackable
+                if st and st:StackSize() > stack then
+                    local extra = st:StackSize() - stack
+                    local back = G.SpawnPrefab(v.prefab)
+                    if back then
+                        if back.components.stackable then back.components.stackable:SetStackSize(extra) end
+                        if back.components.perishable and v.components.perishable then
+                            back.components.perishable:SetPercent(v.components.perishable:GetPercent())
                         end
+                        if doer and doer.components.inventory then
+                            doer.components.inventory:GiveItem(back, nil, self.inst:GetPosition())
+                        else
+                            back.Transform:SetPosition(self.inst.Transform:GetWorldPosition())
+                        end
+                        st:SetStackSize(stack)
                     end
                 end
             end
