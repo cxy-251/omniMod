@@ -66,27 +66,14 @@ local function apply_map(force, p)
 end
 
 ----------------------------------------------------------------- 玩家属性
-local _ap_dbg = 0
 local function apply_player(p)
     p = p or me()
     if not (p and p.components) then return end
-    if _ap_dbg < 6 then
-        _ap_dbg = _ap_dbg + 1
-        local c = p.components
-        print(("[omnidst/cheats] apply_player #%d: ismastersim=%s  locomotor=%s builder=%s health=%s worker=%s combat=%s  Light=%s")
-            :format(_ap_dbg, tostring(G.TheWorld and G.TheWorld.ismastersim),
-            tostring(c.locomotor ~= nil), tostring(c.builder ~= nil), tostring(c.health ~= nil),
-            tostring(c.worker ~= nil), tostring(c.combat ~= nil), tostring(p.Light ~= nil)))
-    end
 
     -- 行走速度：用外部倍率，干净、不会被每帧重算冲掉
     local lm = p.components.locomotor
     if lm and lm.SetExternalSpeedMultiplier then
         lm:SetExternalSpeedMultiplier(p, "omnidst_speed", state.speed or 1)
-        if _ap_dbg <= 6 then
-            print(("[omnidst/cheats]   speed: state=%s  lm.externalspeedmultiplier=%s")
-                :format(tostring(state.speed), tostring(lm.externalspeedmultiplier)))
-        end
     elseif lm then
         lm._omni_base = lm._omni_base or lm.runspeed
         lm.runspeed = lm._omni_base * (state.speed or 1)
@@ -151,7 +138,6 @@ end)
 ----------------------------------------------------------------- 秒砍伐 / 秒挖矿 / 秒锤 / 秒挖
 -- 联机版里 CHOP/MINE/HAMMER/DIG 走 actions.lua 的 DoToolWork -> 直接调
 -- Workable:WorkedBy_Internal（跳过 WorkedBy）。所以要包 **类** 上的 WorkedBy_Internal。
-local _wdbg = 0
 do
     local ok, WK = G.pcall(G.require, "components/workable")
     if ok and WK and WK.WorkedBy_Internal then
@@ -160,14 +146,9 @@ do
             if state.work and worker ~= nil and worker.components and worker.components.inventory
                and worker:HasTag("player") and (self.workleft or 0) > 0 then
                 numworks = self.workleft
-                if _wdbg < 5 then
-                    _wdbg = _wdbg + 1
-                    print("[omnidst/cheats] 秒砍伐生效 -> " .. tostring(self.inst and self.inst.prefab))
-                end
             end
             return _wbi(self, worker, numworks)
         end
-        print("[omnidst/cheats] Workable:WorkedBy_Internal 已包裹")
     end
 end
 

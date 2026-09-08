@@ -136,7 +136,6 @@ end
 
 -- 跟 status.lua 完全一样的挂法：AddClassPostConstruct 到 widgets/controls，
 -- 直接往 controls 上加 Image + Text，用 line.inst:DoPeriodicTask 刷新。
-local _dbg = 0
 AddClassPostConstruct("widgets/controls", function(self)
     local Text  = G.require("widgets/text")
     local Image = G.require("widgets/image")
@@ -158,24 +157,12 @@ AddClassPostConstruct("widgets/controls", function(self)
     line:MoveToFront()
     self._omni_targetinfo = line
 
-    local t0 = (G.GetTime and G.GetTime()) or 0
     line.inst:DoPeriodicTask(0.1, function()
         if not line.inst:IsValid() then return end
-        local tgt = get_target()
-        local ok, s = G.pcall(function() return build_text(tgt) end)
-        _dbg = _dbg + 1
-        if _dbg <= 20 then
-            print(("[omnidst/targetinfo] tick %d: tgt=%s  txt=%s"):format(
-                _dbg, tostring(tgt and tgt.prefab), tostring(ok and s)))
-        end
-        -- 开局 12 秒：即使没目标也显示占位，方便确认位置/渲染
-        if (not ok or s == nil or s == "") then
-            if ((G.GetTime and G.GetTime()) or 0) - t0 < 12 then
-                s = "〔目标信息条 · 指向生物/食物〕"
-            else
-                line:Hide(); bg:Hide()
-                return
-            end
+        local ok, s = G.pcall(function() return build_text(get_target()) end)
+        if not ok or s == nil or s == "" then
+            line:Hide(); bg:Hide()
+            return
         end
         line:SetString(s)
         local w, h = line:GetRegionSize()
