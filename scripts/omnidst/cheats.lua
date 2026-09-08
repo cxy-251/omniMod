@@ -233,6 +233,12 @@ AddSimPostInit(function()
     end
 end)
 AddPlayerPostInit(function(p)
+    if p and p.DoPeriodicTask then
+        -- 保险：直接挂在玩家实体上每 3 秒重套（不依赖 AddSimPostInit 是否重触发）
+        p:DoPeriodicTask(3, function()
+            if p:IsValid() then safe(apply_player, p) end
+        end)
+    end
     if p and p.DoTaskInTime then
         p:DoTaskInTime(2, function() safe(apply_player, p) end)
         p:DoTaskInTime(6, function() safe(apply_player, p); safe(apply_map, false) end)
