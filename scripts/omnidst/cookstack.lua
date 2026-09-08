@@ -33,13 +33,20 @@ do
         r.builder_skill = nil
     end
 end
--- 摆放使用：deployable.restrictedtag = "masterchef" 是「只有沃利能放下」的关卡
+-- 摆放：deployable.restrictedtag = "masterchef" 是「只有沃利能放下」的关卡
 AddPrefabPostInit("portablecookpot_item", function(inst)
     if inst.components and inst.components.deployable then
         inst.components.deployable.restrictedtag = nil
     end
 end)
-print("[omnidst/cookstack] 便携烹饪锅已对所有人物解锁（造 + 摆放）")
+-- 使用：便携锅/香料锅/搅拌机 带 "mastercookware" 标签，开容器时 CanOpenCharacterSpecificContainer
+-- 检查 doer 有没有 "masterchef" —— 没有就报「烹饪水平还不够」。直接给所有玩家挂上 masterchef。
+AddPlayerPostInit(function(inst)
+    if G.TheWorld and G.TheWorld.ismastersim then
+        inst:AddTag("masterchef")
+    end
+end)
+print("[omnidst/cookstack] 便携烹饪锅已对所有人物解锁（造 + 摆放 + 使用）")
 
 -- 3) 一锅煮整叠
 AddComponentPostInit("stewer", function(self)

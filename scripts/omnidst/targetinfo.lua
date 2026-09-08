@@ -125,8 +125,8 @@ local function make_bar()
     local txt = root:AddChild(Text(G.NUMBERFONT or G.BODYTEXTFONT or G.DEFAULTFONT, 22))
     txt:SetColour(1, 1, 1, 1)
 
-    -- 用 widget 自己的 OnUpdate（比在 HUD.inst 上挂 DoPeriodicTask 稳）
-    root.OnUpdate = function()
+    -- 每帧刷新（跟 status.lua 一样挂在 widget 的 .inst 上，实测能 tick）
+    txt.inst:DoPeriodicTask(0, function()
         if not (root.inst and root.inst:IsValid()) then return end
         local ok, s = G.pcall(function() return build_text(get_target()) end)
         if not ok or s == nil or s == "" then
@@ -137,8 +137,7 @@ local function make_bar()
         local w, h = txt:GetRegionSize()
         bg:SetSize((w or 40) + 26, (h or 22) + 14)
         root:Show()
-    end
-    root:StartUpdating()
+    end)
 end
 
 AddPlayerPostInit(function(p)
