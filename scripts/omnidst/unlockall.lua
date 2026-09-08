@@ -55,11 +55,17 @@ end
 --   把技能全清掉，还会反复写盘。改了它，全技能就能存档、能过图。
 do
     local ok, STData = G.pcall(G.require, "skilltreedata")
-    if ok and STData and STData.GetPointsForSkillXP then
-        function STData:GetPointsForSkillXP(skillxp)
-            return 999
+    if ok and STData then
+        if STData.GetPointsForSkillXP then
+            function STData:GetPointsForSkillXP(skillxp) return 999 end
         end
-        print("[omnidst/unlockall] SkillTreeData:GetPointsForSkillXP 已放开（技能点无上限）")
+        -- 回到世界时 ApplyCharacterData 会重新 ValidateCharacterData，激活全部技能里
+        -- 有互斥分支的角色（比如威尔逊的 月亮/暗影 阵营）过不了 must_have_all_of，
+        -- 会把技能全清掉。直接让校验永远通过。
+        if STData.ValidateCharacterData then
+            function STData:ValidateCharacterData(...) return true end
+        end
+        print("[omnidst/unlockall] SkillTreeData 校验已放开（全技能可存档/过图）")
     end
 end
 

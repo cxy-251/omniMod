@@ -27,7 +27,13 @@ local state = { map = true, speed = 2, tech = true, work = true, hp = true, dmg 
 local HP_FLOOR = 10
 
 local function is_server() return G.TheWorld ~= nil and G.TheWorld.ismastersim end
-local function me() return G.ThePlayer end
+-- ★ 联机版：Host 游戏时 sim 跑在独立的分片服务器进程里，客户端 G.ThePlayer 有、
+--   但服务器进程 G.ThePlayer 是 nil。服务器侧要用 AllPlayers。
+local function me()
+    if G.ThePlayer then return G.ThePlayer end
+    local ap = G.AllPlayers
+    return ap and ap[1] or nil
+end
 
 -- 采集提速用：游戏自带的快速采集 tag（采草/摘果/挖花 -> doshortaction，农作物 -> domediumaction）
 local FAST_TAGS = { "fastpicker", "farmplantfastpicker", "quagmire_fasthands" }
@@ -36,9 +42,9 @@ local FAST_TAGS = { "fastpicker", "farmplantfastpicker", "quagmire_fasthands" }
 -- 地图全开：只在「本次世界会话」里做一次。反复全图 RevealArea 会让小地图纹理
 -- 一直重刷 + 频繁写盘（SD 卡上很卡），所以做完就打标记，不再重复。
 local _revealed_world = nil
-local function apply_map(force)
+local function apply_map(force, p)
     if not state.map then return end
-    local p = me()
+    p = p or me()
     if not (p and p.player_classified and p.player_classified.MapExplorer) then return end
     local map = G.TheWorld and G.TheWorld.Map
     if not map then return end
@@ -130,7 +136,8 @@ AddComponentPostInit("combat", function(Combat)
     local _Calc = Combat.CalcDamage
     function Combat:CalcDamage(target, weapon, multiplier)
         local d = _Calc(self, target, weapon, multiplier)
-        if state.dmg and state.dmg ~= 1 and d and d > 0 and self.inst == G.ThePlayer then
+        if state.dmg and state.dmg ~= 1 and d and d > 0
+           and self.inst ~= nil and self.inst:HasTag("player") then
             d = d * state.dmg
         end
         return d
@@ -227,7 +234,7 @@ AddSimPostInit(function()
         w:ListenForEvent("ms_playerspawn", function(_, data)
             local p = (type(data) == "table" and data.player) or data
             if p and p.DoTaskInTime then
-                p:DoTaskInTime(1, function() safe(apply_player, p); safe(apply_map, false) end)
+                p:DoTaskInTime(1, function() safe(apply_player, p); safe(apply_map, false, p) end)
             end
         end)
     end
@@ -241,7 +248,7 @@ AddPlayerPostInit(function(p)
     end
     if p and p.DoTaskInTime then
         p:DoTaskInTime(2, function() safe(apply_player, p) end)
-        p:DoTaskInTime(6, function() safe(apply_player, p); safe(apply_map, false) end)
+        p:DoTaskInTime(6, function() safe(apply_player, p); safe(apply_map, false, p) end)
     end
 end)
 

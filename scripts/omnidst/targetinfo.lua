@@ -18,10 +18,12 @@ end
 local function r1(x) return math.floor((x or 0) * 10 + 0.5) / 10 end
 
 local function usable(t, allow_held)
-    if not (t and t:IsValid() and t.components) then return false end
+    if not (t and t:IsValid()) then return false end
     if t == G.ThePlayer then return false end
-    if not allow_held and (t:HasTag("INLIMBO") or (t.components.inventoryitem and t.components.inventoryitem:IsHeld())) then
-        return false
+    if not (t.components or t.replica) then return false end
+    if not allow_held then
+        local ii = (t.components and t.components.inventoryitem) or (t.replica and t.replica.inventoryitem)
+        if t:HasTag("INLIMBO") or (ii and ii.IsHeld and ii:IsHeld()) then return false end
     end
     return true
 end
@@ -74,8 +76,10 @@ local function get_target()
 end
 
 local function build_text(t)
-    if not (t and t.components) then return nil end
+    if not t then return nil end
     local p = G.ThePlayer
+    local C = t.components or {}
+    local R = t.replica or {}
     local parts, has_info = {}, false
 
     local name = (t.GetDisplayName and t:GetDisplayName()) or t.name
@@ -84,19 +88,27 @@ local function build_text(t)
         parts[#parts + 1] = name
     end
 
-    if hpbar_on() and t.components.health then
-        local hc = t.components.health
-        local cur = hc.currenthealth or (hc.GetCurrent and hc:GetCurrent())
-        local mx  = hc.maxhealth or (hc.GetMaxWithPenalty and hc:GetMaxWithPenalty())
+    -- 生物血量：客户端只有 replica.health（组件在服务器）
+    if hpbar_on() then
+        local cur, mx, atk
+        if C.health then
+            cur = C.health.currenthealth or (C.health.GetCurrent and C.health:GetCurrent())
+            mx  = C.health.maxhealth or (C.health.GetMaxWithPenalty and C.health:GetMaxWithPenalty())
+            atk = C.combat and C.combat.defaultdamage or 0
+        elseif R.health and R.health.GetCurrent then
+            cur = R.health:GetCurrent()
+            mx  = (R.health.MaxWithPenalty and R.health:MaxWithPenalty()) or (R.health.Max and R.health:Max())
+        end
         if cur and mx and mx > 0 then
-            local atk = t.components.combat and t.components.combat.defaultdamage or 0
             parts[#parts + 1] = string.format("[%d/%d]%s", math.floor(cur + 0.5), math.floor(mx + 0.5),
-                atk > 0 and ("  攻" .. math.floor(atk)) or "")
+                (atk and atk > 0) and ("  攻" .. math.floor(atk)) or "")
             has_info = true
         end
     end
 
-    local e = t.components.edible
+    -- 食物数值：edible 是纯服务器组件、没有 replica，客户端读不到（洞穴/独立服务器世界）。
+    -- listen server / 服务器状态下能读到。
+    local e = C.edible
     if e then
         local hu = (p and e.GetHunger and r1(e:GetHunger(p))) or r1(e.hungervalue)
         local he = (p and e.GetHealth and r1(e:GetHealth(p))) or r1(e.healthvalue)
@@ -105,11 +117,17 @@ local function build_text(t)
         seg[#seg + 1] = "饥" .. (hu >= 0 and "+" or "") .. hu
         seg[#seg + 1] = "血" .. (he >= 0 and "+" or "") .. he
         seg[#seg + 1] = "智" .. (sa >= 0 and "+" or "") .. sa
-        if t.components.perishable then
-            seg[#seg + 1] = "鲜" .. math.floor(t.components.perishable:GetPercent() * 100 + 0.5) .. "%"
+        if C.perishable then
+            seg[#seg + 1] = "鲜" .. math.floor(C.perishable:GetPercent() * 100 + 0.5) .. "%"
         end
         parts[#parts + 1] = table.concat(seg, " ")
         has_info = true
+    elseif t:HasTag("show_spoiled") or (R.inventoryitem and t:HasTag("edible_MEAT")) then
+        -- 客户端：至少认出这是食物，把新鲜度显示出来
+        if R.perishable and R.perishable.GetPercent then
+            parts[#parts + 1] = "鲜 " .. math.floor(R.perishable:GetPercent() * 100 + 0.5) .. "%"
+            has_info = true
+        end
     end
 
     if not has_info then return nil end
