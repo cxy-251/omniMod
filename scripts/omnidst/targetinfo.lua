@@ -17,33 +17,43 @@ local function hpbar_on()
 end
 local function r1(x) return math.floor((x or 0) * 10 + 0.5) / 10 end
 
+local function usable(t, allow_held)
+    if not (t and t:IsValid() and t.components) then return false end
+    if t == G.ThePlayer then return false end
+    if not allow_held and (t:HasTag("INLIMBO") or (t.components.inventoryitem and t.components.inventoryitem:IsHeld())) then
+        return false
+    end
+    return true
+end
+
 local function get_target()
     local p = G.ThePlayer
     if not (p and p:IsValid()) then return nil end
 
-    -- 1) 物品栏格子
+    -- 1) 物品栏里选中/悬停的格子（只在物品栏真的被操作时）—— 允许「持有」，因为就是要看背包里的
     local inv = p.HUD and p.HUD.controls and p.HUD.controls.inv
     if inv then
-        local it = (inv.GetCursorItem and inv:GetCursorItem())
-                   or (inv.hovertile and inv.hovertile.item)
-                   or (inv.cursortile and inv.cursortile.item)
-        if it and it:IsValid() and it.components then return it end
+        local it
+        if inv.open and inv.GetCursorItem then it = inv:GetCursorItem() end          -- 手柄开着物品栏导航
+        it = it or (inv.hovertile and inv.hovertile.item)                            -- 鼠标悬停某格
+        if usable(it, true) then return it end
     end
 
-    -- 2) 手柄准星 / 攻击目标
+    -- 2) 手柄准星目标 / 攻击目标（生物、地上物）
     local pc = p.components and p.components.playercontroller
     if pc then
-        local t = pc.controller_target or pc.controller_attack_target
-        if t and t:IsValid() and t.components then return t end
+        for _, t in ipairs({ pc.controller_target, pc.controller_attack_target }) do
+            if usable(t, false) then return t end
+        end
     end
 
     -- 3) 鼠标世界目标
     if G.TheInput and G.TheInput.GetWorldEntityUnderMouse then
         local t = G.TheInput:GetWorldEntityUnderMouse()
-        if t and t:IsValid() and t.components then return t end
+        if usable(t, false) then return t end
     end
 
-    -- 4) 兜底：面前最近的可吃实体（只找食物，不找生物，免得老弹）
+    -- 4) 兜底：面前最近的可吃实体（只找食物，不找生物）
     if p.Transform and G.TheSim then
         local x, y, z = p.Transform:GetWorldPosition()
         local best, bestd
@@ -109,37 +119,41 @@ AddClassPostConstruct("widgets/controls", function(self)
     local Text  = G.require("widgets/text")
     local Image = G.require("widgets/image")
 
+    -- 放屏幕顶部、状态栏那行下面（跟 status.lua 一样锚 TOP，实测能显示）
     local bg = self:AddChild(Image("images/global.xml", "square.tex"))
-    bg:SetVAnchor(G.ANCHOR_BOTTOM)
+    bg:SetVAnchor(G.ANCHOR_TOP)
     bg:SetHAnchor(G.ANCHOR_MIDDLE)
-    bg:SetPosition(0, 218, 0)
+    bg:SetPosition(0, -62, 0)
     bg:SetTint(0, 0, 0, 0.62)
     bg:SetClickable(false)
     bg:MoveToFront()
 
     local line = self:AddChild(Text(G.NUMBERFONT or G.BODYTEXTFONT or G.DEFAULTFONT, 22))
-    line:SetVAnchor(G.ANCHOR_BOTTOM)
+    line:SetVAnchor(G.ANCHOR_TOP)
     line:SetHAnchor(G.ANCHOR_MIDDLE)
-    line:SetPosition(0, 218, 0)
+    line:SetPosition(0, -62, 0)
     line:SetColour(1, 1, 1, 1)
     line:MoveToFront()
     self._omni_targetinfo = line
 
-    -- 开局 10 秒先亮一下，方便确认位置
-    line:SetString("〔目标信息条已就位〕")
-    bg:SetSize(280, 34)
-
+    local t0 = (G.GetTime and G.GetTime()) or 0
     line.inst:DoPeriodicTask(0.1, function()
         if not line.inst:IsValid() then return end
-        local ok, s = G.pcall(function() return build_text(get_target()) end)
+        local tgt = get_target()
+        local ok, s = G.pcall(function() return build_text(tgt) end)
         _dbg = _dbg + 1
-        if _dbg <= 6 then
-            print("[omnidst/targetinfo] tick " .. _dbg .. ": target=" ..
-                tostring(get_target()) .. "  text=" .. tostring(ok and s))
+        if _dbg <= 20 then
+            print(("[omnidst/targetinfo] tick %d: tgt=%s  txt=%s"):format(
+                _dbg, tostring(tgt and tgt.prefab), tostring(ok and s)))
         end
-        if not ok or s == nil or s == "" then
-            line:Hide(); bg:Hide()
-            return
+        -- 开局 12 秒：即使没目标也显示占位，方便确认位置/渲染
+        if (not ok or s == nil or s == "") then
+            if ((G.GetTime and G.GetTime()) or 0) - t0 < 12 then
+                s = "〔目标信息条 · 指向生物/食物〕"
+            else
+                line:Hide(); bg:Hide()
+                return
+            end
         end
         line:SetString(s)
         local w, h = line:GetRegionSize()

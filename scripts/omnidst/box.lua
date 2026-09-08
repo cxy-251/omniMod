@@ -12,13 +12,11 @@ G.STRINGS.NAMES.OMNI_BOX = "随身箱子"
 G.STRINGS.RECIPE_DESC.OMNI_BOX = "四区大容量 · 食物反鲜不腐 · 每格 999 · 可放进物品栏随身带"
 G.STRINGS.CHARACTERS.GENERIC.DESCRIBE.OMNI_BOX = "全部家当都在里面。"
 
+-- 不传 atlas/image —— 让制作菜单自动用 omni_box 预制物的物品栏图标（借用 krampus_sack）
 AddRecipe2("omni_box",
     { Ingredient("cutgrass", 1) },
     G.TECH.NONE,
-    {
-        atlas = "images/inventoryimages/krampus_sack.xml",
-        image = "krampus_sack.tex",
-    },
+    nil,
     { "CONTAINERS" })
 
 ------------------------------------------------------------------ 隔箱合成

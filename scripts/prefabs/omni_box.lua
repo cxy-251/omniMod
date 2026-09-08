@@ -122,8 +122,8 @@ local function fn()
 
     inst:AddComponent("inventoryitem")
     inst.components.inventoryitem.cangoincontainer = true
+    -- 借用香包的物品栏图标；不设 atlasname，让引擎自动从打包的 inventoryimages 里找
     inst.components.inventoryitem.imagename = "krampus_sack"
-    inst.components.inventoryitem.atlasname = "images/inventoryimages/krampus_sack.xml"
 
     inst:AddComponent("container")
     inst.components.container:WidgetSetup("omni_box")

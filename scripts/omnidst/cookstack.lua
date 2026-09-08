@@ -48,10 +48,15 @@ AddPlayerPostInit(function(inst)
 end)
 print("[omnidst/cookstack] 便携烹饪锅已对所有人物解锁（造 + 摆放 + 使用）")
 
+-- 急速烹饪：直接把基础烹饪时间砍到 0.5 秒（所有锅通用，比改 cooktimemult 稳）
+if G.TUNING and G.TUNING.BASE_COOK_TIME then
+    G.TUNING.BASE_COOK_TIME = 0.5
+    print("[omnidst/cookstack] 急速烹饪：BASE_COOK_TIME -> 0.5s")
+end
+
 -- 3) 一锅煮整叠 + 急速烹饪
 AddComponentPostInit("stewer", function(self)
-    -- 急速烹饪：把烹饪时间压到 2%
-    self.cooktimemult = (self.cooktimemult or 1) * 0.02
+    self.cooktimemult = math.min(self.cooktimemult or 1, 0.1)
 
     local _Start = self.StartCooking
     self.StartCooking = function(self, doer, ...)
