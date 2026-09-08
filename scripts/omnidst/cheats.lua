@@ -83,6 +83,10 @@ local function apply_player(p)
     local lm = p.components.locomotor
     if lm and lm.SetExternalSpeedMultiplier then
         lm:SetExternalSpeedMultiplier(p, "omnidst_speed", state.speed or 1)
+        if _ap_dbg <= 6 then
+            print(("[omnidst/cheats]   speed: state=%s  lm.externalspeedmultiplier=%s")
+                :format(tostring(state.speed), tostring(lm.externalspeedmultiplier)))
+        end
     elseif lm then
         lm._omni_base = lm._omni_base or lm.runspeed
         lm.runspeed = lm._omni_base * (state.speed or 1)
@@ -185,34 +189,49 @@ local function fmt(v)
     return tostring(v)
 end
 
+-- ★ 联机版 Host：世界跑在独立分片服务器进程里。作弊菜单/控制台在**客户端**跑，
+--   直接改客户端的 state 没用（服务器那份 state 不变）。所以客户端调用时用
+--   SendRemoteExecute 把命令发到服务器执行（Host 时你就是管理员）。
+--   hpbar / janitor 是纯客户端/HUD 的，不用转发。
+local CLIENT_ONLY = { omni_hpbar = true, omni_janitor = true }
+local function remote(cmd)
+    if G.TheWorld and not G.TheWorld.ismastersim and G.TheNet and G.TheNet.SendRemoteExecute then
+        G.TheNet:SendRemoteExecute(cmd)
+        return true
+    end
+    return false
+end
+
 G.omni = function()
     print(string.format(
         "[omni] 地图=%s 速度x%s 免费建造=%s 秒砍伐=%s 锁血(>=%d)=%s 伤害x%s 光照=%s 血量显示=%s 防崩=%s",
         fmt(state.map), fmt(state.speed), fmt(state.tech), fmt(state.work), HP_FLOOR, fmt(state.hp),
         fmt(state.dmg), fmt(state.light), fmt(state.hpbar), fmt(state.janitor)))
 end
-G.omni_map     = function(on) state.map = (on ~= false); apply_map(true); G.omni() end
-G.omni_speed   = function(n)  state.speed = G.tonumber(n) or 1; apply_player(); G.omni() end
-G.omni_tech    = function(on) state.tech = (on ~= false); apply_player(); G.omni() end
-G.omni_work    = function(on) state.work = (on ~= false); apply_player(); G.omni() end
-G.omni_hp      = function(on) state.hp = (on ~= false); apply_player(); G.omni() end
-G.omni_dmg     = function(n)  state.dmg = G.tonumber(n) or 1; G.omni() end
-G.omni_light   = function(on) state.light = (on ~= false); apply_player(); G.omni() end
+G.omni_map     = function(on) if remote("omni_map("..tostring(on)..")") then return end; state.map = (on ~= false); apply_map(true); G.omni() end
+G.omni_speed   = function(n)  if remote("omni_speed("..tostring(G.tonumber(n) or 1)..")") then return end; state.speed = G.tonumber(n) or 1; apply_player(); G.omni() end
+G.omni_tech    = function(on) if remote("omni_tech("..tostring(on)..")") then return end; state.tech = (on ~= false); apply_player(); G.omni() end
+G.omni_work    = function(on) if remote("omni_work("..tostring(on)..")") then return end; state.work = (on ~= false); apply_player(); G.omni() end
+G.omni_hp      = function(on) if remote("omni_hp("..tostring(on)..")") then return end; state.hp = (on ~= false); apply_player(); G.omni() end
+G.omni_dmg     = function(n)  if remote("omni_dmg("..tostring(G.tonumber(n) or 1)..")") then return end; state.dmg = G.tonumber(n) or 1; G.omni() end
+G.omni_light   = function(on) if remote("omni_light("..tostring(on)..")") then return end; state.light = (on ~= false); apply_player(); G.omni() end
 G.omni_hpbar   = function(on) state.hpbar = (on ~= false); G.omni() end
 G.omni_janitor = function(on) state.janitor = (on ~= false); G.omni() end
 local function fill(comp)
     local p = me()
     if p and p.components[comp] and p.components[comp].SetPercent then p.components[comp]:SetPercent(1) end
 end
-G.omni_sanity = function() fill("sanity"); print("[omni] 理智回满") end
-G.omni_health = function() fill("health"); print("[omni] 生命回满") end
-G.omni_hunger = function() fill("hunger"); print("[omni] 饱食回满") end
+G.omni_sanity = function() if remote("omni_sanity()") then return end; fill("sanity"); print("[omni] 理智回满") end
+G.omni_health = function() if remote("omni_health()") then return end; fill("health"); print("[omni] 生命回满") end
+G.omni_hunger = function() if remote("omni_hunger()") then return end; fill("hunger"); print("[omni] 饱食回满") end
 G.omni_off = function()
+    if remote("omni_off()") then return end
     state.map, state.speed, state.tech, state.work, state.hp, state.dmg = false, 1, false, false, false, 1
     state.light, state.hpbar, state.janitor = false, false, false
     apply_player(); G.omni()
 end
 G.omni_on = function()
+    if remote("omni_on()") then return end
     state.map, state.speed, state.tech, state.work, state.hp, state.dmg = true, 2, true, true, true, 10
     state.light, state.hpbar, state.janitor = true, true, true
     apply_all(); G.omni()
