@@ -18,7 +18,11 @@
 GLOBAL.setmetatable(env, { __index = function(_, k) return GLOBAL.rawget(GLOBAL, k) end })
 
 local MODNAME = "OmniDontStarveTogetherMod"
-local VERSION = "0.4.5"
+local VERSION = "0.5.0"
+
+-- 随身箱子预制物
+PrefabFiles = { "omni_box" }
+Assets = { Asset("ANIM", "anim/treasure_chest.zip") }
 
 local FEATURES = {
     "nonet",       -- 断掉 MOTD / 更新检查 / 数据上报
@@ -28,9 +32,9 @@ local FEATURES = {
     "lazyforager", -- 橙色护符不掉耐久
     "janitor",     -- 防崩：定时 GC + 左上角内存显示
     "targetinfo",  -- 底部信息条：生物血量/攻击 + 食物 饥/血/智/鲜（手柄+鼠标）
-    "cookstack",   -- 一锅煮整叠
+    "cookstack",   -- 一锅煮整叠 + 急速烹饪
     "status",      -- 组合状态栏：徽章数字 + 天数/季节/温度
-    -- "box",         -- 随身箱子（DST 容器走 containers.params + widgetsetup）
+    "box",         -- 随身箱子（配方 + 隔箱合成）
     -- "worldgen",    -- 环形世界（modworldgenmain.lua）
 }
 
