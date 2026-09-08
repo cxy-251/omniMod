@@ -154,35 +154,9 @@ end
 -- （采集提速改用 FAST_TAGS，见文件顶部 + apply_player。不动 SGwilson 计时，
 --   那会打断 doshortaction 第 6 帧的 PerformBufferedAction，导致花/胡萝卜采集不了。）
 
------------------------------------------------------------------ 生物血量悬停显示
--- 联机版 hoverer 只在「有左键动作 且 空手」时才拼名字，指到被动生物（兔子/蜘蛛等）
--- 往往没动作 -> 什么都不显示。所以直接钩 hoverer:OnUpdate，指到有 health 的实体
--- 就强制在提示里补上 [当前/最大] 攻X。
-AddClassPostConstruct("widgets/hoverer", function(self)
-    local _OnUpdate = self.OnUpdate
-    if not _OnUpdate then return end
-    self.OnUpdate = function(self, ...)
-        _OnUpdate(self, ...)
-        if not state.hpbar then return end
-        local ent = G.TheInput and G.TheInput:GetWorldEntityUnderMouse()
-        if not (ent and ent ~= self.owner and ent.components and ent.components.health) then return end
-        local hc = ent.components.health
-        local cur = hc.currenthealth or 0
-        local mx  = hc.maxhealth or 0
-        if mx <= 0 then return end
-        local atk = ent.components.combat and ent.components.combat.defaultdamage or 0
-        local base = (self.str ~= nil and self.str)
-                     or (ent.GetDisplayName and ent:GetDisplayName())
-                     or (ent.name)
-                     or ""
-        local extra = string.format("  [%d/%d]%s",
-            math.floor(cur + 0.5), math.floor(mx + 0.5),
-            atk > 0 and ("  攻" .. math.floor(atk)) or "")
-        self.text:SetString(base .. extra)
-        self.text:Show()
-        self.str = base .. extra
-    end
-end)
+-- 生物血量 / 食物数值的悬停显示挪到独立模块 targetinfo.lua ——
+-- 联机版 widgets/hoverer 是「鼠标专用」（手柄下整个 widget 被 Hide），
+-- Steam Deck 手柄玩必须读 playercontroller.controller_target 才行。
 
 ----------------------------------------------------------------- 应用 / 控制台
 local function apply_all()

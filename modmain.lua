@@ -18,7 +18,7 @@
 GLOBAL.setmetatable(env, { __index = function(_, k) return GLOBAL.rawget(GLOBAL, k) end })
 
 local MODNAME = "OmniDontStarveTogetherMod"
-local VERSION = "0.4.0"
+local VERSION = "0.4.1"
 
 local FEATURES = {
     "nonet",       -- 断掉 MOTD / 更新检查 / 数据上报
@@ -27,8 +27,7 @@ local FEATURES = {
     "cheatmenu",   -- 暂停菜单 → 作弊菜单（手柄+键鼠）
     "lazyforager", -- 橙色护符不掉耐久
     "janitor",     -- 防崩：定时 GC + 左上角内存显示
-    "foodinfo",    -- 悬停食物 饥/血/智/鲜
-    "hovertip",    -- 悬停提示深色底
+    "targetinfo",  -- 底部信息条：生物血量/攻击 + 食物 饥/血/智/鲜（手柄+鼠标）
     "cookstack",   -- 一锅煮整叠
     "status",      -- 组合状态栏：徽章数字 + 天数/季节/温度
     -- "box",         -- 随身箱子（DST 容器走 containers.params + widgetsetup）
