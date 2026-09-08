@@ -19,11 +19,11 @@ local assets =
     Asset("ANIM", "anim/treasure_chest.zip"),
 }
 
--- 四区网格：每区 QC×QR，中间十字留 GAP 间隔。总格数 = 4 * QC * QR。
+-- 四区网格：每区 QC×QR，中间十字留 GAP 间隔。总格数 = 4 * QC * QR = 120。
 -- containerwidget 会整体 ×0.6 缩放，坐标可放大些。
-local QC, QR = 5, 4
-local STEP   = 64
-local GAP    = 48
+local QC, QR = 6, 5
+local STEP   = 56
+local GAP    = 44
 
 local slotpos = {}
 for _, qy in ipairs({ 1, -1 }) do
@@ -88,7 +88,7 @@ containers.params.omni_box =
     widget =
     {
         slotpos   = slotpos,
-        slotscale = 0.85,
+        slotscale = 0.9,
         animbank  = "ui_chest_3x3",
         animbuild = "ui_chest_3x3",
         pos       = Vector3(0, 40, 0),

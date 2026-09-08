@@ -18,7 +18,7 @@
 GLOBAL.setmetatable(env, { __index = function(_, k) return GLOBAL.rawget(GLOBAL, k) end })
 
 local MODNAME = "OmniDontStarveTogetherMod"
-local VERSION = "0.5.4"
+local VERSION = "0.5.5"
 
 -- 随身箱子预制物
 PrefabFiles = { "omni_box" }
@@ -35,6 +35,7 @@ local FEATURES = {
     "cookstack",   -- 一锅煮整叠 + 急速烹饪
     "status",      -- 组合状态栏：徽章数字 + 天数/季节/温度
     "box",         -- 随身箱子（配方 + 隔箱合成）
+    "boxpages",    -- 多个箱子翻页
     -- "worldgen",    -- 环形世界（modworldgenmain.lua）
 }
 
