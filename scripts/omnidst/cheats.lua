@@ -60,9 +60,18 @@ local function apply_map(force)
 end
 
 ----------------------------------------------------------------- 玩家属性
+local _ap_dbg = 0
 local function apply_player(p)
     p = p or me()
     if not (p and p.components) then return end
+    if _ap_dbg < 6 then
+        _ap_dbg = _ap_dbg + 1
+        local c = p.components
+        print(("[omnidst/cheats] apply_player #%d: ismastersim=%s  locomotor=%s builder=%s health=%s worker=%s combat=%s  Light=%s")
+            :format(_ap_dbg, tostring(G.TheWorld and G.TheWorld.ismastersim),
+            tostring(c.locomotor ~= nil), tostring(c.builder ~= nil), tostring(c.health ~= nil),
+            tostring(c.worker ~= nil), tostring(c.combat ~= nil), tostring(p.Light ~= nil)))
+    end
 
     -- 行走速度：用外部倍率，干净、不会被每帧重算冲掉
     local lm = p.components.locomotor
@@ -206,15 +215,26 @@ end
 -- 全部用 pcall 包一层：万一以后哪里写错了，也不会每帧刷一屏 Lua 报错把日志写爆盘。
 local function safe(f, ...) local ok, e = G.pcall(f, ...); if not ok then print("[omnidst/cheats] !", tostring(e)) end end
 
+-- 新建服务器 / 首次生成世界时，玩家实体常常先生成一个「临时的」再被销毁重建，
+-- 一次性 DoTaskInTime 会落在废弃实体上。所以改成**持续每 3 秒重套**（幂等，成本极低），
+-- 加上监听 ms_playerspawn，新世界 / 过图 / 复活 都能覆盖到。
 AddSimPostInit(function()
-    if not is_server() then return end
-    if G.TheWorld and G.TheWorld.DoTaskInTime then
-        G.TheWorld:DoTaskInTime(3, function() safe(apply_all) end)
+    local w = G.TheWorld
+    if not (w and w.DoTaskInTime) then return end
+    w:DoTaskInTime(2, function() safe(apply_all) end)
+    w:DoPeriodicTask(3, function() safe(apply_player) end)
+    if w.ListenForEvent then
+        w:ListenForEvent("ms_playerspawn", function(_, data)
+            local p = (type(data) == "table" and data.player) or data
+            if p and p.DoTaskInTime then
+                p:DoTaskInTime(1, function() safe(apply_player, p); safe(apply_map, false) end)
+            end
+        end)
     end
 end)
 AddPlayerPostInit(function(p)
     if p and p.DoTaskInTime then
-        p:DoTaskInTime(3, function() safe(apply_player, p) end)
+        p:DoTaskInTime(2, function() safe(apply_player, p) end)
         p:DoTaskInTime(6, function() safe(apply_player, p); safe(apply_map, false) end)
     end
 end)
