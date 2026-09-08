@@ -1,19 +1,48 @@
---[[ 一锅煮整叠：锅里放整叠食材，一次做出整叠成品。（modimport 加载，跑在 mod 环境）
+--[[ 烹饪相关（联机版）：（modimport 加载，跑在 mod 环境）
+  1. 烹饪锅 / 便携烹饪锅 接受整叠食材，一次做出整叠成品
+  2. 便携烹饪锅任何人物都能造（去掉「masterchef」限制）
 
-  联机版 Stewer:StartCooking 抓完 ingredient_prefabs 后立刻 container:DestroyContents()，
-  所以要在调用原函数前算好「各格最小堆叠数 stack」、把多的返还玩家、只留 stack，
-  记 self.foodstack；Harvest 时按 stack 补足产出。服务器侧（AddComponentPostInit 每实例）。
+  ★ 联机版 cookpot 容器默认 acceptsstacks = false（每格只能放 1 个）——
+    这就是「烹饪锅不能堆叠」的原因。改 containers.params 里的这个字段。
+  ★ Stewer:StartCooking 抓完 ingredient_prefabs 立刻 DestroyContents，所以要在
+    调原函数前算好各格最小堆叠数、把多的返还、只留 stack，记 self.foodstack；
+    Harvest 时按 stack 补足产出。服务器侧。
 ]]
 
 local G = GLOBAL
 local cooking = G.require("cooking")
 
+-- 1) 让烹饪锅/便携锅接受整叠
+do
+    local ok, containers = G.pcall(G.require, "containers")
+    if ok and containers and containers.params then
+        for _, name in ipairs({ "cookpot", "portablecookpot", "archive_cookpot" }) do
+            if containers.params[name] then
+                containers.params[name].acceptsstacks = true
+            end
+        end
+        print("[omnidst/cookstack] 烹饪锅已改为接受整叠食材")
+    end
+end
+
+-- 2) 便携烹饪锅：任何人物都能造
+do
+    local recname = "portablecookpot_item"
+    local r = G.AllRecipes and G.AllRecipes[recname]
+    if r then
+        r.builder_tag = nil
+        r.builder_skill = nil
+        if r.SetModRPCID then r:SetModRPCID() end
+        print("[omnidst/cookstack] 便携烹饪锅已对所有人物解锁")
+    end
+end
+
+-- 3) 一锅煮整叠
 AddComponentPostInit("stewer", function(self)
     local _Start = self.StartCooking
     self.StartCooking = function(self, doer, ...)
         local cont = self.inst.components.container
         if self.targettime == nil and cont ~= nil then
-            -- 1) 最小堆叠数
             local stack = 9999
             for _, v in pairs(cont.slots) do
                 if v.components.stackable then
@@ -24,26 +53,23 @@ AddComponentPostInit("stewer", function(self)
             end
             if stack == 9999 or stack < 1 then stack = 1 end
 
-            -- 2) 把每格多出来的返还玩家，格子里只留 stack 个（DestroyContents 就只吃这么多）
             if stack > 1 then
                 for _, v in pairs(cont.slots) do
                     local st = v.components.stackable
-                    if st then
+                    if st and st:StackSize() > stack then
                         local extra = st:StackSize() - stack
-                        if extra > 0 then
-                            local back = G.SpawnPrefab(v.prefab)
-                            if back then
-                                if back.components.stackable then back.components.stackable:SetStackSize(extra) end
-                                if back.components.perishable and v.components.perishable then
-                                    back.components.perishable:SetPercent(v.components.perishable:GetPercent())
-                                end
-                                if doer and doer.components.inventory then
-                                    doer.components.inventory:GiveItem(back, nil, self.inst:GetPosition())
-                                else
-                                    back.Transform:SetPosition(self.inst.Transform:GetWorldPosition())
-                                end
-                                st:SetStackSize(stack)
+                        local back = G.SpawnPrefab(v.prefab)
+                        if back then
+                            if back.components.stackable then back.components.stackable:SetStackSize(extra) end
+                            if back.components.perishable and v.components.perishable then
+                                back.components.perishable:SetPercent(v.components.perishable:GetPercent())
                             end
+                            if doer and doer.components.inventory then
+                                doer.components.inventory:GiveItem(back, nil, self.inst:GetPosition())
+                            else
+                                back.Transform:SetPosition(self.inst.Transform:GetWorldPosition())
+                            end
+                            st:SetStackSize(stack)
                         end
                     end
                 end
@@ -61,7 +87,7 @@ AddComponentPostInit("stewer", function(self)
         if stack and stack > 1 and product then
             local rec = cooking.GetRecipe(self.inst.prefab, product)
             local per = (rec and rec.stacksize) or 1
-            local total = per * (stack - 1)     -- 原版已给 1 份 * per，这里补 (stack-1) 份
+            local total = per * (stack - 1)
             while total > 0 do
                 local n = math.min(total, 40)
                 local food = G.SpawnPrefab(product)
