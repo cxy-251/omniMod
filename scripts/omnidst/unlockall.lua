@@ -17,9 +17,18 @@ local G = GLOBAL
 -- 角色选择：解锁需购买的角色（沃拓克斯/沃姆伍德/沃利/沃特/汪达等）。
 -- lobbyscreen 用 IsCharacterOwned 判定，受限皮肤/角色没买就返回 false。
 if G.IsCharacterOwned then
-    local _own = G.IsCharacterOwned
     G.IsCharacterOwned = function(prefab) return true end
     print("[omnidst/unlockall] IsCharacterOwned -> 全部解锁")
+end
+
+-- 所有皮肤 / 服装 / 角色皮肤全解锁：整个皮肤系统的所有权判定都走
+-- TheInventory:CheckOwnership(item_key)。直接把它改成永远拥有。
+do
+    local ok = G.pcall(function()
+        G.TheInventory.CheckOwnership = function(self, item_key) return true end
+    end)
+    print("[omnidst/unlockall] TheInventory:CheckOwnership -> " ..
+        (ok and "全部拥有（皮肤/服装全解锁）" or "改写失败（跳过）"))
 end
 
 -- 角色专属建筑全开放：清掉所有配方的 builder_tag / builder_skill，

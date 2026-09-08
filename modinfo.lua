@@ -5,7 +5,7 @@ name = "OmniDontStarveTogetherMod"
 description = [[自用作弊 / 沙盒 / 稳定 / QoL 合集（联机版）。功能按需一个个加。
 当前：脚手架。]]
 author = "xcai"
-version = "0.6.0"
+version = "0.6.1"
 
 forumthread = ""
 

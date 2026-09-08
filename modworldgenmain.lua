@@ -19,17 +19,13 @@ local function set_overrides(level, kv)
     for k, v in pairs(kv) do level.overrides[k] = v end
 end
 
-AddLevelPreInit("SURVIVAL_TOGETHER", function(level)
+local function ring_world(level)
     set_overrides(level, { branching = "never", islands = "never", loop = "always" })
-    print("[omnidst worldgen] 森林 -> 环形连通 (" .. tostring(level.id) .. ")")
-end)
-
-local function simple_cave(level)
-    set_overrides(level, { branching = "never" })
-    print("[omnidst worldgen] 洞穴 -> 简化 (" .. tostring(level.id) .. ")")
+    print("[omnidst worldgen] " .. tostring(level.id) .. " -> 环形连通 + 内容全开")
 end
-AddLevelPreInit("DST_CAVE", simple_cave)
-AddLevelPreInit("DST_CAVE_PLUS", simple_cave)
+AddLevelPreInit("SURVIVAL_TOGETHER", ring_world)
+AddLevelPreInit("DST_CAVE", ring_world)
+AddLevelPreInit("DST_CAVE_PLUS", ring_world)
 
 -- 所有可选任务/内容都生成
 local function all_content(taskset)
