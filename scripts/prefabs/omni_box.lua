@@ -1,11 +1,15 @@
 --[[ 随身箱子（联机版，自制，仿 Portable Cellar 的核心体验，代码全新写）
 
   - 背包物品，能放进默认物品格 → 多个箱子塞满物品栏 = 全部家当随身
-  - 大容量：四区，中间十字留宽间隔
+  - 大容量：四区，中间十字留宽间隔（联机版网络槽位上限 ~15，这里顶到 80）
   - 箱子里食物**反鲜**（放进去 SetPercent(1) + StopPerishing），拿出来恢复腐坏
   - 箱子里每格可堆到 999，接受整叠
   - 能跨世界携带（就是个 inventoryitem，随人走）
   - 不能把箱子塞进箱子（itemtestfn 拦掉）
+
+  ★ 联机版容器的 itemtestfn / type / acceptsstacks / widget 在 WidgetSetup 之后
+    是**只读**的，必须写进 containers.params，不能在 prefab 里赋值（否则崩
+    "Cannot change read only property"）。
 
   由 modmain.lua 的 PrefabFiles 注册。
 ]]
@@ -16,11 +20,7 @@ local assets =
 }
 
 -- 四区网格：每区 QC×QR，中间十字留 GAP 间隔。总格数 = 4 * QC * QR。
--- ★ 联机版容器有网络槽位上限 containers.MAXITEMSLOTS（原版约 15），槽位数就是所有
---   已注册容器里最大的那个。注册完 params 后要手动把它顶上去，否则 container_classified
---   建网络槽时会「wrong number of arguments to 'insert'」崩。80 格已是 4 倍原版，
---   再大网络变量会吃紧。
--- containerwidget 会整体 ×0.6 缩放，所以原始坐标可以放大些。
+-- containerwidget 会整体 ×0.6 缩放，坐标可放大些。
 local QC, QR = 5, 4
 local STEP   = 64
 local GAP    = 48
@@ -40,25 +40,6 @@ for _, qy in ipairs({ 1, -1 }) do
         end
     end
 end
-
--- 注册容器参数（DST 容器是中心化的）
-local containers = require("containers")
-containers.params.omni_box =
-{
-    acceptsstacks = true,
-    type = "chest",
-    widget =
-    {
-        slotpos   = slotpos,
-        slotscale = 0.85,
-        animbank  = "ui_chest_3x3",
-        animbuild = "ui_chest_3x3",
-        pos       = Vector3(0, 40, 0),
-        side_align_tip = 160,
-    },
-}
--- 顶高网络槽位上限
-containers.MAXITEMSLOTS = math.max(containers.MAXITEMSLOTS or 0, #slotpos)
 
 local BIG_STACK = 999
 
@@ -98,10 +79,33 @@ local function onclose(inst)
     if inst.SoundEmitter then inst.SoundEmitter:PlaySound("dontstarve/wilson/chest_close") end
 end
 
-local function itemtest(container, item, slot)
+------------------------------------------------------------------ 容器参数（中心化）
+local containers = require("containers")
+containers.params.omni_box =
+{
+    acceptsstacks = true,
+    type          = "chest",
+    onopenfn      = onopen,
+    onclosefn     = onclose,
+    skipopensnd   = true,
+    skipclosesnd  = true,
+    widget =
+    {
+        slotpos   = slotpos,
+        slotscale = 0.85,
+        animbank  = "ui_chest_3x3",
+        animbuild = "ui_chest_3x3",
+        pos       = Vector3(0, 40, 0),
+        side_align_tip = 160,
+    },
+}
+function containers.params.omni_box.itemtestfn(container, item, slot)
     return item == nil or item.prefab ~= "omni_box"
 end
+-- 顶高网络槽位上限（否则 container_classified 建网络槽会崩）
+containers.MAXITEMSLOTS = math.max(containers.MAXITEMSLOTS or 0, #slotpos)
 
+------------------------------------------------------------------ 预制物
 local function fn()
     local inst = CreateEntity()
     inst.entity:AddTransform()
@@ -128,16 +132,10 @@ local function fn()
 
     inst:AddComponent("inventoryitem")
     inst.components.inventoryitem.cangoincontainer = true
-    -- 借用香包的物品栏图标；不设 atlasname，让引擎自动从打包的 inventoryimages 里找
     inst.components.inventoryitem.imagename = "krampus_sack"
 
     inst:AddComponent("container")
     inst.components.container:WidgetSetup("omni_box")
-    inst.components.container.itemtestfn = itemtest
-    inst.components.container.onopenfn = onopen
-    inst.components.container.onclosefn = onclose
-    inst.components.container.skipclosesnd = true
-    inst.components.container.skipopensnd = true
 
     inst:ListenForEvent("itemget", on_itemget)
     inst:ListenForEvent("itemlose", on_itemlose)

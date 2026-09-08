@@ -30,16 +30,7 @@ local function get_target()
     local p = G.ThePlayer
     if not (p and p:IsValid()) then return nil end
 
-    -- 1) 物品栏里选中/悬停的格子 —— 允许「持有」，因为就是要看背包里的
-    local inv = p.HUD and p.HUD.controls and p.HUD.controls.inv
-    if inv then
-        local it = (inv.GetCursorItem and inv:GetCursorItem())                       -- 手柄聚焦的格子
-                   or (inv.active_slot and inv.active_slot.tile and inv.active_slot.tile.item)
-                   or (inv.hovertile and inv.hovertile.item)                          -- 鼠标悬停某格
-        if usable(it, true) then return it end
-    end
-
-    -- 2) 手柄准星目标 / 攻击目标（生物、地上物）
+    -- 1) 世界目标优先：手柄准星 / 攻击目标（生物、地上物），滤掉手持/装备
     local pc = p.components and p.components.playercontroller
     if pc then
         for _, t in ipairs({ pc.controller_target, pc.controller_attack_target }) do
@@ -47,13 +38,24 @@ local function get_target()
         end
     end
 
-    -- 3) 鼠标世界目标
+    -- 2) 鼠标世界目标
     if G.TheInput and G.TheInput.GetWorldEntityUnderMouse then
         local t = G.TheInput:GetWorldEntityUnderMouse()
         if usable(t, false) then return t end
     end
 
-    -- 4) 兜底：面前最近的可吃实体（只找食物，不找生物）
+    -- 3) 鼠标悬停在某个物品栏格子上（键鼠时）
+    local inv = p.HUD and p.HUD.controls and p.HUD.controls.inv
+    if inv and inv.hovertile and inv.hovertile.item then
+        if usable(inv.hovertile.item, true) then return inv.hovertile.item end
+    end
+    -- 4) 手柄：正在导航物品栏时，显示聚焦格子的物品
+    if inv and inv.open and inv.GetCursorItem then
+        local it = inv:GetCursorItem()
+        if usable(it, true) then return it end
+    end
+
+    -- 5) 兜底：面前最近的可吃实体（只找食物，不找生物）
     if p.Transform and G.TheSim then
         local x, y, z = p.Transform:GetWorldPosition()
         local best, bestd
