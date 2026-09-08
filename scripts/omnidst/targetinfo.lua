@@ -44,14 +44,16 @@ local function get_target()
         if usable(t, false) then return t end
     end
 
-    -- 3) 鼠标悬停在某个物品栏格子上（键鼠时）
+    -- 3) 物品栏里「当前聚焦/悬停」的格子（键鼠悬停 或 手柄把光标移到某格上）
     local inv = p.HUD and p.HUD.controls and p.HUD.controls.inv
-    if inv and inv.hovertile and inv.hovertile.item then
-        if usable(inv.hovertile.item, true) then return inv.hovertile.item end
-    end
-    -- 4) 手柄：正在导航物品栏时，显示聚焦格子的物品
-    if inv and inv.open and inv.GetCursorItem then
-        local it = inv:GetCursorItem()
+    if inv then
+        local it
+        if inv.hovertile and inv.hovertile.item then
+            it = inv.hovertile.item                                  -- 鼠标悬停
+        elseif inv.active_slot and inv.active_slot.focus            -- 手柄光标确实停在这格上
+               and inv.active_slot.tile and inv.active_slot.tile.item then
+            it = inv.active_slot.tile.item
+        end
         if usable(it, true) then return it end
     end
 

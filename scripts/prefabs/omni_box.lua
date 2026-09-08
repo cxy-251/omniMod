@@ -46,27 +46,23 @@ local BIG_STACK = 999
 local function on_itemget(inst, data)
     local item = data and data.item
     if not (item and item.components) then return end
+    -- 食物反鲜 + 不腐
     if item.components.perishable then
         item.components.perishable:SetPercent(1)
         item.components.perishable:StopPerishing()
     end
+    -- 无限堆叠：用官方 API（直接改 stackable.originalmaxsize 会崩，它是只读的）
     if item.components.stackable then
-        local st = item.components.stackable
-        st._omni_max = st._omni_max or st.originalmaxsize or st.maxsize
-        st.originalmaxsize = st.originalmaxsize or st.maxsize
-        st.maxsize = BIG_STACK
+        item.components.stackable:SetIgnoreMaxSize(true)
     end
 end
 
 local function on_itemlose(inst, data)
     local item = data and data.item
     if not (item and item.components) then return end
+    -- 拿出来恢复腐坏；堆叠上限故意不还原（保留大叠，方便随身带）
     if item.components.perishable then
         item.components.perishable:StartPerishing()
-    end
-    local st = item.components.stackable
-    if st and st._omni_max and (st.stacksize or 1) <= st._omni_max then
-        st.maxsize = st._omni_max
     end
 end
 

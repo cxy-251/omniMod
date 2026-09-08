@@ -18,7 +18,7 @@
 GLOBAL.setmetatable(env, { __index = function(_, k) return GLOBAL.rawget(GLOBAL, k) end })
 
 local MODNAME = "OmniDontStarveTogetherMod"
-local VERSION = "0.5.3"
+local VERSION = "0.5.4"
 
 -- 随身箱子预制物
 PrefabFiles = { "omni_box" }
