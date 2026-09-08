@@ -14,6 +14,32 @@
 
 local G = GLOBAL
 
+-- 角色选择：解锁需购买的角色（沃拓克斯/沃姆伍德/沃利/沃特/汪达等）。
+-- lobbyscreen 用 IsCharacterOwned 判定，受限皮肤/角色没买就返回 false。
+if G.IsCharacterOwned then
+    local _own = G.IsCharacterOwned
+    G.IsCharacterOwned = function(prefab) return true end
+    print("[omnidst/unlockall] IsCharacterOwned -> 全部解锁")
+end
+
+-- 角色专属建筑全开放：清掉所有配方的 builder_tag / builder_skill，
+-- 任何人物都能造沃利的锅、薇诺娜的投石机、沃姆伍德的活木装备、沃特的弹弓弹药、
+-- 汪达的怀表、伍尔特的鱼人建筑…（使用限制里，容器类的 masterchef 见 cookstack.lua）
+if G.AllRecipes then
+    local n = 0
+    for name, r in pairs(G.AllRecipes) do
+        if r.builder_tag ~= nil or r.builder_skill ~= nil then
+            r.builder_tag = nil
+            r.builder_skill = nil
+            n = n + 1
+        end
+    end
+    if G.AllBuilderTaggedRecipes then
+        for k in pairs(G.AllBuilderTaggedRecipes) do G.AllBuilderTaggedRecipes[k] = nil end
+    end
+    print(("[omnidst/unlockall] 已清掉 %d 个配方的人物限制（专属建筑全开放）"):format(n))
+end
+
 -- ★ 关键：把「可分配技能点」改成一个大数。
 --   否则激活全部技能（比如威尔逊 26 个）会超过 15 点上限，
 --   回到世界时 ValidateCharacterData 会以「Too many allocated points 26 > 15」
