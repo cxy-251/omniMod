@@ -16,10 +16,14 @@ local assets =
 }
 
 -- 四区网格：每区 QC×QR，中间十字留 GAP 间隔。总格数 = 4 * QC * QR。
+-- ★ 联机版容器有网络槽位上限 containers.MAXITEMSLOTS（原版约 15），槽位数就是所有
+--   已注册容器里最大的那个。注册完 params 后要手动把它顶上去，否则 container_classified
+--   建网络槽时会「wrong number of arguments to 'insert'」崩。80 格已是 4 倍原版，
+--   再大网络变量会吃紧。
 -- containerwidget 会整体 ×0.6 缩放，所以原始坐标可以放大些。
-local QC, QR = 7, 5
-local STEP   = 56
-local GAP    = 40
+local QC, QR = 5, 4
+local STEP   = 64
+local GAP    = 48
 
 local slotpos = {}
 for _, qy in ipairs({ 1, -1 }) do
@@ -46,13 +50,15 @@ containers.params.omni_box =
     widget =
     {
         slotpos   = slotpos,
-        slotscale = 0.82,
+        slotscale = 0.85,
         animbank  = "ui_chest_3x3",
         animbuild = "ui_chest_3x3",
         pos       = Vector3(0, 40, 0),
         side_align_tip = 160,
     },
 }
+-- 顶高网络槽位上限
+containers.MAXITEMSLOTS = math.max(containers.MAXITEMSLOTS or 0, #slotpos)
 
 local BIG_STACK = 999
 

@@ -30,12 +30,12 @@ local function get_target()
     local p = G.ThePlayer
     if not (p and p:IsValid()) then return nil end
 
-    -- 1) 物品栏里选中/悬停的格子（只在物品栏真的被操作时）—— 允许「持有」，因为就是要看背包里的
+    -- 1) 物品栏里选中/悬停的格子 —— 允许「持有」，因为就是要看背包里的
     local inv = p.HUD and p.HUD.controls and p.HUD.controls.inv
     if inv then
-        local it
-        if inv.open and inv.GetCursorItem then it = inv:GetCursorItem() end          -- 手柄开着物品栏导航
-        it = it or (inv.hovertile and inv.hovertile.item)                            -- 鼠标悬停某格
+        local it = (inv.GetCursorItem and inv:GetCursorItem())                       -- 手柄聚焦的格子
+                   or (inv.active_slot and inv.active_slot.tile and inv.active_slot.tile.item)
+                   or (inv.hovertile and inv.hovertile.item)                          -- 鼠标悬停某格
         if usable(it, true) then return it end
     end
 
