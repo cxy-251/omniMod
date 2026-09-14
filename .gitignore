@@ -1,29 +1,10 @@
-# 全仓库统一维护一份 .gitignore，每条规则都带上子文件夹路径前缀，只在各自的子项目里
-# 生效——不写前缀的话规则会套用到整个仓库任何位置（比如裸的 bin/ 会连累其它子项目
-# 里同名的文件夹），这是坑，之前漏了。
-# "<子项目>/**/<pattern>" 这个写法能精确匹配到"这个子项目目录下，任意深度"，跟
-# 各子项目原来自己那份 .gitignore 里裸写 "<pattern>" 的效果完全一致。
+# 每条规则都带子文件夹路径前缀，只在各自的子项目里生效；只保留当前真实存在对应文件的
+# 规则，没有实际文件命中的规则不留在这里（免得看着一堆用不上的条目）。
 
-# omniOxygenNotIncludedMod（C#/.NET 构建产物）
+# omniOxygenNotIncludedMod（dotnet build 产物）
 omniOxygenNotIncludedMod/**/bin/
 omniOxygenNotIncludedMod/**/obj/
-omniOxygenNotIncludedMod/**/.vs/
-omniOxygenNotIncludedMod/**/*.user
-omniOxygenNotIncludedMod/**/*.suo
 
-# sc2Mod（大二进制/生成物 + Python）
-sc2Mod/**/*.SC2Map
-sc2Mod/**/*.SC2Mod
-sc2Mod/**/build/
-sc2Mod/**/dist/
-sc2Mod/**/__pycache__/
-sc2Mod/**/*.pyc
+# sc2Mod
 sc2Mod/**/.venv/
-
-# omniDontStarveMod
-omniDontStarveMod/**/*.bak
-omniDontStarveMod/**/*.orig
-
-# omniDontStarveTogetherMod
-omniDontStarveTogetherMod/**/*.bak
-omniDontStarveTogetherMod/**/*.orig
+sc2Mod/**/*.SC2Mod
