@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Catalog>
+    <CBehaviorResource id="MineralFieldMinerals"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="MineralFieldMinerals750"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="MineralFieldMinerals450"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="MineralFieldMineralsOpaque"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="MineralFieldMineralsOpaque900"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="HighYieldMineralFieldMinerals"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="HighYieldMineralFieldMinerals750"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="MineralFieldMineralsNoRemove"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="RawVespeneGeyserGas"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="RawRichVespeneGeyserGas"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="RawTerrazineGeyserGas"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="HarvestableVespeneGeyserGas"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="HarvestableVespeneGeyserGasProtoss"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="HarvestableVespeneGeyserGasZerg"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="HarvestableRichVespeneGeyserGas"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="HarvestableRichVespeneGeyserGasProtoss"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="HarvestableRichVespeneGeyserGasZerg"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="HarvestableTerrazineGeyserGas"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="HarvestableTerrazineGeyserGasProtoss"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+    <CBehaviorResource id="HarvestableTerrazineGeyserGasZerg"><Capacity value="1000000"/><Contents value="1000000"/></CBehaviorResource>
+</Catalog>

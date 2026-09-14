@@ -1,0 +1,8 @@
+# 大二进制 / 生成物
+*.SC2Map
+*.SC2Mod
+build/
+dist/
+__pycache__/
+*.pyc
+.venv/
