@@ -1,6 +1,8 @@
-# 下面这几个都是各自独立的 git 仓库（自己管自己的历史），伏级目录这层完全不看它们，
-# 避免被当成"内嵌仓库"（跟 git submodule 是同一套机制）导致 git status/add 显示混乱。
-omniOxygenNotIncludedMod/
-sc2Mod/
-omniDontStarveMod/
-omniDontStarveTogetherMod/
+# 常见构建产物 / IDE 垃圾（各子项目自己也可能有更细的规则）
+bin/
+obj/
+.vs/
+*.user
+*.suo
+__pycache__/
+.venv/
