@@ -57,6 +57,33 @@ MORPH_WHITELIST = {
     "UpgradeToWarpGate", "MorphBackToGateway",
 }
 
+# merge_simple_time / merge_morph_sections 覆盖不到的几类"出兵"能力 —— 之前 2 倍时
+# 差别不明显没发现，1000 倍（秒建造）时这些还按原速 = 用户看到的"部分出兵要等"。
+# 数据是 CascLib 从 liberty+void+voidmulti 合并层挖的真实值，index 已核对。
+
+# 折跃门 warp 兵：真正的等待是嵌套 <Charge TimeUse>（折跃门冷却），不是 <InfoArray Time>
+# （那只是 warp 动画）。两个都得缩。index -> (InfoArray Time, Charge TimeStart|None, Charge TimeUse)
+WARP_TRAIN: dict[str, tuple[float, float | None, float]] = {
+    "Train1": (5.6, 32.8, 30.8),   # Zealot
+    "Train2": (5.6, None, 30.8),   # Stalker
+    "Train4": (5.6, None, 49.0),   # HighTemplar
+    "Train5": (5.6, None, 49.0),   # DarkTemplar
+    "Train6": (5.6, None, 30.8),   # Sentry
+    "Train7": (5.6, None, 30.8),   # Adept
+}
+
+# 弹匣单位补充耗时：航母拦截机 / 巢虫领主子虫 / 核弹。ability id -> {InfoArray index: Time}
+ARM_MAGAZINE: dict[str, dict[str, float]] = {
+    "CarrierHangar":   {"Ammo1": 12.0},   # Interceptor（void 层把 8 改成了 12）
+    "BroodLordHangar": {"Ammo1": 2.5},    # BroodlingEscort
+    "ArmSiloWithNuke": {"Ammo1": 60.0},   # Nuke
+}
+
+# 白球合体（executor merge -> Archon）：单个 <Info>，没有 index。ability id -> Time
+MERGE_INFO: dict[str, float] = {
+    "ArchonWarp": 16.6667,
+}
+
 
 def write_mpq_file(h_mpq, name: str, data: bytes) -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as tf:
@@ -112,6 +139,30 @@ def build_abildata_xml(multiplier: float) -> str:
             lines.append('        </InfoArray>')
         lines.append('    </CAbilMorph>')
 
+    # ---- 折跃门 warp 出兵：InfoArray Time + 嵌套 <Charge>（折跃门冷却）一起缩 ----
+    lines.append('    <CAbilWarpTrain id="WarpGateTrain">')
+    for idx, (t, cs, cu) in WARP_TRAIN.items():
+        lines.append(f'        <InfoArray index="{idx}" Time="{scaled(str(t), multiplier)}">')
+        if cs is not None:
+            lines.append(f'            <Charge TimeStart="{scaled(str(cs), multiplier)}" TimeUse="{scaled(str(cu), multiplier)}"/>')
+        else:
+            lines.append(f'            <Charge TimeUse="{scaled(str(cu), multiplier)}"/>')
+        lines.append('        </InfoArray>')
+    lines.append('    </CAbilWarpTrain>')
+
+    # ---- 弹匣单位（拦截机 / 子虫 / 核弹）补充耗时 ----
+    for aid, entries in ARM_MAGAZINE.items():
+        lines.append(f'    <CAbilArmMagazine id="{aid}">')
+        for idx, t in entries.items():
+            lines.append(f'        <InfoArray index="{idx}" Time="{scaled(str(t), multiplier)}"/>')
+        lines.append('    </CAbilArmMagazine>')
+
+    # ---- 白球合体（executor merge -> Archon）----
+    for aid, t in MERGE_INFO.items():
+        lines.append(f'    <CAbilMerge id="{aid}">')
+        lines.append(f'        <Info Time="{scaled(str(t), multiplier)}"/>')
+        lines.append('    </CAbilMerge>')
+
     lines.append("</Catalog>")
     return "\n".join(lines) + "\n"
 
@@ -132,6 +183,13 @@ def main() -> None:
         sys.exit(f"打不开 MPQ {dst}")
 
     xml = build_abildata_xml(multiplier)
+
+    # 主用途：bake.py 把这份纯 XML 按 id 焊进地图自己的 AbilData.xml（AIE 这类自带整套
+    # 数据的地图，扩展 mod 会被压过去 / 同文件同 id "先出现的赢"，只有焊进地图目录、
+    # 换掉地图原来的同 id 条目才生效）。.SC2Mod 那份留作普通天梯图的兜底依赖。
+    abil_xml_path = HERE / "mods" / f"{out_name}.abil.xml"
+    abil_xml_path.write_text(xml, encoding="utf-8")
+
     # 关键坑：文件名必须留着 BehaviorData.xml 不能改叫 AbilData.xml——即使里面装的是
     # CAbilBuild/CAbilTrain 数据。踩过：改名字（先 remove 旧名再 add 新名）会让 MPQ
     # 内部的东西对不上（大概率是 (listfile) 没跟着更新，游戏自己的 MPQ 加载器比
@@ -152,10 +210,7 @@ def main() -> None:
     STORM.SFileCloseArchive(h_mpq)
 
     print(f"OK: {dst}  ({len(xml.splitlines())} 行 XML)")
-    print()
-    print("把下面两条分别加进 bake.py 的 MOD_DEPS 和 MOD_INFO：")
-    print(f'    "{out_name}": "bnet:{out_name}/0.0/999,file:Mods/{out_name}.SC2Mod",')
-    print(f'    "{out_name}": {{"name": "{display_name}", "desc": "{desc}"}},')
+    print(f"OK: {abil_xml_path}  （bake 焊进地图 AbilData.xml 用的纯片段）")
 
 
 if __name__ == "__main__":

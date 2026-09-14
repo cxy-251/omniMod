@@ -1,0 +1,597 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<Catalog>
+    <CAbilBuild id="TerranAddOns">
+        <InfoArray index="Build1" Time="15"/>
+        <InfoArray index="Build2" Time="20"/>
+    </CAbilBuild>
+    <CAbilBuild id="TerranBuild">
+        <InfoArray index="Build1" Time="50"/>
+        <InfoArray index="Build2" Time="15"/>
+        <InfoArray index="Build3" Time="15"/>
+        <InfoArray index="Build4" Time="32.5"/>
+        <InfoArray index="Build5" Time="17.5"/>
+        <InfoArray index="Build6" Time="12.5"/>
+        <InfoArray index="Build7" Time="20"/>
+        <InfoArray index="Build8" Time="15"/>
+        <InfoArray index="Build9" Time="12.5"/>
+        <InfoArray index="Build10" Time="20"/>
+        <InfoArray index="Build11" Time="30"/>
+        <InfoArray index="Build12" Time="25"/>
+        <InfoArray index="Build13" Time="25"/>
+        <InfoArray index="Build14" Time="32.5"/>
+        <InfoArray index="Build16" Time="32.5"/>
+        <InfoArray index="Build30" Time="15"/>
+    </CAbilBuild>
+    <CAbilBuild id="RavenBuild">
+        <InfoArray index="Build1" Time="0.5"/>
+    </CAbilBuild>
+    <CAbilBuild id="BarracksAddOns">
+        <InfoArray index="Build1" Time="12.5"/>
+        <InfoArray index="Build2" Time="25"/>
+    </CAbilBuild>
+    <CAbilBuild id="FactoryAddOns">
+        <InfoArray index="Build1" Time="12.5"/>
+        <InfoArray index="Build2" Time="25"/>
+    </CAbilBuild>
+    <CAbilBuild id="StarportAddOns">
+        <InfoArray index="Build1" Time="12.5"/>
+        <InfoArray index="Build2" Time="25"/>
+    </CAbilBuild>
+    <CAbilBuild id="ProtossBuild">
+        <InfoArray index="Build1" Time="50"/>
+        <InfoArray index="Build2" Time="12.5"/>
+        <InfoArray index="Build3" Time="15"/>
+        <InfoArray index="Build4" Time="32.5"/>
+        <InfoArray index="Build5" Time="22.5"/>
+        <InfoArray index="Build6" Time="30"/>
+        <InfoArray index="Build7" Time="25"/>
+        <InfoArray index="Build8" Time="20"/>
+        <InfoArray index="Build9" Time="12.5"/>
+        <InfoArray index="Build10" Time="30"/>
+        <InfoArray index="Build11" Time="25"/>
+        <InfoArray index="Build12" Time="50"/>
+        <InfoArray index="Build13" Time="32.5"/>
+        <InfoArray index="Build14" Time="32.5"/>
+        <InfoArray index="Build15" Time="25"/>
+        <InfoArray index="Build16" Time="20"/>
+    </CAbilBuild>
+    <CAbilBuild id="ZergBuild">
+        <InfoArray index="Build1" Time="50"/>
+        <InfoArray index="Build2" Time="7.5"/>
+        <InfoArray index="Build3" Time="15"/>
+        <InfoArray index="Build4" Time="32.5"/>
+        <InfoArray index="Build5" Time="17.5"/>
+        <InfoArray index="Build6" Time="20"/>
+        <InfoArray index="Build7" Time="46.2"/>
+        <InfoArray index="Build8" Time="32.5"/>
+        <InfoArray index="Build9" Time="25"/>
+        <InfoArray index="Build10" Time="25"/>
+        <InfoArray index="Build11" Time="30"/>
+        <InfoArray index="Build13" Time="35"/>
+        <InfoArray index="Build14" Time="27.5"/>
+        <InfoArray index="Build15" Time="25"/>
+        <InfoArray index="Build16" Time="15"/>
+        <InfoArray index="Build21" Time="15"/>
+        <InfoArray index="Build12" Time="40"/>
+    </CAbilBuild>
+    <CAbilBuild id="QueenBuild">
+        <InfoArray index="Build1" Time="7.5"/>
+        <InfoArray index="Build2" Time="15"/>
+        <InfoArray index="Build3" Time="15"/>
+    </CAbilBuild>
+    <CAbilBuild id="CreepTumorBuild">
+        <InfoArray index="Build1" Time="7.5"/>
+    </CAbilBuild>
+    <CAbilBuild id="BuildNydusCanal">
+        <InfoArray index="Build1" Time="10"/>
+        <InfoArray index="Build2" Time="10"/>
+        <InfoArray index="Build3" Time="0.05"/>
+    </CAbilBuild>
+    <CAbilBuild id="OracleStasisTrapBuild">
+        <InfoArray index="Build1" Time="2.8"/>
+    </CAbilBuild>
+    <CAbilTrain id="MorphZerglingToBaneling">
+        <InfoArray index="Train1" Time="10"/>
+    </CAbilTrain>
+    <CAbilTrain id="NexusTrainMothership">
+        <InfoArray index="Train1" Time="62.5"/>
+    </CAbilTrain>
+    <CAbilTrain id="CommandCenterTrain">
+        <InfoArray index="Train1" Time="8.5"/>
+    </CAbilTrain>
+    <CAbilTrain id="BarracksTrain">
+        <InfoArray index="Train1" Time="12.5"/>
+        <InfoArray index="Train2" Time="23.8"/>
+        <InfoArray index="Train3" Time="20"/>
+        <InfoArray index="Train4" Time="15"/>
+        <InfoArray index="Train5" Time="20"/>
+    </CAbilTrain>
+    <CAbilTrain id="FactoryTrain">
+        <InfoArray index="Train2" Time="22.5"/>
+        <InfoArray index="Train5" Time="30"/>
+        <InfoArray index="Train6" Time="15"/>
+        <InfoArray index="Train13" Time="22.5"/>
+        <InfoArray index="Train25" Time="15"/>
+        <InfoArray index="Train7" Time="15"/>
+        <InfoArray index="Train8" Time="22.5"/>
+    </CAbilTrain>
+    <CAbilTrain id="StarportTrain">
+        <InfoArray index="Train1" Time="21"/>
+        <InfoArray index="Train2" Time="30"/>
+        <InfoArray index="Train3" Time="24"/>
+        <InfoArray index="Train4" Time="45"/>
+        <InfoArray index="Train5" Time="21"/>
+        <InfoArray index="Train7" Time="30"/>
+    </CAbilTrain>
+    <CAbilTrain id="GatewayTrain">
+        <InfoArray index="Train1" Time="19"/>
+        <InfoArray index="Train2" Time="19"/>
+        <InfoArray index="Train4" Time="28"/>
+        <InfoArray index="Train5" Time="28"/>
+        <InfoArray index="Train6" Time="16.33"/>
+        <InfoArray index="Train7" Time="22.755"/>
+    </CAbilTrain>
+    <CAbilTrain id="StargateTrain">
+        <InfoArray index="Train1" Time="17.5"/>
+        <InfoArray index="Train3" Time="45"/>
+        <InfoArray index="Train5" Time="30.1"/>
+        <InfoArray index="Train9" Time="26"/>
+        <InfoArray index="Train10" Time="30"/>
+    </CAbilTrain>
+    <CAbilTrain id="RoboticsFacilityTrain">
+        <InfoArray index="Train1" Time="25"/>
+        <InfoArray index="Train2" Time="12.5"/>
+        <InfoArray index="Train3" Time="37.5"/>
+        <InfoArray index="Train4" Time="27.5"/>
+        <InfoArray index="Train19" Time="25"/>
+        <InfoArray index="Train20" Time="10"/>
+    </CAbilTrain>
+    <CAbilTrain id="NexusTrain">
+        <InfoArray index="Train1" Time="8.5"/>
+    </CAbilTrain>
+    <CAbilTrain id="LarvaTrain">
+        <InfoArray index="Train1" Time="8.5"/>
+        <InfoArray index="Train2" Time="12"/>
+        <InfoArray index="Train3" Time="12.5"/>
+        <InfoArray index="Train4" Time="16.5"/>
+        <InfoArray index="Train5" Time="16.5"/>
+        <InfoArray index="Train7" Time="27.5"/>
+        <InfoArray index="Train8" Time="17.5"/>
+        <InfoArray index="Train10" Time="13.5"/>
+        <InfoArray index="Train11" Time="25"/>
+        <InfoArray index="Train12" Time="20"/>
+        <InfoArray index="Train13" Time="20"/>
+        <InfoArray index="Train15" Time="20"/>
+    </CAbilTrain>
+    <CAbilTrain id="TrainQueen">
+        <InfoArray index="Train1" Time="25"/>
+    </CAbilTrain>
+    <CAbilTrain id="NexusTrainMothershipCore">
+        <InfoArray index="Train1" Time="15"/>
+    </CAbilTrain>
+    <CAbilTrain id="LocustTrain">
+        <InfoArray index="Train1" Time="1.4"/>
+    </CAbilTrain>
+    <CAbilResearch id="FleetBeaconResearch">
+        <InfoArray index="Research1" Time="40"/>
+        <InfoArray index="Research2" Time="40"/>
+        <InfoArray index="Research3" Time="45"/>
+        <InfoArray index="Research4" Time="55"/>
+        <InfoArray index="Research5" Time="40"/>
+        <InfoArray index="Research6" Time="70"/>
+    </CAbilResearch>
+    <CAbilResearch id="RoachWarrenResearch">
+        <InfoArray index="Research2" Time="55"/>
+        <InfoArray index="Research3" Time="55"/>
+        <InfoArray index="Research4" Time="65"/>
+    </CAbilResearch>
+    <CAbilResearch id="UltraliskCavernResearch">
+        <InfoArray index="Research3" Time="55"/>
+        <InfoArray index="Research4" Time="65"/>
+        <InfoArray index="Research1" Time="30"/>
+    </CAbilResearch>
+    <CAbilResearch id="EngineeringBayResearch">
+        <InfoArray index="Research1" Time="40"/>
+        <InfoArray index="Research2" Time="70"/>
+        <InfoArray index="Research3" Time="80"/>
+        <InfoArray index="Research4" Time="95"/>
+        <InfoArray index="Research5" Time="110"/>
+        <InfoArray index="Research6" Time="55"/>
+        <InfoArray index="Research7" Time="80"/>
+        <InfoArray index="Research8" Time="95"/>
+        <InfoArray index="Research9" Time="110"/>
+    </CAbilResearch>
+    <CAbilResearch id="MercCompoundResearch">
+        <InfoArray index="Research1" Time="55"/>
+        <InfoArray index="Research4" Time="50"/>
+    </CAbilResearch>
+    <CAbilResearch id="BarracksTechLabResearch">
+        <InfoArray index="Research1" Time="70"/>
+        <InfoArray index="Research2" Time="55"/>
+        <InfoArray index="Research3" Time="30"/>
+        <InfoArray index="Research4" Time="0.05"/>
+    </CAbilResearch>
+    <CAbilResearch id="FactoryTechLabResearch">
+        <InfoArray index="Research1" Time="40"/>
+        <InfoArray index="Research2" Time="55"/>
+        <InfoArray index="Research3" Time="55"/>
+        <InfoArray index="Research4" Time="55"/>
+        <InfoArray index="Research5" Time="55"/>
+        <InfoArray index="Research6" Time="55"/>
+        <InfoArray index="Research7" Time="55"/>
+        <InfoArray index="Research8" Time="55"/>
+        <InfoArray index="Research9" Time="55"/>
+        <InfoArray index="Research10" Time="70"/>
+        <InfoArray index="Research11" Time="70"/>
+    </CAbilResearch>
+    <CAbilResearch id="StarportTechLabResearch">
+        <InfoArray index="Research1" Time="55"/>
+        <InfoArray index="Research3" Time="40"/>
+        <InfoArray index="Research4" Time="55"/>
+        <InfoArray index="Research7" Time="55"/>
+        <InfoArray index="Research8" Time="55"/>
+        <InfoArray index="Research11" Time="55"/>
+        <InfoArray index="Research10" Time="55.3"/>
+        <InfoArray index="Research13" Time="60"/>
+        <InfoArray index="Research14" Time="55"/>
+        <InfoArray index="Research15" Time="40"/>
+        <InfoArray index="Research16" Time="55"/>
+        <InfoArray index="Research17" Time="55"/>
+        <InfoArray index="Research18" Time="40"/>
+    </CAbilResearch>
+    <CAbilResearch id="GhostAcademyResearch">
+        <InfoArray index="Research1" Time="60"/>
+        <InfoArray index="Research2" Time="0.05"/>
+    </CAbilResearch>
+    <CAbilResearch id="ArmoryResearch">
+        <InfoArray index="Research3" Time="80"/>
+        <InfoArray index="Research4" Time="95"/>
+        <InfoArray index="Research5" Time="110"/>
+        <InfoArray index="Research6" Time="80"/>
+        <InfoArray index="Research7" Time="95"/>
+        <InfoArray index="Research8" Time="110"/>
+        <InfoArray index="Research9" Time="80"/>
+        <InfoArray index="Research10" Time="95"/>
+        <InfoArray index="Research11" Time="110"/>
+        <InfoArray index="Research12" Time="80"/>
+        <InfoArray index="Research13" Time="95"/>
+        <InfoArray index="Research14" Time="110"/>
+        <InfoArray index="Research15" Time="80"/>
+        <InfoArray index="Research16" Time="95"/>
+        <InfoArray index="Research17" Time="110"/>
+    </CAbilResearch>
+    <CAbilResearch id="ForgeResearch">
+        <InfoArray index="Research1" Time="85"/>
+        <InfoArray index="Research2" Time="101.25"/>
+        <InfoArray index="Research3" Time="117.5"/>
+        <InfoArray index="Research4" Time="85"/>
+        <InfoArray index="Research5" Time="101.25"/>
+        <InfoArray index="Research6" Time="117.5"/>
+        <InfoArray index="Research7" Time="85"/>
+        <InfoArray index="Research8" Time="101.25"/>
+        <InfoArray index="Research9" Time="117.5"/>
+    </CAbilResearch>
+    <CAbilResearch id="RoboticsBayResearch">
+        <InfoArray index="Research1" Time="35"/>
+        <InfoArray index="Research2" Time="40"/>
+        <InfoArray index="Research3" Time="40"/>
+        <InfoArray index="Research4" Time="70"/>
+        <InfoArray index="Research5" Time="70"/>
+        <InfoArray index="Research6" Time="70"/>
+        <InfoArray index="Research8" Time="40"/>
+    </CAbilResearch>
+    <CAbilResearch id="TemplarArchivesResearch">
+        <InfoArray index="Research1" Time="0.05"/>
+        <InfoArray index="Research5" Time="55"/>
+    </CAbilResearch>
+    <CAbilResearch id="evolutionchamberresearch">
+        <InfoArray index="Research1" Time="80"/>
+        <InfoArray index="Research2" Time="95"/>
+        <InfoArray index="Research3" Time="110"/>
+        <InfoArray index="Research4" Time="80"/>
+        <InfoArray index="Research5" Time="95"/>
+        <InfoArray index="Research6" Time="110"/>
+        <InfoArray index="Research7" Time="80"/>
+        <InfoArray index="Research8" Time="95"/>
+        <InfoArray index="Research9" Time="110"/>
+        <InfoArray index="Research10" Time="40"/>
+    </CAbilResearch>
+    <CAbilResearch id="LairResearch">
+        <InfoArray index="Research1" Time="35"/>
+        <InfoArray index="Research2" Time="30"/>
+        <InfoArray index="Research3" Time="65"/>
+        <InfoArray index="Research4" Time="50"/>
+    </CAbilResearch>
+    <CAbilResearch id="SpawningPoolResearch">
+        <InfoArray index="Research1" Time="65"/>
+        <InfoArray index="Research2" Time="55"/>
+    </CAbilResearch>
+    <CAbilResearch id="HydraliskDenResearch">
+        <InfoArray index="Research3" Time="45"/>
+        <InfoArray index="Research4" Time="0.05"/>
+        <InfoArray index="Research5" Time="55"/>
+        <InfoArray index="Research1" Time="35"/>
+        <InfoArray index="Research2" Time="45"/>
+    </CAbilResearch>
+    <CAbilResearch id="SpireResearch">
+        <InfoArray index="Research1" Time="80"/>
+        <InfoArray index="Research2" Time="95"/>
+        <InfoArray index="Research3" Time="110"/>
+        <InfoArray index="Research4" Time="80"/>
+        <InfoArray index="Research5" Time="95"/>
+        <InfoArray index="Research6" Time="110"/>
+    </CAbilResearch>
+    <CAbilResearch id="InfestationPitResearch">
+        <InfoArray index="Research3" Time="40"/>
+        <InfoArray index="Research4" Time="55"/>
+        <InfoArray index="Research5" Time="60"/>
+        <InfoArray index="Research6" Time="55"/>
+    </CAbilResearch>
+    <CAbilResearch id="BanelingNestResearch">
+        <InfoArray index="Research1" Time="50"/>
+        <InfoArray index="Research2" Time="0.05"/>
+    </CAbilResearch>
+    <CAbilResearch id="FusionCoreResearch">
+        <InfoArray index="Research1" Time="70"/>
+        <InfoArray index="Research2" Time="55"/>
+        <InfoArray index="Research3" Time="40"/>
+        <InfoArray index="Research4" Time="35"/>
+    </CAbilResearch>
+    <CAbilResearch id="CyberneticsCoreResearch">
+        <InfoArray index="Research1" Time="90"/>
+        <InfoArray index="Research2" Time="107.5"/>
+        <InfoArray index="Research3" Time="125"/>
+        <InfoArray index="Research4" Time="90"/>
+        <InfoArray index="Research5" Time="107.5"/>
+        <InfoArray index="Research6" Time="125"/>
+        <InfoArray index="Research7" Time="70"/>
+        <InfoArray index="Research10" Time="40"/>
+        <InfoArray index="Research11" Time="55"/>
+    </CAbilResearch>
+    <CAbilResearch id="TwilightCouncilResearch">
+        <InfoArray index="Research1" Time="70"/>
+        <InfoArray index="Research2" Time="85"/>
+        <InfoArray index="Research3" Time="70"/>
+        <InfoArray index="Research4" Time="70"/>
+        <InfoArray index="Research5" Time="70"/>
+        <InfoArray index="Research6" Time="70"/>
+    </CAbilResearch>
+    <CAbilResearch id="ArmoryResearchSwarm">
+        <InfoArray index="Research1" Time="80"/>
+        <InfoArray index="Research2" Time="95"/>
+        <InfoArray index="Research3" Time="110"/>
+        <InfoArray index="Research4" Time="80"/>
+        <InfoArray index="Research5" Time="95"/>
+        <InfoArray index="Research6" Time="110"/>
+    </CAbilResearch>
+    <CAbilResearch id="DarkShrineResearch">
+        <InfoArray index="Research1" Time="70"/>
+    </CAbilResearch>
+    <CAbilResearch id="LurkerDenResearch">
+        <InfoArray index="Research1" Time="40"/>
+        <InfoArray index="Research2" Time="40"/>
+    </CAbilResearch>
+    <CAbilMorph id="UpgradeToLair">
+        <InfoArray Unit="Lair">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="40"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Duration" value="40"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="40"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="UpgradeToHive">
+        <InfoArray Unit="Hive">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="50"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Duration" value="50"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="50"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="UpgradeToGreaterSpire">
+        <InfoArray Unit="GreaterSpire">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="50"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Duration" value="50"/>
+            </SectionArray>
+            <SectionArray index="Facing">
+                <DurationArray index="Delay" value="2.5"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="50"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="MorphToBroodLord">
+        <InfoArray Unit="BroodLord">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="16.9166"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Delay" value="16.9166"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="16.9166"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="MorphToOverseer">
+        <InfoArray Unit="Overseer">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="8.3332"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Delay" value="8.3332"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="8.3332"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="UpgradeToPlanetaryFortress">
+        <InfoArray Unit="PlanetaryFortress">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="25"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Duration" value="25"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="25"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="UpgradeToOrbital">
+        <InfoArray Unit="OrbitalCommand">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="17.5"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Duration" value="17.5"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="17.5"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="UpgradeToWarpGate">
+        <InfoArray Unit="WarpGate">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="5"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Duration" value="5"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="5"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="MorphBackToGateway">
+        <InfoArray Unit="Gateway">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="5"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Duration" value="5"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="5"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="MorphToMothership">
+        <InfoArray Unit="Mothership">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="50"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Delay" value="50"/>
+            </SectionArray>
+            <SectionArray index="Mover">
+                <DurationArray index="Delay" value="50"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="50"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="UpgradeToLurkerDenMP">
+        <InfoArray Unit="LurkerDenMP">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="50"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Duration" value="50"/>
+            </SectionArray>
+            <SectionArray index="Facing">
+                <DurationArray index="Delay" value="5"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="50"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="MorphToRavager">
+        <InfoArray Unit="Ravager">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="6"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Delay" value="6"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="6"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="MorphToLurker">
+        <InfoArray Unit="LurkerMP">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="12.5"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Delay" value="12.5"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="12.5"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="MorphToTransportOverlord">
+        <InfoArray Unit="OverlordTransport">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="10.5"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Delay" value="10.5"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="10.5"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilWarpTrain id="WarpGateTrain">
+        <InfoArray index="Train1" Time="2.8">
+            <Charge TimeStart="16.4" TimeUse="15.4"/>
+        </InfoArray>
+        <InfoArray index="Train2" Time="2.8">
+            <Charge TimeUse="15.4"/>
+        </InfoArray>
+        <InfoArray index="Train4" Time="2.8">
+            <Charge TimeUse="24.5"/>
+        </InfoArray>
+        <InfoArray index="Train5" Time="2.8">
+            <Charge TimeUse="24.5"/>
+        </InfoArray>
+        <InfoArray index="Train6" Time="2.8">
+            <Charge TimeUse="15.4"/>
+        </InfoArray>
+        <InfoArray index="Train7" Time="2.8">
+            <Charge TimeUse="15.4"/>
+        </InfoArray>
+    </CAbilWarpTrain>
+    <CAbilArmMagazine id="CarrierHangar">
+        <InfoArray index="Ammo1" Time="6"/>
+    </CAbilArmMagazine>
+    <CAbilArmMagazine id="BroodLordHangar">
+        <InfoArray index="Ammo1" Time="1.25"/>
+    </CAbilArmMagazine>
+    <CAbilArmMagazine id="ArmSiloWithNuke">
+        <InfoArray index="Ammo1" Time="30"/>
+    </CAbilArmMagazine>
+    <CAbilMerge id="ArchonWarp">
+        <Info Time="8.3333"/>
+    </CAbilMerge>
+</Catalog>
