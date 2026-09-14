@@ -1,0 +1,66 @@
+--[[ 断掉游戏自己发起的联网请求。（modimport 加载，跑在 mod 环境）
+
+  gbe_fork 的 disable_networking 只挡 Steam 那层；游戏引擎自己的 TheSim:QueryServer
+  还会去拉：
+    - MOTD 公告板文字 + 图片（主菜单右下角，离线时每次 5 秒超时后重试，很烦）
+    - 「有新版本」检查
+  这里把 MotdManager 整个关掉，并兜底把 QueryServer 里指向 klei 域名的请求直接失败回调，
+  不再干等超时。
+]]
+
+local G = GLOBAL
+
+-- 1) MOTD：直接禁用（IsEnabled=false 会让 Initialize 既不读缓存也不下载）
+local ok, Motd = G.pcall(G.require, "motdmanager")
+if ok and Motd then
+    Motd.IsEnabled          = function() return false end
+    Motd.Initialize         = function() end
+    Motd.DownloadMotdInfo   = function() end
+    Motd.GetImagesToDownload = function() return {} end
+    Motd.LoadCachedImages   = function() end
+    print("[omnidst/nonet] MotdManager 已禁用")
+end
+-- 已经建好的实例（frontend 早于 mod 时）
+if G.TheFrontEnd and G.TheFrontEnd.MotdManager then
+    local m = G.TheFrontEnd.MotdManager
+    m.IsEnabled = function() return false end
+    m.DownloadMotdInfo = function() end
+    m.isloading_motdinfo = false
+end
+
+-- 2) 关掉「有新版本」更新提示（离线也拉不到）
+if G.TheFrontEnd then
+    G.TheFrontEnd.ShouldShowUpdateAvailable = function() return false end
+end
+
+-- 2b) 关掉数据统计上报（stats.lua 的 SendTrackingStats / RecordSessionStartStats 等
+--     都 `if not STATS_ENABLE then return`）—— 这就是开机那次 dst.metrics.klei.com 5 秒超时。
+G.STATS_ENABLE = false
+G.METRICS_ENABLED = false
+
+-- 3) 主菜单点 Play / 返回主菜单时会弹「连不上 Steam，是否离线游戏？」
+--    —— 我们永远离线玩，自动点「离线游戏」。
+--    识别方式：弹窗按钮里有 "Play Offline"（PLAYOFFLINE）这一项。
+do
+    local PLAYOFFLINE = G.STRINGS and G.STRINGS.UI and G.STRINGS.UI.MAINSCREEN
+                        and G.STRINGS.UI.MAINSCREEN.PLAYOFFLINE
+    if PLAYOFFLINE then
+        AddClassPostConstruct("screens/redux/popupdialog", function(self)
+            local btns = self.buttons
+            if type(btns) ~= "table" then return end
+            for _, b in ipairs(btns) do
+                if b.text == PLAYOFFLINE and type(b.cb) == "function" then
+                    local cb = b.cb
+                    local host = self.inst or G.TheGlobalInstance
+                    host:DoTaskInTime(0, function()
+                        if self and self.inst and self.inst:IsValid() then cb() end
+                    end)
+                    print("[omnidst/nonet] 自动选择「离线游戏」")
+                    return
+                end
+            end
+        end)
+    end
+end
+
+print("[omnidst/nonet] 已加载")
