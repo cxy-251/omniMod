@@ -1,0 +1,107 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    OmniMod - 缺氧「全能聚合存储」Mod
+    ================================================
+    这是一个类库项目（编译产物是 OmniMod.dll），缺氧的 Mod 加载器会加载这个 DLL。
+
+    关键点：
+    - 目标框架 net472：缺氧运行在 Unity 的 Mono 运行时上，对应 .NET Framework 4.7.x。
+    - 不引用 NuGet 里的 Unity/游戏包，而是直接引用游戏安装目录下 Managed 文件夹里的 DLL。
+    - <Private>false</Private>：这些 DLL 只在编译时需要，运行时由游戏自己提供，
+      所以不要把它们拷进输出目录（否则会和游戏自带的版本冲突）。
+    - 编译完成后自动把 OmniMod.dll + 两个 yaml 拷到本地 mod 目录，省得手动复制。
+  -->
+
+  <PropertyGroup>
+    <!-- 游戏的 Assembly-CSharp.dll / 0Harmony.dll 是针对 .NET Framework 4.8 编译的，
+         我们必须对齐到 net48，否则 MSBuild 会以"引用框架版本过高"为由直接丢弃这些引用。 -->
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>OmniMod</AssemblyName>
+    <RootNamespace>OmniMod</RootNamespace>
+    <Configurations>Debug;Release</Configurations>
+
+    <!-- 输出目录不加 net472 子文件夹，直接输出到 bin\Debug -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <DebugType>portable</DebugType>
+    <Deterministic>true</Deterministic>
+
+    <!--
+      缺氧安装路径。默认取各平台的 Steam 默认库；装在别处就用参数覆盖：
+        dotnet build -p:GameDir="/path/to/OxygenNotIncluded"
+    -->
+    <GameDir Condition="'$(GameDir)' == '' And '$(OS)' == 'Windows_NT'">C:\Program Files (x86)\Steam\steamapps\common\OxygenNotIncluded</GameDir>
+    <!-- Steam Deck：版本已冻结在 standalone_games 下的外置副本（不受 Steam 自动更新影响）。
+         优先用这份；不存在时回退到 Steam 库里的版本。换机器/换盘用 -p:GameDir= 覆盖。 -->
+    <_FrozenGameDir>/home/deck/Games/omni-deck/steam_games/012 - Oxygen Not Included</_FrozenGameDir>
+    <GameDir Condition="'$(GameDir)' == '' And '$(OS)' != 'Windows_NT' And Exists('$(_FrozenGameDir)')">$(_FrozenGameDir)</GameDir>
+    <GameDir Condition="'$(GameDir)' == '' And '$(OS)' != 'Windows_NT' And Exists('/run/media/deck/FUCKDECK/steamapps/common/OxygenNotIncluded')">/run/media/deck/FUCKDECK/steamapps/common/OxygenNotIncluded</GameDir>
+    <GameDir Condition="'$(GameDir)' == '' And '$(OS)' != 'Windows_NT'">$(HOME)/.local/share/Steam/steamapps/common/OxygenNotIncluded</GameDir>
+    <GameManagedDir>$(GameDir)/OxygenNotIncluded_Data/Managed</GameManagedDir>
+
+    <!-- 本地 mod 部署目录（编译后自动拷贝到这里）。Windows / Linux 原生版各自的路径。 -->
+    <ModDeployDir Condition="'$(ModDeployDir)' == '' And '$(OS)' == 'Windows_NT'">$(USERPROFILE)\Documents\Klei\OxygenNotIncluded\mods\Local\OmniMod</ModDeployDir>
+    <ModDeployDir Condition="'$(ModDeployDir)' == '' And '$(OS)' != 'Windows_NT'">$(HOME)/.config/unity3d/Klei/Oxygen Not Included/mods/Local/OmniMod</ModDeployDir>
+  </PropertyGroup>
+
+  <!-- 在没有安装 .NET Framework 4.7.2 目标包的机器上，用这个 NuGet 包提供参考程序集 -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- 引用游戏程序集（仅编译期需要） -->
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(GameManagedDir)\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp-firstpass">
+      <HintPath>$(GameManagedDir)\Assembly-CSharp-firstpass.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(GameManagedDir)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameManagedDir)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(GameManagedDir)\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 只编译 src 下的源码 -->
+  <ItemGroup>
+    <Compile Remove="bin/**/*.cs;obj/**/*.cs" />
+  </ItemGroup>
+
+  <!-- 构建后：把产物拷到本地 mod 目录 -->
+  <Target Name="DeployToLocalMods" AfterTargets="Build">
+    <MakeDir Directories="$(ModDeployDir)" />
+    <ItemGroup>
+      <_DeployFiles Include="$(TargetPath)" />
+      <_DeployFiles Include="$(TargetDir)$(AssemblyName).pdb" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
+      <_DeployFiles Include="$(MSBuildProjectDirectory)\mod.yaml" />
+      <_DeployFiles Include="$(MSBuildProjectDirectory)\mod_info.yaml" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_DeployFiles)" DestinationFolder="$(ModDeployDir)" SkipUnchangedFiles="false" />
+    <Message Importance="high" Text="[OmniMod] 已部署到: $(ModDeployDir)" />
+  </Target>
+
+</Project>
