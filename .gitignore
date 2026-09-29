@@ -7,4 +7,4 @@ omniOxygenNotIncludedMod/**/obj/
 
 # sc2Mod
 sc2Mod/**/.venv/
-sc2Mod/**/*.SC2Mod
+sc2Mod/**/__pycache__/

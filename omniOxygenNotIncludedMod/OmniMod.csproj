@@ -38,7 +38,7 @@
     <GameDir Condition="'$(GameDir)' == '' And '$(OS)' == 'Windows_NT'">C:\Program Files (x86)\Steam\steamapps\common\OxygenNotIncluded</GameDir>
     <!-- Steam Deck：版本已冻结在 standalone_games 下的外置副本（不受 Steam 自动更新影响）。
          优先用这份；不存在时回退到 Steam 库里的版本。换机器/换盘用 -p:GameDir= 覆盖。 -->
-    <_FrozenGameDir>/home/deck/Games/omni-deck/steam_games/012 - Oxygen Not Included</_FrozenGameDir>
+    <_FrozenGameDir>/home/deck/Games/omni_library/standalone_games/steam_games/012 - Oxygen Not Included</_FrozenGameDir>
     <GameDir Condition="'$(GameDir)' == '' And '$(OS)' != 'Windows_NT' And Exists('$(_FrozenGameDir)')">$(_FrozenGameDir)</GameDir>
     <GameDir Condition="'$(GameDir)' == '' And '$(OS)' != 'Windows_NT' And Exists('/run/media/deck/FUCKDECK/steamapps/common/OxygenNotIncluded')">/run/media/deck/FUCKDECK/steamapps/common/OxygenNotIncluded</GameDir>
     <GameDir Condition="'$(GameDir)' == '' And '$(OS)' != 'Windows_NT'">$(HOME)/.local/share/Steam/steamapps/common/OxygenNotIncluded</GameDir>
