@@ -40,13 +40,20 @@ local FEATURES = {
     "cheatmenu",     -- 上面这些的游戏内菜单（暂停菜单→作弊菜单），手柄 + 键鼠都能用
     "lazyforager",   -- 橙色护符（懒人护符）不掉耐久
     "box_craft",     -- 隔箱合成：合成时也算随身箱子里的材料
-    "janitor",       -- 防崩：定时GC + 清远处垃圾 + 左上角内存显示
+    "janitor",       -- 左上角内存/时长显示（纯显示，不强制 GC、不清垃圾）
     "healthinfo",    -- 鼠标指到生物显示血量/攻击
     "foodinfo",      -- 鼠标指到食物显示 饥/血/理智 数值
     "cookstack",     -- 锅里放整叠食材一次做出整叠
     "status",        -- 组合状态栏：徽章精确数字 + 天数/季节/温度
     "boxpages",      -- 多箱翻页 + 开箱防打
     "hovertip",      -- 悬停提示加深色底框
+    "boxplant",      -- 长按右键/手柄alt-action 画框种植/施肥（键鼠+手柄通用）
+    "boatproof",     -- 海难：船不破损、无限耐久（omni_boat 可关）
+    "quicksave",     -- 不退出就能存档：G.omni_save() / 作弊菜单「保存进度」
+    "fishfix",       -- 防崩 v2：只跳过失效鱼实体那几句摸它的操作，不再整函数拦截
+                      -- （v1 用 fish:IsValid() 把正常鱼也拦住了，这版换成更底层的
+                      --  fish.entity:IsValid()，且默认开着调试日志，方便再翻车时
+                      --  直接从日志定位，而不是又要靠猜）
     -- "treeshake_bear",
 }
 

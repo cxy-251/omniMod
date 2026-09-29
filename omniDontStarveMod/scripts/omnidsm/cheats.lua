@@ -4,7 +4,7 @@
   控制台（` 键，settings.ini 已开 ENABLECONSOLE）：
     omni()                 查看所有状态
     omni_map(true/false)   地图全开        （默认 开）
-    omni_speed(n)          行走速度倍率     （默认 2；omni_speed(1) 恢复正常）
+    omni_speed(n)          行走速度倍率     （默认 3；omni_speed(1) 恢复正常）
     omni_tech(true/false)  免费建造（所有东西直接造，不要材料）  （默认 开）
     omni_work(true/false)  秒砍伐/秒挖矿/秒锤/秒挖 + 采集不出动作（一下完成）  （默认 开）
     omni_hp(true/false)    生命下限锁 10    （默认 开；能掉血但不会低于 10）
@@ -22,7 +22,7 @@
 
 local G = GLOBAL
 
-local state = { map = true, speed = 2, tech = true, work = true, hp = true, dmg = 10,
+local state = { map = true, speed = 3, tech = true, work = true, hp = true, dmg = 10,
                 light = true, hpbar = true, janitor = true }
 local HP_FLOOR   = 10
 local TECH_BONUS = 10
@@ -135,27 +135,31 @@ end)
 
 -- ---- 采集不出动作：把 dolongaction（采草/摘果/挖花/收割…）压到几帧完成 ----
 -- 靠 state.work 开关：关掉时走原版慢动作。
-AddStategraphPostInit("wilson", function(sg)
-    local st = sg.states and sg.states["dolongaction"]
-    if not st then return end
-    local _onenter, _ontimeout = st.onenter, st.ontimeout
-    st.onenter = function(inst, timeout)
-        if not state.work then return _onenter(inst, timeout) end
-        if inst.components.locomotor then inst.components.locomotor:Stop() end
-        inst.AnimState:PlayAnimation("pickup")
-        inst.sg:SetTimeout(4 * G.FRAMES)
-    end
-    st.ontimeout = function(inst)
-        if not state.work then return _ontimeout(inst) end
-        inst:PerformBufferedAction()
-        inst.sg:GoToState("idle")
-    end
-end)
+-- 海难的船上有自己的 stategraph（wilsonboating），采海带等走它的 dolongaction，
+-- 两个都要压。
+for _, sgname in ipairs({ "wilson", "wilsonboating" }) do
+    AddStategraphPostInit(sgname, function(sg)
+        local st = sg.states and sg.states["dolongaction"]
+        if not st then return end
+        local _onenter, _ontimeout = st.onenter, st.ontimeout
+        st.onenter = function(inst, timeout)
+            if not state.work then return _onenter(inst, timeout) end
+            if inst.components.locomotor then inst.components.locomotor:Stop() end
+            inst.AnimState:PlayAnimation("pickup")
+            inst.sg:SetTimeout(4 * G.FRAMES)
+        end
+        st.ontimeout = function(inst)
+            if not state.work then return _ontimeout(inst) end
+            inst:PerformBufferedAction()
+            inst.sg:GoToState("idle")
+        end
+    end)
+end
 
 -- ---- 控制台指令（挂全局）----
 G.omni = function()
     print(string.format(
-        "[omni] 地图=%s 速度x%s 免费建造=%s 秒砍伐=%s 锁血(>=%d)=%s 伤害x%s 光照=%s 血量显示=%s 防崩=%s",
+        "[omni] 地图=%s 速度x%s 免费建造=%s 秒砍伐=%s 锁血(>=%d)=%s 伤害x%s 光照=%s 血量显示=%s 内存显示=%s",
         fmt(state.map), fmt(state.speed), fmt(state.tech), fmt(state.work), HP_FLOOR, fmt(state.hp),
         fmt(state.dmg), fmt(state.light), fmt(state.hpbar), fmt(state.janitor)))
 end
@@ -180,7 +184,7 @@ G.omni_off = function()
     apply_player(); G.omni()
 end
 G.omni_on = function()
-    state.map, state.speed, state.tech, state.work, state.hp, state.dmg = true, 2, true, true, true, 10
+    state.map, state.speed, state.tech, state.work, state.hp, state.dmg = true, 3, true, true, true, 10
     state.light, state.hpbar, state.janitor = true, true, true
     apply_all(); G.omni()
 end
@@ -197,6 +201,16 @@ AddSimPostInit(function()
 end)
 AddPlayerPostInit(function(p)
     if p and p.DoTaskInTime then p:DoTaskInTime(0, apply_player) end
+    -- 水母电击等状态退出时会把玩家的 Light 关掉（SG 里 Light:Enable(false)），
+    -- 光照就失效了 —— 每秒把光照重套一次（只动 Light，很轻）。
+    if p and p.DoPeriodicTask then
+        p:DoPeriodicTask(1, function()
+            if state.light and p.Light and p:IsValid() then
+                p.Light:SetRadius(6)
+                p.Light:Enable(true)
+            end
+        end)
+    end
 end)
 
 -- 给 cheatmenu 用

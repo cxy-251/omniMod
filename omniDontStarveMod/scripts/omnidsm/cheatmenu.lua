@@ -80,9 +80,14 @@ local CheatMenu = Class(Screen, function(self)
     local RROWS = {
         { label = function() return "生物血量：" .. onoff(st().hpbar) end,
           act = function() G.omni_hpbar(not st().hpbar) end },
-        { label = function() return "防崩管家：" .. onoff(st().janitor) end,
+        { label = function() return "内存显示：" .. onoff(st().janitor) end,
           act = function() G.omni_janitor(not st().janitor) end },
+        { label = function() return "画框种植/施肥：" .. onoff(st().boxplant) end,
+          act = function() G.omni_boxplant(not st().boxplant) end },
         { label = function() return "回复理智" end, act = function() G.omni_sanity() end },
+        { label = function() return "船无限耐久：" .. onoff(st().boat) end,
+          act = function() G.omni_boat(not st().boat) end },
+        { label = function() return "保存进度" end, act = function() G.omni_save() end },
         { label = function() return "返回" end,     act = function() self:Close() end },
     }
     self.cols = { { rows = LROWS, x = -175 }, { rows = RROWS, x = 175 } }
