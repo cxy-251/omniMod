@@ -1,8 +1,11 @@
---[[ 防崩管家（联机版）。（modimport 加载，跑在 mod 环境）
+--[[ 内存显示（联机版）。（modimport 加载，跑在 mod 环境）
 
-  联机版是 64 位引擎，没有单机版那种 32 位内存墙，但用户历来爱崩，还是加一层：
-  - 每 45 秒 collectgarbage("collect") —— 稳，主要收益
-  - 屏幕左上角显示 Lua 内存 MB + 已玩分钟数，超阈值标红提示存盘重进
+  只显示，不干预：屏幕左上角 Lua 内存 MB + 已玩分钟数，超阈值标红提示存盘重进。
+
+  ★ 以前每 45 秒强制 collectgarbage("collect")，已去掉：这个 mod 在客户端、地面
+  服务器、洞穴服务器三个进程里都会跑，一次完整 GC 要半秒多（退出日志里
+  "lua_gc took 0.55 seconds"），服务器一卡，客户端的移动预测就被拉回——就是那种
+  "卡一下、人物瞬移一小段"。内存回收交给引擎自己。
   开关：OMNIDST.state.janitor（cheats 模块里），默认开。控制台 omni_janitor(true/false)。
 ]]
 
@@ -31,7 +34,6 @@ end
 local function tick()
     if t_start == nil then t_start = (G.GetTime and G.GetTime()) or 0 end
     if not on() then if hud then hud:Hide() end return end
-    collectgarbage("collect")
     ensure_hud()
     if not hud then return end
     local mb = collectgarbage("count") / 1024
@@ -48,8 +50,9 @@ end
 
 AddSimPostInit(function()
     if not (G.TheWorld and G.TheWorld.DoPeriodicTask) then return end
-    G.TheWorld:DoPeriodicTask(45, tick)
+    if G.TheNet and G.TheNet:IsDedicated() then return end   -- 纯服务器进程没有 HUD
+    G.TheWorld:DoPeriodicTask(5, tick)
     G.TheWorld:DoTaskInTime(5, tick)
 end)
 
-print("[omnidst/janitor] 已加载（45s GC + 左上角内存显示）")
+print("[omnidst/janitor] 已加载（只显示左上角内存/时长，不再强制 GC）")

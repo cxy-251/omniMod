@@ -43,19 +43,19 @@ local CheatMenu = Class(Screen, function(self)
     self.root:SetHAnchor(G.ANCHOR_MIDDLE)
     self.root:SetScaleMode(G.SCALEMODE_PROPORTIONAL)
 
-    self.bg = self.root:AddChild(Image("images/global_redux.xml", "dialog_wide.tex"))
-    if not self.bg.texture then
-        self.bg:SetTexture("images/globalpanels.xml", "panel.tex")
-    end
+    -- 以前用 global_redux.xml 的 dialog_wide.tex，当前版本图集里没有这张图（客户端日志
+    -- 每次开菜单都报 "Could not find region"）。直接用纯色方块铺一个深色底板。
+    self.bg = self.root:AddChild(Image("images/global.xml", "square.tex"))
     self.bg:SetVRegPoint(G.ANCHOR_MIDDLE); self.bg:SetHRegPoint(G.ANCHOR_MIDDLE)
-    self.bg:SetScale(1.5, 1.7, 1)
+    self.bg:SetSize(780, 540)
+    self.bg:SetTint(0.12, 0.10, 0.08, 0.95)
 
     self.title = self.root:AddChild(Text(G.TITLEFONT or G.NEWFONT, 42))
     self.title:SetPosition(0, 190, 0)
     self.title:SetString("作弊菜单")
 
     self.hint = self.root:AddChild(Text(G.BUTTONFONT or G.NEWFONT, 19))
-    self.hint:SetPosition(0, -200, 0)
+    self.hint:SetPosition(0, -245, 0)
     self.hint:SetColour(0.85, 0.85, 0.85, 1)
     self.hint:SetString("方向键 选择    A / 左键 切换    B / Esc 返回")
 
@@ -78,12 +78,15 @@ local CheatMenu = Class(Screen, function(self)
     local RROWS = {
         { label = function() return "生物血量：" .. onoff(st().hpbar) end,
           act = function() G.omni_hpbar(not st().hpbar) end },
-        { label = function() return "防崩管家：" .. onoff(st().janitor) end,
+        { label = function() return "内存显示：" .. onoff(st().janitor) end,
           act = function() G.omni_janitor(not st().janitor) end },
+        { label = function() return "画框种植/施肥：" .. onoff(st().boxplant) end,
+          act = function() G.omni_boxplant(not st().boxplant) end },
         { label = function() return "技能树全开" end, act = function() if G.omni_skills then G.omni_skills() end end },
         { label = function() return "回复理智" end,  act = function() G.omni_sanity() end },
-        { label = function() return "回复生命" end,  act = function() G.omni_health() end },
-        { label = function() return "回复饱食" end,  act = function() G.omni_hunger() end },
+        { label = function() return "船无限耐久：" .. onoff(st().boat) end,
+          act = function() G.omni_boat(not st().boat) end },
+        { label = function() return "保存进度" end,  act = function() G.omni_save() end },
         { label = function() return "返回" end,      act = function() self:Close() end },
     }
     self.cols = { { rows = LROWS, x = -190 }, { rows = RROWS, x = 190 } }

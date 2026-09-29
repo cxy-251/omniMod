@@ -7,7 +7,7 @@
   控制台（~ 键）：
     omni()                查看所有状态
     omni_map(bool)        地图全开             （默认 开）
-    omni_speed(n)         行走速度倍率          （默认 2）
+    omni_speed(n)         行走速度倍率          （默认 3）
     omni_tech(bool)       免费建造（所有东西直接造，不要材料）（默认 开）
     omni_work(bool)       秒砍/秒挖/秒锤/秒挖   （默认 开）
     omni_hp(bool)         生命下限锁 10         （默认 开）
@@ -22,7 +22,7 @@
 
 local G = GLOBAL
 
-local state = { map = true, speed = 2, tech = true, work = true, hp = true, dmg = 10,
+local state = { map = true, speed = 3, tech = true, work = true, hp = true, dmg = 10,
                 light = true, hpbar = true, janitor = true }
 local HP_FLOOR = 10
 
@@ -66,9 +66,26 @@ local function apply_map(force, p)
 end
 
 ----------------------------------------------------------------- 玩家属性
+local function apply_light(p)
+    if not p then return end
+    if not p.Light and p.entity and p.entity.AddLight then p.entity:AddLight() end
+    if p.Light then
+        p.Light:SetFalloff(0.6)
+        p.Light:SetIntensity(0.75)
+        p.Light:SetRadius(state.light and 6 or 0)
+        p.Light:SetColour(1, 1, 1)
+        p.Light:Enable(state.light and true or false)
+    end
+end
+
 local function apply_player(p)
     p = p or me()
     if not (p and p.components) then return end
+    apply_light(p)
+    -- ★ 下面这些都是改服务器状态的：带洞穴时客户端和服务器是两个进程，客户端这边
+    --   再改一遍 locomotor/标签 会跟服务器对不上 —— 移动预测一错就是"人物瞬移一小段"。
+    --   所以只在服务器（ismastersim）跑。
+    if not is_server() then return end
 
     -- 行走速度：用外部倍率，干净、不会被每帧重算冲掉
     local lm = p.components.locomotor
@@ -80,11 +97,11 @@ local function apply_player(p)
     end
 
     -- 免费建造：赋值会触发 builder 的属性 setter，同步到 replica，制作栏全部点亮
+    -- 只在开关真的变了才刷新科技树：以前每 3 秒刷一次，客户端的制作栏跟着整个重建，
+    -- 是周期性卡一下的来源之一。
     local b = p.components.builder
-    if b then
-        if b.freebuildmode ~= (state.tech and true or false) then
-            b.freebuildmode = state.tech and true or false
-        end
+    if b and b.freebuildmode ~= (state.tech and true or false) then
+        b.freebuildmode = state.tech and true or false
         if b.EvaluateTechTrees then b:EvaluateTechTrees() end
         p:PushEvent("techlevelchange")
     end
@@ -111,15 +128,6 @@ local function apply_player(p)
         end
     end
 
-    -- 身上永久光照（本地视觉，单人房同进程直接加）
-    if not p.Light and p.entity and p.entity.AddLight then p.entity:AddLight() end
-    if p.Light then
-        p.Light:SetFalloff(0.6)
-        p.Light:SetIntensity(0.75)
-        p.Light:SetRadius(state.light and 6 or 0)
-        p.Light:SetColour(1, 1, 1)
-        p.Light:Enable(state.light and true or false)
-    end
 end
 
 ----------------------------------------------------------------- 伤害倍率
@@ -151,6 +159,42 @@ do
         end
     end
 end
+
+----------------------------------------------------------------- 采集/挖矿/挖掘/锤 不出前摇
+-- 砍树已经是一下完成（WorkedBy_Internal 一次把工作量打满），但挖矿/挖掘还要先播
+-- "_pre" 动画、再等循环动画第 7 帧才真正动手，采集的 dolongaction 也要等 1 秒。
+-- 在服务器 stategraph 里把这些状态整体加速 FAST_K 倍：动画倍速播放，timeline 事件
+-- 和超时按同样比例提前。客户端的预测动画会在服务器状态一到就对齐，不用单独改。
+local FAST_K = 6
+local FAST_STATES = { "chop_start", "chop", "mine_start", "mine", "dig_start", "dig",
+                      "hammer_start", "hammer", "dolongaction", "domediumaction",
+                      "dojostleaction", "doshortaction" }
+AddStategraphPostInit("wilson", function(sg)
+    for _, name in ipairs(FAST_STATES) do
+        local st = sg.states and sg.states[name]
+        if st then
+            local tl = st.timeline
+            if tl then for _, ev in ipairs(tl) do ev._omni_t = ev._omni_t or ev.time end end
+            local _enter, _exit = st.onenter, st.onexit
+            st.onenter = function(inst, ...)
+                local fast = state.work and inst:HasTag("player")
+                if tl then
+                    for _, ev in ipairs(tl) do ev.time = fast and (ev._omni_t / FAST_K) or ev._omni_t end
+                end
+                if _enter then _enter(inst, ...) end
+                if fast then
+                    inst.AnimState:SetDeltaTimeMultiplier(FAST_K)
+                    if inst.sg.timeout then inst.sg.timeout = inst.sg.timeout / FAST_K end
+                    inst.sg.statemem._omni_fast = true
+                end
+            end
+            st.onexit = function(inst, ...)
+                if inst.sg.statemem._omni_fast then inst.AnimState:SetDeltaTimeMultiplier(1) end
+                if _exit then return _exit(inst, ...) end
+            end
+        end
+    end
+end)
 
 -- （采集提速改用 FAST_TAGS，见文件顶部 + apply_player。不动 SGwilson 计时，
 --   那会打断 doshortaction 第 6 帧的 PerformBufferedAction，导致花/胡萝卜采集不了。）
@@ -213,7 +257,7 @@ G.omni_off = function()
 end
 G.omni_on = function()
     if remote("omni_on()") then return end
-    state.map, state.speed, state.tech, state.work, state.hp, state.dmg = true, 2, true, true, true, 10
+    state.map, state.speed, state.tech, state.work, state.hp, state.dmg = true, 3, true, true, true, 10
     state.light, state.hpbar, state.janitor = true, true, true
     apply_all(); G.omni()
 end
@@ -240,6 +284,15 @@ AddSimPostInit(function()
     end
 end)
 AddPlayerPostInit(function(p)
+    -- 被外部效果（电击等）关掉的光照，每秒补一次（只动 Light，很轻）
+    if p and p.DoPeriodicTask then
+        p:DoPeriodicTask(1, function()
+            if state.light and p:IsValid() and p.Light then
+                p.Light:SetRadius(6)
+                p.Light:Enable(true)
+            end
+        end)
+    end
     if p and p.DoPeriodicTask then
         -- 保险：直接挂在玩家实体上每 3 秒重套（不依赖 AddSimPostInit 是否重触发）
         p:DoPeriodicTask(3, function()

@@ -30,12 +30,15 @@ local FEATURES = {
     "cheats",      -- 地图全开/移速/免费建造/秒采伐/锁血/伤害/光照/生物血量 —— 服务器侧
     "cheatmenu",   -- 暂停菜单 → 作弊菜单（手柄+键鼠）
     "lazyforager", -- 橙色护符不掉耐久
-    "janitor",     -- 防崩：定时 GC + 左上角内存显示
+    "janitor",     -- 左上角内存/时长显示（纯显示，不再强制 GC）
     "targetinfo",  -- 底部信息条：生物血量/攻击 + 食物 饥/血/智/鲜（手柄+鼠标）
     "cookstack",   -- 一锅煮整叠 + 急速烹饪
-    "status",      -- 组合状态栏：徽章数字 + 天数/季节/温度
+    "status",      -- 组合状态栏：徽章数字 + 三行（时间/季节/月相/猎犬/淘气/天气/洞穴/玩家）
     "box",         -- 随身箱子（配方 + 隔箱合成）
     "boxpages",    -- 多个箱子翻页
+    "boxplant",    -- 长按右键/手柄alt-action 画框种植/施肥（键鼠+手柄通用）
+    "boatproof",   -- 船不破损、无限耐久（omni_boat 可关）
+    "quicksave",   -- 不退出就能存档：G.omni_save() / 作弊菜单「保存进度」
     -- "worldgen",    -- 环形世界（modworldgenmain.lua）
 }
 
