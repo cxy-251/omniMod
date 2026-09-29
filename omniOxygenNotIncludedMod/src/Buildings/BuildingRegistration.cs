@@ -70,12 +70,13 @@ namespace OmniMod.Buildings
                     p.id,
                     name: ModStrings.T(p.zhGas + "净化器", p.enGas + " Purifier"),
                     desc: ModStrings.T(
-                        $"从四周抽取{p.zhGas}，转化为{p.zhOut}。固体副产物累积到 100kg 时掉落。需要供电。",
-                        $"Draws {p.enGas.ToLowerInvariant()} from the surrounding area and converts it into {p.enOut.ToLowerInvariant()}. " +
-                        $"Solid byproduct is dropped once 100 kg accumulates. Requires power."),
+                        $"从四周抽取{p.zhGas}，消耗滤材（沙子/浮土等）转化为{p.zhOut}。固体副产物累积到 100kg 时掉落。需要供电和持续供应滤材。",
+                        $"Draws {p.enGas.ToLowerInvariant()} from the surrounding area and consumes filter material " +
+                        $"(sand, regolith, etc.) to convert it into {p.enOut.ToLowerInvariant()}. " +
+                        $"Solid byproduct is dropped once 100 kg accumulates. Requires power and a steady filter material supply."),
                     effect: ModStrings.T(
-                        $"吸收{p.zhGas}，产出{p.zhOut}。",
-                        $"Absorbs {p.enGas.ToLowerInvariant()}, produces {p.enOut.ToLowerInvariant()}."));
+                        $"消耗滤材，吸收{p.zhGas}，产出{p.zhOut}。",
+                        $"Consumes filter material, absorbs {p.enGas.ToLowerInvariant()}, produces {p.enOut.ToLowerInvariant()}."));
 
                 ModUtil.AddBuildingToPlanScreen(
                     new HashedString("Oxygen"),

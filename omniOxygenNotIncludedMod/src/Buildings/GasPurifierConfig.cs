@@ -13,6 +13,12 @@ namespace OmniMod.Buildings
     /// </summary>
     public abstract class GasPurifierConfig : IBuildingConfig
     {
+        /// <summary>滤材（沙子/浮土等 Filter 类材料）消耗速率相对处理气体速率的比例，抄 vanilla 除臭机的 (2/15)/0.1。</summary>
+        private const float FilterToGasRatio = (2f / 15f) / 0.1f;
+
+        /// <summary>滤材囤货上限（kg）。低于十分之一时向 OmniMod 聚合箱发起补货。</summary>
+        private const float FilterCapacityKg = 320f;
+
         protected abstract string Id { get; }
         protected abstract SimHashes InputGas { get; }
         protected abstract SimHashes Output { get; }
@@ -69,15 +75,32 @@ namespace OmniMod.Buildings
             consumer.isRequired = false;
             consumer.ignoreActiveChanged = true;
 
+            float filterRate = InputRateKgPerSec * FilterToGasRatio;
+
             ElementConverter converter = go.AddOrGet<ElementConverter>();
             converter.consumedElements = new[]
             {
                 new ElementConverter.ConsumedElement(inElement != null ? inElement.tag : new Tag(InputGas.ToString()), InputRateKgPerSec),
+                new ElementConverter.ConsumedElement(new Tag("Filter"), filterRate),
             };
             converter.outputElements = new[]
             {
                 new ElementConverter.OutputElement(OutputRateKgPerSec, Output, 0f, useEntityTemperature: false, storeOutput: outputIsSolid),
             };
+
+            // 滤材（沙子/浮土等）耗材：由 ManualDeliveryKG 发起 FetchCritical 搬运请求，
+            // 小人/机械臂从 OmniMod 聚合箱隔空取用（跟 vanilla 除臭机同一套机制）。
+            ManualDeliveryKG manualDeliveryKG = go.AddOrGet<ManualDeliveryKG>();
+            manualDeliveryKG.SetStorage(storage);
+            manualDeliveryKG.RequestedItemTag = new Tag("Filter");
+            manualDeliveryKG.capacity = FilterCapacityKg;
+            manualDeliveryKG.refillMass = FilterCapacityKg * 0.1f;
+            manualDeliveryKG.choreTypeIDHash = Db.Get().ChoreTypes.FetchCritical.IdHash;
+
+            // 关键：AirFilter 不是装饰组件，是真正的"总开关"状态机——
+            // ElementConsumer 默认不抽气、Operational 默认不 Active，
+            // 都要靠它在"滤材够、可转化"时调用 EnableConsumption/SetActive 才会真正运转。
+            go.AddOrGet<AirFilter>().filterTag = new Tag("Filter");
 
             if (outputIsSolid)
             {

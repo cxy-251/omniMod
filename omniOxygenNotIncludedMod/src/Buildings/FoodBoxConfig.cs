@@ -66,6 +66,7 @@ namespace OmniMod.Buildings
             {
                 Storage.StoredItemModifier.Hide,
                 Storage.StoredItemModifier.Preserve,
+                Storage.StoredItemModifier.Insulate,   // 箱内食物不跟箱子/环境交换热量
             });
 
             TreeFilterable foodFilter = go.AddOrGet<TreeFilterable>();

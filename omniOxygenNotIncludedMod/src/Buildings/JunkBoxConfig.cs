@@ -71,8 +71,8 @@ namespace OmniMod.Buildings
 
             // 箱内物品修饰：只用默认的 { Hide }（和普通储物柜/冰箱一样，隐藏渲染）。
             // 不用 Seal —— GameTags.Sealed 会让便携电池的电量、食物卡路里等在状态栏显示为 0。
-            // 散装元素在池里是纯数据、不会挥发，所以不需要 Seal；缓冲块很快被消耗，也不需要 Insulate。
-            storage.SetDefaultStoredItemModifiers(new List<Storage.StoredItemModifier> { Storage.StoredItemModifier.Hide });
+            // 散装元素在池里是纯数据、不会挥发，所以不需要 Seal。Insulate：箱内物品不跟箱子/环境交换热量。
+            storage.SetDefaultStoredItemModifiers(new List<Storage.StoredItemModifier> { Storage.StoredItemModifier.Hide, Storage.StoredItemModifier.Insulate });
 
             // 侧栏里可勾选收集哪些类别。取消勾选时不把缓冲区碎块倒在地上
             // （由收集器负责把该类退回全局池），避免刷出大堆碎片。

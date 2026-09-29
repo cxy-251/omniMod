@@ -44,7 +44,15 @@ namespace OmniMod.Collection
         /// <summary>这个 Storage 是不是某个聚合箱的。</summary>
         internal static bool IsBoxStorage(Storage storage)
         {
-            return storage != null && BoxStorages.Contains(storage);
+            if (storage == null)
+            {
+                return false;
+            }
+            if (BoxStorages.Contains(storage))
+            {
+                return true;
+            }
+            return storage.GetComponent<GlobalItemCollector>() != null;
         }
 
         // —— 机械臂"隔空取物"用：主线程每秒刷新每个星球箱内物品的快照，
@@ -89,8 +97,8 @@ namespace OmniMod.Collection
             }
         }
 
-        /// <summary>这个格子上是否有生效的杂物箱（供机械臂"可达"判断）。</summary>
-        internal static bool IsActiveJunkBoxCell(int cell)
+        /// <summary>这个格子上是否有生效的聚合箱（供机械臂"可达"判断）。</summary>
+        internal static bool IsActiveBoxCell(int cell)
         {
             if (!Grid.IsValidCell(cell))
             {
@@ -99,8 +107,7 @@ namespace OmniMod.Collection
             for (int i = 0; i < Boxes.Count; i++)
             {
                 GlobalItemCollector b = Boxes[i];
-                if (b == null || b.gameObject == null
-                    || b.mode != GlobalItemCollector.CollectMode.Debris || b.IsRedundant)
+                if (b == null || b.gameObject == null || b.IsRedundant)
                 {
                     continue;
                 }
@@ -111,6 +118,12 @@ namespace OmniMod.Collection
                 }
             }
             return false;
+        }
+
+        /// <summary>这个格子上是否有生效的杂物箱（兼容保留）。</summary>
+        internal static bool IsActiveJunkBoxCell(int cell)
+        {
+            return IsActiveBoxCell(cell);
         }
 
         /// <summary>

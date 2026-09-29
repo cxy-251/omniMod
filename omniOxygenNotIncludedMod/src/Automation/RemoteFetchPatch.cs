@@ -10,10 +10,6 @@ namespace OmniMod.Automation
     ///
     /// 让 OmniMod 聚合箱里的物品，对任何小人 / 机械臂 / 机器人来说都像"就在身边"——
     /// 取物那一步不用走过去；取完照常搬去工地（中间有真实搬运者）。
-    ///
-    /// 关键：<c>Navigator.GetNavigationCost</c> 有多个重载。小人搬运的"接近拾取物"子状态
-    /// 用的是"到某个格子（带接近偏移）要多远"这一版——所以要拦的是**接收格子的重载**，
-    /// 对"箱子所在格"一律返回 0（在旁边）。同时拦 IApproachable 版和机械臂的可达判断。
     /// </summary>
     internal static class RemoteFetch
     {
@@ -35,7 +31,10 @@ namespace OmniMod.Automation
         }
     }
 
-    // 到"箱子所在格"的移动代价 = 0（带偏移版）
+    // =========================================================================
+    // 小人寻路判断：到"箱子所在格" / 箱内物品的移动代价 = 0
+    // =========================================================================
+
     [HarmonyPatch(typeof(Navigator), nameof(Navigator.GetNavigationCost), new[] { typeof(int), typeof(CellOffset[]) })]
     internal static class Navigator_GetNavigationCost_CellOffsets_Patch
     {
@@ -95,7 +94,7 @@ namespace OmniMod.Automation
     {
         private static void Postfix(int cell, ref bool __result)
         {
-            if (!__result && AggregateBoxRegistry.IsActiveJunkBoxCell(cell))
+            if (!__result && AggregateBoxRegistry.IsActiveBoxCell(cell))
             {
                 __result = true;
             }
@@ -103,9 +102,44 @@ namespace OmniMod.Automation
     }
 
     /// <summary>
-    /// 机械臂只扫描自己半径内的物品——箱子在半径外就完全看不到。
-    /// 这里在机械臂每次刷新候选物品之后，把"本星球箱内的可传送物品"直接补进它的候选列表，
-    /// 无视距离。之后配合 IsWithinReach 补丁，机械臂就能原地取、再送去工地（含泥土送砖块、种子种砖块）。
+    /// 主线程上寻找搬运目标：如果机械臂身边的物品列表没找到匹配物，立即在箱内物品查找。
+    /// </summary>
+    [HarmonyPatch(typeof(SolidTransferArm), nameof(SolidTransferArm.FindFetchTarget))]
+    internal static class SolidTransferArm_FindFetchTarget_Patch
+    {
+        private static void Postfix(SolidTransferArm __instance, Storage destination, FetchChore chore, ref Pickupable __result)
+        {
+            if (__result != null || __instance == null || destination == null || chore == null)
+            {
+                return;
+            }
+
+            int world = __instance.GetMyWorldId();
+            Pickupable[] boxItems = AggregateBoxRegistry.GetWorldBoxItems(world);
+            for (int i = 0; i < boxItems.Length; i++)
+            {
+                Pickupable p = boxItems[i];
+                if (p == null || p.KPrefabID == null || p.UnreservedFetchAmount <= 0f)
+                {
+                    continue;
+                }
+                if (!Assets.IsTagSolidTransferArmConveyable(p.KPrefabID.PrefabTag))
+                {
+                    continue;
+                }
+                if (FetchManager.IsFetchablePickup(p, chore, destination))
+                {
+                    __result = p;
+                    RemoteFetch.LogOnce("隔空取物：机械臂锁定箱内目标: " + p.name);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 机械臂工作线程异步刷新候选物品：把本星球箱内可传送物品补进候选列表。
+    /// 注意：此方法在工作线程运行，切忌调用 __instance.gameObject 等 Unity 主线程属性！
     /// </summary>
     [HarmonyPatch(typeof(SolidTransferArm), "AsyncUpdate")]
     internal static class SolidTransferArm_AsyncUpdate_Patch
@@ -120,10 +154,12 @@ namespace OmniMod.Automation
                     return;
                 }
 
-                int world = __instance.gameObject.GetMyWorldId();
-                KPrefabID armId = __instance.GetComponent<KPrefabID>();
-                int armInstance = armId != null ? armId.InstanceID : -1;
-
+                int gameCell = Traverse.Create(__instance).Field("gameCell").GetValue<int>();
+                if (!Grid.IsValidCell(gameCell))
+                {
+                    return;
+                }
+                int world = (int)Grid.WorldIdx[gameCell];
                 Pickupable[] boxItems = AggregateBoxRegistry.GetWorldBoxItems(world);
                 for (int i = 0; i < boxItems.Length; i++)
                 {
@@ -136,7 +172,7 @@ namespace OmniMod.Automation
                     {
                         continue;
                     }
-                    if (armInstance != -1 && !p.CouldBePickedUpByTransferArm(armInstance))
+                    if (p.UnreservedFetchAmount <= 0f)
                     {
                         continue;
                     }
