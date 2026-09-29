@@ -120,15 +120,17 @@ def build_abildata_xml(multiplier: float) -> str:
             lines.append(f'    </{tag}>')
 
     # ---- 变形：白名单里的才改，嵌套的 SectionArray/DurationArray 全部字段同步缩放 ----
+    # 必须写 <InfoArray index="N">：不带 index 的 InfoArray 会被引擎当成"追加一个新阶段"，
+    # 原来那段完整耗时照走、再加上我们这段——变形反而比原版更慢（以前就是这么错的）。
     morphs = eg.merge_morph_sections()
-    by_ability_m: dict[str, list[tuple[str, dict]]] = {}
-    for (aid, unit), sections in morphs.items():
-        if aid in MORPH_WHITELIST:
-            by_ability_m.setdefault(aid, []).append((unit, sections))
+    by_ability_m: dict[str, list[tuple[int, dict]]] = {}
+    for (aid, pos), entry in morphs.items():
+        if aid in MORPH_WHITELIST and entry["sections"]:
+            by_ability_m.setdefault(aid, []).append((pos, entry["sections"]))
     for aid, entries in by_ability_m.items():
         lines.append('    <CAbilMorph id="' + aid + '">')
-        for unit, sections in entries:
-            lines.append(f'        <InfoArray Unit="{unit}">')
+        for pos, sections in sorted(entries):
+            lines.append(f'        <InfoArray index="{pos}">')
             for sidx, durs in sections.items():
                 if not durs:
                     continue

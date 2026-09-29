@@ -372,7 +372,7 @@
         <InfoArray index="Research2" Time="0.08"/>
     </CAbilResearch>
     <CAbilMorph id="UpgradeToLair">
-        <InfoArray Unit="Lair">
+        <InfoArray index="0">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.08"/>
             </SectionArray>
@@ -385,7 +385,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="UpgradeToHive">
-        <InfoArray Unit="Hive">
+        <InfoArray index="0">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.1"/>
             </SectionArray>
@@ -398,7 +398,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="UpgradeToGreaterSpire">
-        <InfoArray Unit="GreaterSpire">
+        <InfoArray index="0">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.1"/>
             </SectionArray>
@@ -414,7 +414,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToBroodLord">
-        <InfoArray Unit="BroodLord">
+        <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
             </SectionArray>
@@ -427,7 +427,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToOverseer">
-        <InfoArray Unit="Overseer">
+        <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
             </SectionArray>
@@ -440,7 +440,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="UpgradeToPlanetaryFortress">
-        <InfoArray Unit="PlanetaryFortress">
+        <InfoArray index="0">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
             </SectionArray>
@@ -453,7 +453,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="UpgradeToOrbital">
-        <InfoArray Unit="OrbitalCommand">
+        <InfoArray index="0">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
             </SectionArray>
@@ -466,7 +466,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="UpgradeToWarpGate">
-        <InfoArray Unit="WarpGate">
+        <InfoArray index="0">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
             </SectionArray>
@@ -479,7 +479,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphBackToGateway">
-        <InfoArray Unit="Gateway">
+        <InfoArray index="0">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
             </SectionArray>
@@ -492,7 +492,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToMothership">
-        <InfoArray Unit="Mothership">
+        <InfoArray index="0">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.1"/>
             </SectionArray>
@@ -508,23 +508,23 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="UpgradeToLurkerDenMP">
-        <InfoArray Unit="LurkerDenMP">
+        <InfoArray index="0">
             <SectionArray index="Abils">
-                <DurationArray index="Delay" value="0.1"/>
+                <DurationArray index="Delay" value="0.12"/>
             </SectionArray>
             <SectionArray index="Actor">
-                <DurationArray index="Duration" value="0.1"/>
+                <DurationArray index="Duration" value="0.12"/>
             </SectionArray>
             <SectionArray index="Facing">
                 <DurationArray index="Delay" value="0.05"/>
             </SectionArray>
             <SectionArray index="Stats">
-                <DurationArray index="Delay" value="0.1"/>
+                <DurationArray index="Delay" value="0.12"/>
             </SectionArray>
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToRavager">
-        <InfoArray Unit="Ravager">
+        <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
             </SectionArray>
@@ -537,7 +537,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToLurker">
-        <InfoArray Unit="LurkerMP">
+        <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
             </SectionArray>
@@ -550,7 +550,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToTransportOverlord">
-        <InfoArray Unit="OverlordTransport">
+        <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
             </SectionArray>

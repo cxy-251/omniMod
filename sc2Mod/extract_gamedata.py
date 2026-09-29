@@ -47,27 +47,31 @@ def merge_simple_time(tag: str) -> dict[tuple[str, str], dict]:
     return result
 
 
-def merge_morph_sections(tag: str = "CAbilMorph") -> dict[tuple[str, str], dict[str, dict[str, str]]]:
-    """(ability_id, unit) -> {section_index: {duration_index: value}}，逐层按 (section,duration)
-    这个最细粒度的键去覆盖——后面层只改了其中一个字段的话，其它字段照抄前面层的，不会被清空。
-    这跟 SC2 引擎自己合并 mod 数据的规则（同 id/index 就是覆盖，没提到的字段维持原样）一致。"""
-    result: dict[tuple[str, str], dict[str, dict[str, str]]] = {}
+def merge_morph_sections(tag: str = "CAbilMorph") -> dict[tuple[str, int], dict]:
+    """(ability_id, 数组下标) -> {"unit": str|None, "sections": {section_index: {duration_index: value}}}
+
+    变形的 InfoArray 是个数组：大多数变形有两项——第 0 项是茧/卵阶段，第 1 项才是最终单位、
+    带真正的耗时（DurationArray）。基础层（liberty/void）按出现顺序写、不带 index；后面的平衡
+    补丁层用 <InfoArray index="1"> 按下标覆盖，而且常常不再写 Unit。所以必须按**数组下标**合并，
+    不能按 Unit 名——以前按 Unit 合并，会把 voidmulti 的 index-only 覆盖整个丢掉。
+    逐层按 (section, duration) 最细粒度覆盖，没提到的字段维持前面层的值（跟引擎合并规则一致）。"""
+    result: dict[tuple[str, int], dict] = {}
     for f in LAYERS:
         if not Path(f).exists():
             continue
         root = ET.parse(f).getroot()
         for el in root.findall(tag):
             aid = el.get("id")
+            pos_counter = 0
             for info in el.findall("InfoArray"):
-                unit = info.get("Unit")
-                sections = info.findall("SectionArray")
-                if not unit or not sections:
-                    continue
-                key = (aid, unit)
-                merged = result.setdefault(key, {})
-                for sec in sections:
-                    sidx = sec.get("index")
-                    sec_dict = merged.setdefault(sidx, {})
+                idx = info.get("index")
+                pos = int(idx) if idx is not None and idx.isdigit() else pos_counter
+                pos_counter = pos + 1
+                entry = result.setdefault((aid, pos), {"unit": None, "sections": {}})
+                if info.get("Unit"):
+                    entry["unit"] = info.get("Unit")
+                for sec in info.findall("SectionArray"):
+                    sec_dict = entry["sections"].setdefault(sec.get("index"), {})
                     for dur in sec.findall("DurationArray"):
                         sec_dict[dur.get("index")] = dur.get("value")
     return result
@@ -84,5 +88,5 @@ if __name__ == "__main__":
             print(f"  {aid}: {len(entries)} 条")
     morphs = merge_morph_sections()
     print(f"=== CAbilMorph (SectionArray 结构): {len(morphs)} 条 ===")
-    for (aid, unit), sections in morphs.items():
-        print(f"  {aid} -> {unit}: {sections}")
+    for (aid, pos), entry in morphs.items():
+        print(f"  {aid}[{pos}] -> {entry['unit']}: {entry['sections']}")
