@@ -52,7 +52,7 @@ STORM.SFileCloseArchive.argtypes = [ctypes.c_void_p]
 MORPH_WHITELIST = {
     "UpgradeToLair", "UpgradeToHive", "UpgradeToGreaterSpire", "UpgradeToLurkerDenMP",
     "MorphToBroodLord", "MorphToOverseer", "MorphToRavager", "MorphToLurker",
-    "MorphToTransportOverlord", "MorphToMothership",
+    "MorphToTransportOverlord", "MorphToMothership", "MorphToBaneling",
     "UpgradeToOrbital", "UpgradeToPlanetaryFortress",
     "UpgradeToWarpGate", "MorphBackToGateway",
 }
@@ -123,22 +123,25 @@ def build_abildata_xml(multiplier: float) -> str:
     # 必须写 <InfoArray index="N">：不带 index 的 InfoArray 会被引擎当成"追加一个新阶段"，
     # 原来那段完整耗时照走、再加上我们这段——变形反而比原版更慢（以前就是这么错的）。
     morphs = eg.merge_morph_sections()
-    by_ability_m: dict[str, list[tuple[int, dict]]] = {}
+    by_ability_m: dict[str, list[tuple[int, str | None, dict]]] = {}
     for (aid, pos), entry in morphs.items():
-        if aid in MORPH_WHITELIST and entry["sections"]:
-            by_ability_m.setdefault(aid, []).append((pos, entry["sections"]))
+        if aid in MORPH_WHITELIST:
+            by_ability_m.setdefault(aid, []).append((pos, entry["unit"], entry["sections"]))
     for aid, entries in by_ability_m.items():
         lines.append('    <CAbilMorph id="' + aid + '">')
-        for pos, sections in sorted(entries):
-            lines.append(f'        <InfoArray index="{pos}">')
-            for sidx, durs in sections.items():
-                if not durs:
-                    continue
-                lines.append(f'            <SectionArray index="{sidx}">')
-                for didx, val in durs.items():
-                    lines.append(f'                <DurationArray index="{didx}" value="{scaled(val, multiplier)}"/>')
-                lines.append('            </SectionArray>')
-            lines.append('        </InfoArray>')
+        for pos, unit, sections in sorted(entries):
+            if sections:
+                lines.append(f'        <InfoArray index="{pos}">')
+                for sidx, durs in sections.items():
+                    if not durs:
+                        continue
+                    lines.append(f'            <SectionArray index="{sidx}">')
+                    for didx, val in durs.items():
+                        lines.append(f'                <DurationArray index="{didx}" value="{scaled(val, multiplier)}"/>')
+                    lines.append('            </SectionArray>')
+                lines.append('        </InfoArray>')
+            else:
+                lines.append(f'        <InfoArray index="{pos}"/>')
         lines.append('    </CAbilMorph>')
 
     # ---- 折跃门 warp 出兵：InfoArray Time + 嵌套 <Charge>（折跃门冷却）一起缩 ----
@@ -169,6 +172,20 @@ def build_abildata_xml(multiplier: float) -> str:
     return "\n".join(lines) + "\n"
 
 
+def build_behaviordata_xml(multiplier: float) -> str:
+    lines = ['<?xml version="1.0" encoding="us-ascii"?>', "<Catalog>"]
+    # 虫族基地自然产卵间隔（voidmulti 默认 13.86 秒）
+    lines.append('    <CBehaviorSpawn id="SpawnLarva">')
+    lines.append(f'        <InfoArray index="0" Delay="{scaled("13.86", multiplier)}"/>')
+    lines.append('    </CBehaviorSpawn>')
+    # 虫后注卵倒计时（原版默认 40 秒）
+    lines.append('    <CBehaviorBuff id="QueenSpawnLarvaTimer">')
+    lines.append(f'        <Duration value="{scaled("40", multiplier)}"/>')
+    lines.append('    </CBehaviorBuff>')
+    lines.append("</Catalog>")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> None:
     if len(sys.argv) != 5:
         sys.exit(f"用法: {sys.argv[0]} <倍数> <mod文件名(不带.SC2Mod)> <中文显示名> <中文描述>")
@@ -185,12 +202,17 @@ def main() -> None:
         sys.exit(f"打不开 MPQ {dst}")
 
     xml = build_abildata_xml(multiplier)
+    behavior_xml = build_behaviordata_xml(multiplier)
 
     # 主用途：bake.py 把这份纯 XML 按 id 焊进地图自己的 AbilData.xml（AIE 这类自带整套
     # 数据的地图，扩展 mod 会被压过去 / 同文件同 id "先出现的赢"，只有焊进地图目录、
-    # 换掉地图原来的同 id 条目才生效）。.SC2Mod 那份留作普通天梯图的兜底依赖。
+    # 换掉地图原来的同 id 条目才生效）。bake.py 只用 .abil.xml/.behavior.xml 焊接；
+    # .SC2Mod 只留给编辑器里手动挂（别再挂成地图依赖，毒爆虫变异会坏，见 bake.py 注释）。
     abil_xml_path = HERE / "mods" / f"{out_name}.abil.xml"
     abil_xml_path.write_text(xml, encoding="utf-8")
+
+    behavior_xml_path = HERE / "mods" / f"{out_name}.behavior.xml"
+    behavior_xml_path.write_text(behavior_xml, encoding="utf-8")
 
     # 关键坑：文件名必须留着 BehaviorData.xml 不能改叫 AbilData.xml——即使里面装的是
     # CAbilBuild/CAbilTrain 数据。踩过：改名字（先 remove 旧名再 add 新名）会让 MPQ
@@ -199,7 +221,11 @@ def main() -> None:
     # archive 本身也能正常打开，但游戏里一建局就秒退，报 "Not in a game"。
     # 内容是 CAbilBuild 还是 CBehaviorResource 都无所谓，游戏是按 <Catalog> 里每个
     # 元素自己的标签类型识别的，不看文件名——只要名字维持 BehaviorData.xml 就没事。
-    write_mpq_file(h_mpq, "Base.SC2Data\\GameData\\BehaviorData.xml", xml.encode("utf-8"))
+    # .SC2Mod 里技能和行为修改合在这一个文件里：
+    mod_xml_lines = xml.rstrip().splitlines()[:-1]
+    mod_behavior_lines = behavior_xml.strip().splitlines()[2:]
+    combined_mod_xml = "\n".join(mod_xml_lines + mod_behavior_lines) + "\n"
+    write_mpq_file(h_mpq, "Base.SC2Data\\GameData\\BehaviorData.xml", combined_mod_xml.encode("utf-8"))
 
     write_mpq_file(h_mpq, "enUS.SC2Data\\LocalizedData\\GameStrings.txt",
                    f"DocInfo/Name=Macro Speed ({multiplier}x)\n"
@@ -211,8 +237,9 @@ def main() -> None:
     STORM.SFileCompactArchive(h_mpq, None, 0)
     STORM.SFileCloseArchive(h_mpq)
 
-    print(f"OK: {dst}  ({len(xml.splitlines())} 行 XML)")
+    print(f"OK: {dst}  ({len(combined_mod_xml.splitlines())} 行 XML)")
     print(f"OK: {abil_xml_path}  （bake 焊进地图 AbilData.xml 用的纯片段）")
+    print(f"OK: {behavior_xml_path}  （bake 焊进地图 BehaviorData.xml 用的纯片段）")
 
 
 if __name__ == "__main__":

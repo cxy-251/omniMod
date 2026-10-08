@@ -414,6 +414,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToBroodLord">
+        <InfoArray index="0"/>
         <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="16.9166"/>
@@ -427,6 +428,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToOverseer">
+        <InfoArray index="0"/>
         <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="8.3332"/>
@@ -524,6 +526,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToRavager">
+        <InfoArray index="0"/>
         <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="8.5"/>
@@ -537,6 +540,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToLurker">
+        <InfoArray index="0"/>
         <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="12.625"/>
@@ -550,6 +554,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToTransportOverlord">
+        <InfoArray index="0"/>
         <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="10.5"/>
@@ -559,6 +564,20 @@
             </SectionArray>
             <SectionArray index="Stats">
                 <DurationArray index="Delay" value="10.5"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="MorphToBaneling">
+        <InfoArray index="0"/>
+        <InfoArray index="1">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="10"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Delay" value="10"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="10"/>
             </SectionArray>
         </InfoArray>
     </CAbilMorph>

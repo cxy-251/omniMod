@@ -414,6 +414,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToBroodLord">
+        <InfoArray index="0"/>
         <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
@@ -427,6 +428,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToOverseer">
+        <InfoArray index="0"/>
         <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
@@ -524,6 +526,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToRavager">
+        <InfoArray index="0"/>
         <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
@@ -537,6 +540,7 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToLurker">
+        <InfoArray index="0"/>
         <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>
@@ -550,6 +554,21 @@
         </InfoArray>
     </CAbilMorph>
     <CAbilMorph id="MorphToTransportOverlord">
+        <InfoArray index="0"/>
+        <InfoArray index="1">
+            <SectionArray index="Abils">
+                <DurationArray index="Delay" value="0.05"/>
+            </SectionArray>
+            <SectionArray index="Actor">
+                <DurationArray index="Delay" value="0.05"/>
+            </SectionArray>
+            <SectionArray index="Stats">
+                <DurationArray index="Delay" value="0.05"/>
+            </SectionArray>
+        </InfoArray>
+    </CAbilMorph>
+    <CAbilMorph id="MorphToBaneling">
+        <InfoArray index="0"/>
         <InfoArray index="1">
             <SectionArray index="Abils">
                 <DurationArray index="Delay" value="0.05"/>

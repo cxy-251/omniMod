@@ -36,24 +36,25 @@ DEP_MODS: dict[str, str] = {
 # 兼容旧名
 MOD_FILES = DEP_MODS
 
-# 焊接类：key -> (地图 GameData 里的目标文件, 仓库 mods/ 下的片段文件)。
+# 焊接类：key -> [(地图 GameData 里的目标文件, 仓库 mods/ 下的片段文件), ...]。
 # 片段按 id 焊进地图自己的那个目录文件，地图原有同 id 条目整块换掉。
-# instantBuild/macroSpeed 也留了一份 .SC2Mod 作普通天梯图的兜底依赖（见 FALLBACK_DEP）。
-CATALOG_MERGES: dict[str, tuple[str, str]] = {
-    "infiniteRes":  ("BehaviorData.xml", "infiniteRes.behavior.xml"),
-    "instantBuild": ("AbilData.xml",     "instantBuild.abil.xml"),
-    "macroSpeed":   ("AbilData.xml",     "macroSpeed.abil.xml"),
-}
-FALLBACK_DEP: dict[str, str] = {
-    "instantBuild": "instantBuild.SC2Mod",
-    "macroSpeed":   "macroSpeed.SC2Mod",
+# instantBuild/macroSpeed 只走焊接，不要再把它们的 .SC2Mod 挂成地图依赖"兜底"：
+# 那份 .SC2Mod 没有 DocumentHeader、不声明依赖，按地图依赖表顺序加载在 Void 之后、
+# 对战模式由游戏自动追加的 VoidMulti 之前。MorphToBaneling 这类只在 VoidMulti 里才定义
+# 的技能，会先被它"新建"成一个残缺条目——实测毒爆虫变异按钮直接失效。焊进地图自己的
+# GameData 加载在 VoidMulti 之后，对所有地图都生效（地图原本没有这个文件也会新建）。
+# 2026-10-08 在 16BitLE 上实测：只焊接时毒爆/破坏者变异秒建造 0.18 秒、两倍速正好减半。
+CATALOG_MERGES: dict[str, list[tuple[str, str]]] = {
+    "infiniteRes":  [("BehaviorData.xml", "infiniteRes.behavior.xml")],
+    "instantBuild": [("AbilData.xml", "instantBuild.abil.xml"), ("BehaviorData.xml", "instantBuild.behavior.xml")],
+    "macroSpeed":   [("AbilData.xml", "macroSpeed.abil.xml"),   ("BehaviorData.xml", "macroSpeed.behavior.xml")],
 }
 
 ALL_MOD_KEYS = set(DEP_MODS) | set(CATALOG_MERGES)
 
 
-def _catalog_path(key: str) -> Path:
-    return HERE / "mods" / CATALOG_MERGES[key][1]
+def _catalog_paths(key: str) -> list[Path]:
+    return [HERE / "mods" / frag for _, frag in CATALOG_MERGES.get(key, [])]
 
 
 def _mod_dep_string(key: str) -> str:
@@ -65,7 +66,7 @@ def _mod_dep_string(key: str) -> str:
     前缀 Documents）也都同步过了，但版本号没变，游戏那边可能还是把它当"以前解析过
     的那个版本"，读的是缓存结果而不是重新解析新内容——改了跟没改一样。这里让
     版本号跟着 mod 文件内容的哈希走，内容一变版本号必然跟着变，不给缓存偷懒的机会。"""
-    fname = DEP_MODS.get(key) or FALLBACK_DEP[key]
+    fname = DEP_MODS[key]
     mf = MODS_DIR / fname
     content = mf.read_bytes() if mf.exists() else b""
     build = int(hashlib.md5(content).hexdigest()[:6], 16) % 900000 + 1
@@ -123,9 +124,11 @@ def _sync_dep_mods() -> None:
         print(f"[sc2Mod] 同步 mods 到 {MODS_DIR} 出错（继续）：{e}")
 
 
-def _sig_source(key: str) -> Path:
+def _sig_sources(key: str) -> list[Path]:
     """缓存签名要看的文件：依赖类看 Mods/ 里的 .SC2Mod，焊接类看仓库里的片段 .xml。"""
-    return MODS_DIR / DEP_MODS[key] if key in DEP_MODS else _catalog_path(key)
+    if key in DEP_MODS:
+        return [MODS_DIR / DEP_MODS[key]]
+    return _catalog_paths(key)
 
 
 def bake(map_stem: str, mod_keys: list[str]) -> str:
@@ -139,8 +142,8 @@ def bake(map_stem: str, mod_keys: list[str]) -> str:
     # 缓存键：图名 + mod 组合 + 各来源文件的 mtime（mod 改了 → 键变 → 重烤）
     sig_parts = [map_stem, *mod_keys]
     for k in mod_keys:
-        f = _sig_source(k)
-        sig_parts.append(f"{k}:{int(f.stat().st_mtime) if f.exists() else 0}")
+        for f in _sig_sources(k):
+            sig_parts.append(f"{k}:{f.name}:{int(f.stat().st_mtime) if f.exists() else 0}")
     key = hashlib.md5("|".join(sig_parts).encode()).hexdigest()[:8]
     out_stem = f"{map_stem}{BAKED_SUFFIX}{key}"
     out_file = MAPS_DIR / f"{out_stem}.SC2Map"
@@ -153,10 +156,8 @@ def bake(map_stem: str, mod_keys: list[str]) -> str:
     cmd = [sys.executable, str(HERE / "_bake_inner.py"), str(src), str(out_file)]
     for k in mod_keys:
         if k in CATALOG_MERGES:
-            target_file, _ = CATALOG_MERGES[k]
-            cmd += ["--merge", f"{target_file}={_catalog_path(k)}"]
-            if k in FALLBACK_DEP:                     # 兜底：普通天梯图靠这条依赖
-                cmd += ["--dep", _mod_dep_string(k)]
+            for target_file, frag_name in CATALOG_MERGES[k]:
+                cmd += ["--merge", f"{target_file}={HERE / 'mods' / frag_name}"]
         else:                                        # 纯依赖类（3x/5x 采集）
             cmd += ["--dep", _mod_dep_string(k)]
     print(f"[sc2Mod] 烘焙 {map_stem} + {mod_keys} …")

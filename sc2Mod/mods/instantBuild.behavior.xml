@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<Catalog>
+    <CBehaviorSpawn id="SpawnLarva">
+        <InfoArray index="0" Delay="0.05"/>
+    </CBehaviorSpawn>
+    <CBehaviorBuff id="QueenSpawnLarvaTimer">
+        <Duration value="0.05"/>
+    </CBehaviorBuff>
+</Catalog>
