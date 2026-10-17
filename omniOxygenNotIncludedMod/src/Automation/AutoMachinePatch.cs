@@ -1,5 +1,7 @@
+using System;
 using System.Reflection;
 using HarmonyLib;
+using UnityEngine;
 
 namespace OmniMod.Automation
 {
@@ -100,6 +102,7 @@ namespace OmniMod.Automation
 
                 conv.SetWorkSpeedMultiplier(2f);
                 op.SetActive(true);
+                PlayWorkingAnim(__instance.GetComponent<KBatchedAnimController>());
 
                 if (_logged < 5)
                 {
@@ -113,6 +116,248 @@ namespace OmniMod.Automation
             {
                 return true;
             }
+        }
+
+        internal static void PlayWorkingAnim(KBatchedAnimController kbac)
+        {
+            if (kbac == null) return;
+            if (kbac.HasAnimation("working_loop"))
+            {
+                if (kbac.currentAnim != "working_loop") kbac.Play("working_loop", KAnim.PlayMode.Loop);
+            }
+            else if (kbac.HasAnimation("working"))
+            {
+                if (kbac.currentAnim != "working") kbac.Play("working", KAnim.PlayMode.Loop);
+            }
+        }
+
+        internal static void StopWorkingAnim(KBatchedAnimController kbac, Operational op)
+        {
+            if (kbac == null) return;
+            string anim = (op != null && op.IsOperational) ? "on" : "off";
+            if (kbac.HasAnimation(anim))
+            {
+                kbac.Play(anim, KAnim.PlayMode.Once);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 自动材料研究：材料研究终端（NuclearResearchCenter）使用辐射粒子——选好研究项目后无需小人操作。
+    ///
+    /// 材料研究终端是 StateMachineComponent，并非 ResearchCenter 子类，也不带 ElementConverter。
+    /// 它通过 HighEnergyParticleStorage 存储辐射粒子，在工作时消耗粒子推进点数。
+    ///
+    /// 这里挂载一个轻量组件 NuclearResearchCenterAutoRunner（实现 ISim200ms）：
+    /// 当通电运转正常、有活动研究需要辐射粒子点数、且粒子储量足够时：
+    /// 保持建筑为 Active 耗电状态，自动扣减辐射粒子并增加研究点，弹出研究气泡。
+    /// </summary>
+    public class NuclearResearchCenterAutoRunner : KMonoBehaviour, ISim200ms
+    {
+        private NuclearResearchCenter _nrc;
+        private NuclearResearchCenterWorkable _workable;
+        private Operational _operational;
+        private HighEnergyParticleStorage _particleStorage;
+        private KBatchedAnimController _kbac;
+        private float _pointsProduced;
+        private bool _wasActive;
+        private static int _logged;
+
+        protected override void OnSpawn()
+        {
+            base.OnSpawn();
+            _nrc = GetComponent<NuclearResearchCenter>();
+            _workable = GetComponent<NuclearResearchCenterWorkable>();
+            _operational = GetComponent<Operational>();
+            _particleStorage = GetComponent<HighEnergyParticleStorage>();
+            _kbac = GetComponent<KBatchedAnimController>();
+        }
+
+        protected override void OnCleanUp()
+        {
+            // 拆除时 Operational 随 GameObject 一同清理，切勿在此手动调用 SetActive(false)
+            base.OnCleanUp();
+        }
+
+        public void Sim200ms(float dt)
+        {
+            try
+            {
+                if (_nrc == null || _workable == null || _operational == null || _particleStorage == null)
+                {
+                    return;
+                }
+
+                if (_workable.worker != null)
+                {
+                    return; // 有小人在操作，放行香草逻辑
+                }
+
+                if (!_operational.IsOperational)
+                {
+                    StopRunning();
+                    return;
+                }
+
+                Research research = Research.Instance;
+                if (research == null)
+                {
+                    return;
+                }
+
+                TechInstance activeResearch = research.GetActiveResearch();
+                if (activeResearch == null)
+                {
+                    StopRunning();
+                    return;
+                }
+
+                string researchTypeID = _nrc.researchTypeID ?? "nuclear";
+                if (!activeResearch.tech.costsByResearchTypeID.TryGetValue(researchTypeID, out float cost))
+                {
+                    StopRunning();
+                    return;
+                }
+
+                float currentPoints = 0f;
+                activeResearch.progressInventory.PointsByTypeID.TryGetValue(researchTypeID, out currentPoints);
+                if (currentPoints >= cost)
+                {
+                    StopRunning();
+                    return; // 当前科技该类型点数已集齐
+                }
+
+                if (_particleStorage.IsEmpty() || _particleStorage.Particles <= 0f)
+                {
+                    StopRunning();
+                    return; // 缺少辐射粒子
+                }
+
+                // 取消香草可能遗留的小人任务
+                var smi = _nrc.GetSMI<NuclearResearchCenter.StatesInstance>();
+                if (smi != null)
+                {
+                    Traverse choreT = Traverse.Create(smi).Field("chore");
+                    Chore chore = choreT.GetValue<Chore>();
+                    if (chore != null)
+                    {
+                        chore.Cancel("OmniMod auto-research");
+                        choreT.SetValue(null);
+                    }
+                }
+
+                // 1 倍基准速率运转
+                float speedMultiplier = 1f;
+                float timePerPoint = _nrc.timePerPoint > 0f ? _nrc.timePerPoint : 100f;
+                float progress = (dt * speedMultiplier) / timePerPoint;
+                float particleNeeded = progress * _nrc.materialPerPoint;
+
+                if (_particleStorage.Particles < particleNeeded)
+                {
+                    particleNeeded = _particleStorage.Particles;
+                    progress = particleNeeded / _nrc.materialPerPoint;
+                }
+
+                if (particleNeeded <= 0f)
+                {
+                    StopRunning();
+                    return;
+                }
+
+                _particleStorage.ConsumeAndGet(particleNeeded);
+                _pointsProduced += progress;
+
+                if (_pointsProduced >= 1f)
+                {
+                    int pointsToAdd = Mathf.FloorToInt(_pointsProduced);
+                    _pointsProduced -= pointsToAdd;
+                    research.AddResearchPoints(researchTypeID, pointsToAdd);
+
+                    if (PopFXManager.Instance != null)
+                    {
+                        ResearchType rType = research.GetResearchType(researchTypeID);
+                        string typeName = rType != null ? rType.name : researchTypeID;
+                        PopFXManager.Instance.SpawnFX(PopFXManager.Instance.sprite_Research, typeName, transform);
+                    }
+                }
+
+                if (!_wasActive)
+                {
+                    _operational.SetActive(true);
+                    _wasActive = true;
+                    ResearchCenter_Sim200ms_AutoResearch_Patch.PlayWorkingAnim(_kbac);
+                    GetComponent<KSelectable>()?.AddStatusItem(Db.Get().BuildingStatusItems.ComplexFabricatorResearching, _nrc);
+                }
+
+                if (_logged < 5)
+                {
+                    _logged++;
+                    Debug.Log($"[OmniMod] 自动研究：{_nrc.name} 自行运转材料研究，无需小人");
+                }
+            }
+            catch
+            {
+                // 忽略异常，不干扰游戏
+            }
+        }
+
+        private void StopRunning()
+        {
+            if (_wasActive)
+            {
+                if (_operational != null)
+                {
+                    _operational.SetActive(false);
+                }
+                _wasActive = false;
+                ResearchCenter_Sim200ms_AutoResearch_Patch.StopWorkingAnim(_kbac, _operational);
+                GetComponent<KSelectable>()?.RemoveStatusItem(Db.Get().BuildingStatusItems.ComplexFabricatorResearching, _nrc);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(NuclearResearchCenter), "OnSpawn")]
+    internal static class NuclearResearchCenter_OnSpawn_AutoRunner_Patch
+    {
+        private static void Postfix(NuclearResearchCenter __instance)
+        {
+            if (__instance != null)
+            {
+                __instance.gameObject.AddOrGet<NuclearResearchCenterAutoRunner>();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 免人力研究：阻止生成小人操作材料研究终端的搬运/研究 Chore。
+    /// </summary>
+    [HarmonyPatch(typeof(NuclearResearchCenter.StatesInstance), nameof(NuclearResearchCenter.StatesInstance.CreateChore))]
+    internal static class NuclearResearchCenter_CreateChore_Patch
+    {
+        private static bool Prefix()
+        {
+            return false; // 直接阻止生成小人操作任务
+        }
+    }
+
+    /// <summary>
+    /// 修复拆除或退出 ready 状态时，因 chore 为空导致的原版 NullReferenceException 崩溃。
+    /// </summary>
+    [HarmonyPatch(typeof(NuclearResearchCenter.StatesInstance), nameof(NuclearResearchCenter.StatesInstance.DestroyChore))]
+    internal static class NuclearResearchCenter_DestroyChore_Patch
+    {
+        private static bool Prefix(NuclearResearchCenter.StatesInstance __instance)
+        {
+            if (__instance == null)
+            {
+                return false;
+            }
+            Chore chore = Traverse.Create(__instance).Field("chore").GetValue<Chore>();
+            if (chore == null)
+            {
+                return false; // chore 为空时不调用原版 chore.Cancel()，防止空指针异常
+            }
+            return true;
         }
     }
 }

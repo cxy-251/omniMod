@@ -34,6 +34,10 @@ namespace OmniMod.Pool
         [Serialize] private List<float> _sBucketMasses = new List<float>();
         [Serialize] private List<float> _sBucketTempMasses = new List<float>();
 
+        // —— 种子全局池序列化 ——
+        [Serialize] private List<string> _sSeedTags = new List<string>();
+        [Serialize] private List<int> _sSeedCounts = new List<int>();
+
         private sealed class Bucket
         {
             public float Mass;
@@ -44,6 +48,7 @@ namespace OmniMod.Pool
         // —— 运行时结构 ——
         private readonly Dictionary<int, Dictionary<int, Bucket>> _buckets = new Dictionary<int, Dictionary<int, Bucket>>();
         private readonly Dictionary<int, float> _mass = new Dictionary<int, float>();   // 每种元素总质量（快查）
+        private readonly Dictionary<Tag, int> _seeds = new Dictionary<Tag, int>();
 
         private const float DefaultTemperatureK = 293.15f;
         private const float LogIntervalSeconds = 15f;
@@ -109,6 +114,17 @@ namespace OmniMod.Pool
                     _sTempMasses.Add(tm);
                 }
             }
+
+            _sSeedTags.Clear();
+            _sSeedCounts.Clear();
+            foreach (KeyValuePair<Tag, int> kv in _seeds)
+            {
+                if (kv.Value > 0)
+                {
+                    _sSeedTags.Add(kv.Key.Name);
+                    _sSeedCounts.Add(kv.Value);
+                }
+            }
         }
 
         [OnDeserialized]
@@ -144,7 +160,52 @@ namespace OmniMod.Pool
                     AddRaw(_sElementIds[i], BucketKey(_sTempMasses[i] / m), m, _sTempMasses[i]);
                 }
             }
-            Debug.Log($"[OmniMod] 杂物池读档重建: {_mass.Count} 种元素");
+
+            _seeds.Clear();
+            int nSeeds = Mathf.Min(_sSeedTags.Count, _sSeedCounts.Count);
+            for (int i = 0; i < nSeeds; i++)
+            {
+                if (_sSeedCounts[i] > 0)
+                {
+                    _seeds[new Tag(_sSeedTags[i])] = _sSeedCounts[i];
+                }
+            }
+
+            Debug.Log($"[OmniMod] 杂物池读档重建: {_mass.Count} 种元素, {_seeds.Count} 种种子");
+        }
+
+        public void AddSeed(Tag tag, int count = 1)
+        {
+            if (!tag.IsValid || count <= 0) return;
+            _seeds[tag] = _seeds.TryGetValue(tag, out int c) ? c + count : count;
+        }
+
+        public bool RemoveSeed(Tag tag, int count = 1)
+        {
+            if (!tag.IsValid || count <= 0) return false;
+            if (_seeds.TryGetValue(tag, out int c) && c >= count)
+            {
+                if (c == count)
+                {
+                    _seeds.Remove(tag);
+                }
+                else
+                {
+                    _seeds[tag] = c - count;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        public int GetSeedCount(Tag tag)
+        {
+            return _seeds.TryGetValue(tag, out int c) ? c : 0;
+        }
+
+        public IEnumerable<KeyValuePair<Tag, int>> EnumerateSeeds()
+        {
+            return _seeds;
         }
 
         private void AddRaw(int element, int key, float mass, float tempMass)

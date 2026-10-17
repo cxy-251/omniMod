@@ -55,10 +55,10 @@ namespace OmniMod.Collection
 
 
         /// <summary>缓冲区里某元素超出目标这么多（kg）才退回池，避免抖动。</summary>
-        private const float ReturnToPoolThresholdKg = 500f;
+        private const float ReturnToPoolThresholdKg = 200f;
 
-        /// <summary>缓冲区里每种元素的上限（kg）。箱子是池的窗口，这里只是防止单元素无限堆积。</summary>
-        private const float BufferCapPerElementKg = 100_000f;
+        /// <summary>每个箱子本地缓冲维持的目标质量（kg）。按需从池中补充，避免主星独占抽空池子，使多星球/火箭能共享材料。</summary>
+        private const float LocalBufferTargetPerElementKg = 1000f;
 
         /// <summary>"无疾病"的 disease 索引哨兵值。</summary>
         private const byte NoDisease = byte.MaxValue;
@@ -144,12 +144,21 @@ namespace OmniMod.Collection
                 }
 
                 Pickupable p = go.GetComponent<Pickupable>();
-                if (p != null && IsBulkSolidElementChunk(p) && !IsLivingThing(go))
+                if (p != null && !IsLivingThing(go))
                 {
-                    PrimaryElement pe = p.PrimaryElement;
-                    OmniPool.Instance.AddSolid(pe.ElementID, pe.Mass, pe.Temperature);
-                    _storage.Remove(go);
-                    Util.KDestroyGameObject(go);
+                    if (IsBulkSolidElementChunk(p))
+                    {
+                        PrimaryElement pe = p.PrimaryElement;
+                        OmniPool.Instance.AddSolid(pe.ElementID, pe.Mass, pe.Temperature);
+                        _storage.Remove(go);
+                        Util.KDestroyGameObject(go);
+                    }
+                    else if (p.KPrefabID != null && IsSeedItem(p.KPrefabID))
+                    {
+                        OmniPool.Instance.AddSeed(p.KPrefabID.PrefabTag, 1);
+                        _storage.Remove(go);
+                        Util.KDestroyGameObject(go);
+                    }
                 }
             }
         }
@@ -180,9 +189,8 @@ namespace OmniMod.Collection
                 RestockFromPool();
                 ReleaseUncheckedDiscrete();
                 StockBionicBatteries();
-
-                // 离散物品（种子等）现在靠「隔空取物」补丁——「家」箱对全星球任意位置都算"就在旁边"，
-                // 小人/机械臂直接从「家」箱取，不再需要 box→box 的调货搬运。
+                RestockSeedsFromPool();
+                ServeDiscreteDemand();
             }
 
             // 主线程刷新"本星球箱内物品"快照，供机械臂（工作线程）无视距离取用（在物化后刷新，保证同秒即见）
@@ -263,7 +271,7 @@ namespace OmniMod.Collection
                 }
 
                 float inPool = pool.GetMass(element);
-                float target = Mathf.Min(inPool + have, BufferCapPerElementKg);
+                float target = Mathf.Min(inPool + have, LocalBufferTargetPerElementKg);
 
                 if (target > have + 1f)
                 {
@@ -662,10 +670,19 @@ namespace OmniMod.Collection
                 }
                 else if (mode == CollectMode.Debris)
                 {
-                    // 离散物品（种子/电池/可选蛋衣物）→ 收进「离散物品之家」箱子的 Storage，实现星系共享
-                    GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
-                    Storage dest = (home != null ? home.BoxStorage : null) ?? _storage;
-                    dest.Store(p.gameObject, hide_popups: true);
+                    if (p.KPrefabID != null && IsSeedItem(p.KPrefabID))
+                    {
+                        // 种子 → 统一进 OmniPool 种子全局数据池，销毁 GameObject
+                        OmniPool.Instance.AddSeed(p.KPrefabID.PrefabTag, 1);
+                        Util.KDestroyGameObject(p.gameObject);
+                    }
+                    else
+                    {
+                        // 其余离散物品（电池/可选蛋衣物）→ 收进「离散物品之家」箱子的 Storage，实现星系共享
+                        GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
+                        Storage dest = (home != null ? home.BoxStorage : null) ?? _storage;
+                        dest.Store(p.gameObject, hide_popups: true);
+                    }
                 }
                 else
                 {
@@ -775,6 +792,75 @@ namespace OmniMod.Collection
             return true;
         }
 
+        /// <summary>杂物箱在本地常备每种受筛选种子的目标数量。</summary>
+        private const int SeedsBufferPerType = 2;
+
+        /// <summary>
+        /// 从 OmniPool 种子全局数据池物化种子，使所有星球与火箭内的杂物箱均能保持本地常备 2 颗现货，
+        /// 供本地小人与机械手直接抓取种植。
+        /// </summary>
+        private void RestockSeedsFromPool()
+        {
+            OmniPool pool = OmniPool.Instance;
+            if (pool == null || _storage == null)
+            {
+                return;
+            }
+
+            // 统计本地每种种子已有多少颗
+            Dictionary<Tag, int> localCount = new Dictionary<Tag, int>();
+            if (_storage.items != null)
+            {
+                for (int i = 0; i < _storage.items.Count; i++)
+                {
+                    GameObject go = _storage.items[i];
+                    KPrefabID id = go != null ? go.GetComponent<KPrefabID>() : null;
+                    if (id != null && IsSeedItem(id))
+                    {
+                        Tag t = id.PrefabTag;
+                        localCount[t] = localCount.TryGetValue(t, out int c) ? c + 1 : 1;
+                    }
+                }
+            }
+
+            List<KeyValuePair<Tag, int>> seedList = new List<KeyValuePair<Tag, int>>(pool.EnumerateSeeds());
+            foreach (KeyValuePair<Tag, int> pair in seedList)
+            {
+                Tag seedTag = pair.Key;
+                int inPool = pair.Value;
+                if (inPool <= 0)
+                {
+                    continue;
+                }
+
+                GameObject prefab = Assets.TryGetPrefab(seedTag);
+                if (prefab == null)
+                {
+                    continue;
+                }
+                KPrefabID pid = prefab.GetComponent<KPrefabID>();
+                if (!IsAcceptedByFilter(pid))
+                {
+                    continue;
+                }
+
+                int haveLocal = localCount.TryGetValue(seedTag, out int c) ? c : 0;
+                int needed = SeedsBufferPerType - haveLocal;
+                while (needed > 0 && inPool > 0)
+                {
+                    if (!pool.RemoveSeed(seedTag, 1))
+                    {
+                        break;
+                    }
+                    GameObject inst = GameUtil.KInstantiate(prefab, transform.GetPosition(), Grid.SceneLayer.Ore);
+                    inst.SetActive(true);
+                    _storage.Store(inst, hide_popups: true);
+                    needed--;
+                    inPool--;
+                }
+            }
+        }
+
         /// <summary>非「家」箱：按本星球未满足的搬运需求，把匹配的离散物品从「家」箱调过来。</summary>
         private void ServeDiscreteDemand()
         {
@@ -786,7 +872,20 @@ namespace OmniMod.Collection
             }
 
             GlobalChoreProvider gcp = GlobalChoreProvider.Instance;
-            if (gcp == null || !gcp.fetchMap.TryGetValue(this.GetMyParentWorldId(), out List<FetchChore> fetches))
+            if (gcp == null)
+            {
+                return;
+            }
+
+            int myWorld = this.GetMyWorldId();
+            int parentWorld = this.GetMyParentWorldId();
+            List<FetchChore> fetches = null;
+            if (!gcp.fetchMap.TryGetValue(myWorld, out fetches) && parentWorld >= 0)
+            {
+                gcp.fetchMap.TryGetValue(parentWorld, out fetches);
+            }
+
+            if (fetches == null)
             {
                 return;
             }

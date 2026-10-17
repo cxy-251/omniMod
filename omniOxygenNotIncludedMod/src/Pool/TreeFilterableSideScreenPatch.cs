@@ -31,7 +31,14 @@ namespace OmniMod.Pool
             // 散装元素：加上纯数据池里的量
             __result += OmniPool.Instance.GetMassMatchingTag(tag);
 
-            // 离散物品（种子/电池/蛋/衣物）：共享份存在「家」箱里；不是家箱时补上家箱的量
+            // 种子：加上全局种子池里的数量
+            int seedCount = OmniPool.Instance.GetSeedCount(tag);
+            if (seedCount > 0)
+            {
+                __result += seedCount;
+            }
+
+            // 离散物品（电池/蛋/衣物等未进池的）：共享份存在「家」箱里；不是家箱时补上家箱的量
             GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
             if (home != null && home != box && home.BoxStorage != null)
             {

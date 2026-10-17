@@ -71,7 +71,7 @@ namespace OmniMod.Buildings
             consumer.consumptionRadius = 4;
             consumer.storeOnConsume = true;
             consumer.showInStatusPanel = true;
-            consumer.sampleCellOffset = new Vector3(0f, 1f, 0f);
+            consumer.sampleCellOffset = Vector3.zero;
             consumer.isRequired = false;
             consumer.ignoreActiveChanged = true;
 
