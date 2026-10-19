@@ -108,28 +108,44 @@ namespace OmniMod.Collection
             {
                 return null;
             }
+
+            // 1. 优先使用本世界（如火箭舱内部、或本星球自身）直接建造并生效的聚合箱！
+            for (int i = 0; i < Boxes.Count; i++)
+            {
+                GlobalItemCollector b = Boxes[i];
+                if (b != null && b.gameObject != null && !b.IsRedundant && b.mode == mode && b.GetMyWorldId() == worldId)
+                {
+                    return b;
+                }
+            }
+
+            // 2. 本世界若没有，才回退到所属母星的聚合箱
             int parentWorldId = worldId;
             if (ClusterManager.Instance != null)
             {
                 WorldContainer wc = ClusterManager.Instance.GetWorld(worldId);
-                if (wc != null)
+                if (wc != null && wc.ParentWorldId >= 0 && wc.ParentWorldId != 255)
                 {
                     parentWorldId = wc.ParentWorldId;
                 }
             }
 
-            for (int i = 0; i < Boxes.Count; i++)
+            if (parentWorldId != worldId)
             {
-                GlobalItemCollector b = Boxes[i];
-                if (b != null && b.gameObject != null && !b.IsRedundant && b.mode == mode)
+                for (int i = 0; i < Boxes.Count; i++)
                 {
-                    int boxWorld = b.GetMyWorldId();
-                    if (boxWorld == worldId || boxWorld == parentWorldId || b.GetMyParentWorldId() == parentWorldId)
+                    GlobalItemCollector b = Boxes[i];
+                    if (b != null && b.gameObject != null && !b.IsRedundant && b.mode == mode)
                     {
-                        return b;
+                        int boxWorld = b.GetMyWorldId();
+                        if (boxWorld == parentWorldId || b.GetMyParentWorldId() == parentWorldId)
+                        {
+                            return b;
+                        }
                     }
                 }
             }
+
             return null;
         }
 
@@ -196,9 +212,47 @@ namespace OmniMod.Collection
             return box.GetMyParentWorldId() == ClusterUtil.GetMyParentWorldId(box.gameObject) && Grid.WorldIdx[cell] == workerWorldId;
         }
 
+        /// <summary>
+        /// 判断某个格子是否是与 workerCell 位于【同一世界】的常规储物设备（如普通储物箱、冰箱、食物盒等），
+        /// 允许机械手在火箭舱内或同世界内隔空抓取普通箱子里的物品。
+        /// </summary>
+        internal static bool IsSameWorldStorageCell(int cell, int workerCell)
+        {
+            if (!Grid.IsValidCell(cell) || !Grid.IsValidCell(workerCell))
+            {
+                return false;
+            }
+            int workerWorldId = Grid.WorldIdx[workerCell];
+            int cellWorldId = Grid.WorldIdx[cell];
+            if (workerWorldId != cellWorldId)
+            {
+                return false;
+            }
+
+            if (Components.BuildingCompletes != null)
+            {
+                List<BuildingComplete> buildings = Components.BuildingCompletes.GetWorldItems(workerWorldId);
+                if (buildings != null)
+                {
+                    for (int i = 0; i < buildings.Count; i++)
+                    {
+                        BuildingComplete b = buildings[i];
+                        if (b == null) continue;
+                        Storage st = b.GetComponent<Storage>();
+                        if (st != null && Grid.PosToCell(st) == cell && st.allowItemRemoval)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
         // —— 机械臂"本星球隔空取物"用：主线程每秒刷新每个星球自身聚合箱内物品的快照，
         //    机械臂的扫描补丁只读这个不可变数组。——
         private static readonly Dictionary<int, Pickupable[]> _worldBoxItems = new Dictionary<int, Pickupable[]>();
+        private static readonly Dictionary<int, float> _worldBoxItemsRefreshTime = new Dictionary<int, float>();
         private static readonly List<Pickupable> _refreshScratch = new List<Pickupable>(128);
 
         private static void AppendStoragePickupables(Storage storage, List<Pickupable> dst)
@@ -218,6 +272,44 @@ namespace OmniMod.Collection
             }
         }
 
+        internal static void AppendRocketInteriorItems(int worldId, List<Pickupable> dst)
+        {
+            if (Components.Pickupables == null || worldId < 0 || worldId == 255)
+            {
+                return;
+            }
+
+            List<Pickupable> pickups = Components.Pickupables.GetWorldItems(worldId);
+            if (pickups == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < pickups.Count; i++)
+            {
+                Pickupable p = pickups[i];
+                if (p == null || p.gameObject == null || p.UnreservedFetchAmount <= 0f)
+                {
+                    continue;
+                }
+
+                // 如果物品在某个 Storage 内，检查是否允许取出（排除正在被消费的机器、以及运输装载机自身）
+                if (p.storage != null)
+                {
+                    if (!p.storage.allowItemRemoval)
+                    {
+                        continue;
+                    }
+                    if (p.storage.GetComponent<SolidConduitInbox>() != null)
+                    {
+                        continue;
+                    }
+                }
+
+                dst.Add(p);
+            }
+        }
+
         internal static void RefreshWorldBoxItems(int worldId)
         {
             _refreshScratch.Clear();
@@ -234,15 +326,52 @@ namespace OmniMod.Collection
                 AppendStoragePickupables(localFood.BoxStorage, _refreshScratch);
             }
 
-            Pickupable[] arr = _refreshScratch.Count > 0 ? _refreshScratch.ToArray() : System.Array.Empty<Pickupable>();
+            // 火箭内部（IsModuleInterior）：自动收集舱内所有储物箱/冰箱/地面的物品，使机械手能隔空抓取舱内任意可用物品
+            if (ClusterManager.Instance != null)
+            {
+                WorldContainer wc = ClusterManager.Instance.GetWorld(worldId);
+                if (wc != null && wc.IsModuleInterior)
+                {
+                    AppendRocketInteriorItems(worldId, _refreshScratch);
+                }
+            }
+
+            Pickupable[] arr;
+            if (_refreshScratch.Count > 0)
+            {
+                var unique = new HashSet<Pickupable>(_refreshScratch);
+                arr = new Pickupable[unique.Count];
+                unique.CopyTo(arr);
+            }
+            else
+            {
+                arr = System.Array.Empty<Pickupable>();
+            }
+
             lock (_worldBoxItems)
             {
                 _worldBoxItems[worldId] = arr;
+                _worldBoxItemsRefreshTime[worldId] = Time.time;
             }
         }
 
         internal static Pickupable[] GetWorldBoxItems(int worldId)
         {
+            float now = Time.time;
+            bool needRefresh = false;
+            lock (_worldBoxItems)
+            {
+                if (!_worldBoxItemsRefreshTime.TryGetValue(worldId, out float lastTime) || now - lastTime >= 1.0f)
+                {
+                    needRefresh = true;
+                }
+            }
+
+            if (needRefresh)
+            {
+                RefreshWorldBoxItems(worldId);
+            }
+
             lock (_worldBoxItems)
             {
                 return _worldBoxItems.TryGetValue(worldId, out Pickupable[] a) ? a : System.Array.Empty<Pickupable>();

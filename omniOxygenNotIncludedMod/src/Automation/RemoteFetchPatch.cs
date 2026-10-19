@@ -235,10 +235,35 @@ namespace OmniMod.Automation
     {
         private static void Postfix(SolidTransferArm __instance, int cell, ref bool __result)
         {
-            if (!__result && __instance != null)
+            if (!__result && __instance != null && Grid.IsValidCell(cell))
             {
                 int myCell = Grid.PosToCell(__instance);
+                if (!Grid.IsValidCell(myCell))
+                {
+                    return;
+                }
+
+                int myWorld = Grid.WorldIdx[myCell];
+                int cellWorld = Grid.WorldIdx[cell];
+                if (myWorld != cellWorld)
+                {
+                    return;
+                }
+
+                // 1. 如果在火箭舱内部：整舱内所有格子均视为可达（无视舱内距离与死角）
+                if (ClusterManager.Instance != null)
+                {
+                    WorldContainer wc = ClusterManager.Instance.GetWorld(myWorld);
+                    if (wc != null && wc.IsModuleInterior)
+                    {
+                        __result = true;
+                        return;
+                    }
+                }
+
+                // 2. 常规世界：聚合箱格子、同世界常规储物箱格子、装瓶器格子
                 if (AggregateBoxRegistry.IsSameWorldActiveBoxCell(cell, myCell) ||
+                    AggregateBoxRegistry.IsSameWorldStorageCell(cell, myCell) ||
                     BottlerRegistry.IsSameWorldActiveBottlerCell(cell, myCell))
                 {
                     __result = true;
@@ -261,25 +286,52 @@ namespace OmniMod.Automation
                 return;
             }
 
-            // 禁止机械臂从聚合箱/装瓶器取物送去普通储物箱、装瓶器自身、轨道装载机、自动分配器或聚合箱自身，
-            // 避免形成无限取出再掉落回收的死循环卡顿。聚合箱与装瓶器物品只服务于实际消耗设备（精炼机/发电机/农田/建造工地/烹饪台/超算等）。
-            if (destination.GetComponent<SolidConduitInbox>() != null ||
-                destination.GetComponent<ObjectDispenser>() != null ||
-                destination.GetComponent<StorageLocker>() != null ||
-                destination.GetComponent<Bottler>() != null ||
-                AggregateBoxRegistry.IsBoxStorage(destination))
+            int world = __instance.GetMyWorldId();
+            bool isRocket = false;
+            if (ClusterManager.Instance != null)
             {
-                return;
+                WorldContainer wc = ClusterManager.Instance.GetWorld(world);
+                if (wc != null && wc.IsModuleInterior)
+                {
+                    isRocket = true;
+                }
             }
 
-            int world = __instance.GetMyWorldId();
+            // 目标建筑过滤：
+            if (!isRocket)
+            {
+                // 普通星球：禁止机械臂从聚合箱/装瓶器取物送去普通储物箱、装瓶器自身、轨道装载机、自动分配器或聚合箱自身，
+                // 避免形成无限取出再掉落回收的死循环卡顿。聚合箱与装瓶器物品只服务于实际消耗设备（精炼机/发电机/农田/建造工地/烹饪台/超算等）。
+                if (destination.GetComponent<SolidConduitInbox>() != null ||
+                    destination.GetComponent<ObjectDispenser>() != null ||
+                    destination.GetComponent<StorageLocker>() != null ||
+                    destination.GetComponent<Bottler>() != null ||
+                    AggregateBoxRegistry.IsBoxStorage(destination))
+                {
+                    return;
+                }
+            }
+            else
+            {
+                // 火箭内部：放开对 SolidConduitInbox（轨道装载机/运输需求）以及舱内储物箱/设备的限制！
+                // 仅禁止送入聚合箱自身或装瓶器自身以防循环
+                if (AggregateBoxRegistry.IsBoxStorage(destination) || destination.GetComponent<Bottler>() != null)
+                {
+                    return;
+                }
+            }
 
-            // 1. 本星球聚合箱
+            // 1. 本星球聚合箱及火箭舱内储物
             Pickupable[] boxItems = AggregateBoxRegistry.GetWorldBoxItems(world);
             for (int i = 0; i < boxItems.Length; i++)
             {
                 Pickupable p = boxItems[i];
                 if (p == null || p.KPrefabID == null || p.UnreservedFetchAmount <= 0f)
+                {
+                    continue;
+                }
+                // 防止将箱子里的物品搬回同一个箱子
+                if (p.storage != null && p.storage == destination)
                 {
                     continue;
                 }
@@ -290,7 +342,7 @@ namespace OmniMod.Automation
                 if (FetchManager.IsFetchablePickup(p, chore, destination))
                 {
                     __result = p;
-                    RemoteFetch.LogOnce("隔空取物：机械臂锁定本星球箱内目标: " + p.name);
+                    RemoteFetch.LogOnce("隔空取物：机械臂锁定目标: " + p.name);
                     return;
                 }
             }

@@ -485,13 +485,35 @@ namespace OmniMod.Automation
     [HarmonyPatch(typeof(MilkSeparator), "CreateEmptyChore")]
     internal static class MilkSeparator_CreateEmptyChore_Patch
     {
-        private static bool Prefix(MilkSeparator.Instance smi, ref Chore __result)
+        private static void Postfix(MilkSeparator.Instance smi, ref Chore __result)
         {
-            // 不再给复制人生成清空提炼器的跑腿任务
-            smi.DropMilkFat();
-            smi.GoTo(smi.sm.operational.emptyComplete);
-            __result = null;
-            return false;
+            if (smi != null)
+            {
+                smi.DropMilkFat();
+                smi.GoTo(smi.sm.operational.emptyComplete);
+            }
+            if (__result != null)
+            {
+                // 绝不允许生成小人清空任务，杜绝小人跑腿
+                __result.AddPrecondition(OilRefinery_SetChore_AutoRun_Patch.NeverAvailable);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 核心自动产出：当提炼器产出咸乳蜡/鱼子酱达到上限时，直接吐出到地面并重置状态，
+    /// 永不堵塞、永不停机、不再需要进入繁琐的 full 停机状态。
+    /// </summary>
+    [HarmonyPatch(typeof(MilkSeparator.Instance), nameof(MilkSeparator.Instance.MilkFatLimitReached), MethodType.Getter)]
+    internal static class MilkSeparator_MilkFatLimitReached_Patch
+    {
+        private static void Postfix(MilkSeparator.Instance __instance, ref bool __result)
+        {
+            if (__result && __instance != null)
+            {
+                __instance.DropMilkFat();
+                __result = false;
+            }
         }
     }
 
