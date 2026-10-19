@@ -451,5 +451,139 @@ namespace OmniMod.Automation
             }
         }
     }
+
+    // =========================================================================
+    // 提炼器（Gleaner / MilkSeparator）自动排空：
+    // 转化咸乳产生的固体产物（咸乳蜡 / 鱼子酱）积满时全自动排空到地面，无需小人跑腿手动清空。
+    // =========================================================================
+    [HarmonyPatch(typeof(MilkSeparator), nameof(MilkSeparator.InitializeStates))]
+    internal static class MilkSeparator_AutoEmpty_Patch
+    {
+        private static void Postfix(MilkSeparator __instance)
+        {
+            if (__instance == null || __instance.operational == null || __instance.operational.full == null)
+            {
+                return;
+            }
+
+            // 当提炼器进入 full 状态（或从旧存档载入且处于 full 状态）时，
+            // 立即调用 smi.DropMilkFat() 自动把咸乳蜡/鱼子酱吐到地上，并直接切入 emptyComplete 刷新仪表
+            __instance.operational.full
+                .Enter(smi =>
+                {
+                    smi.DropMilkFat();
+                    smi.GoTo(__instance.operational.emptyComplete);
+                })
+                .Update((smi, dt) =>
+                {
+                    smi.DropMilkFat();
+                    smi.GoTo(__instance.operational.emptyComplete);
+                }, UpdateRate.SIM_200ms);
+        }
+    }
+
+    [HarmonyPatch(typeof(MilkSeparator), "CreateEmptyChore")]
+    internal static class MilkSeparator_CreateEmptyChore_Patch
+    {
+        private static bool Prefix(MilkSeparator.Instance smi, ref Chore __result)
+        {
+            // 不再给复制人生成清空提炼器的跑腿任务
+            smi.DropMilkFat();
+            smi.GoTo(smi.sm.operational.emptyComplete);
+            __result = null;
+            return false;
+        }
+    }
+
+    // =========================================================================
+    // 脱盐器（Desalinator）自动排空：
+    // 盐分积满时全自动将所有积存盐掉落到地面，重置储盐量，无需小人跑腿手动清空。
+    // =========================================================================
+    [HarmonyPatch(typeof(Desalinator), "CheckCanConvert")]
+    internal static class Desalinator_CheckCanConvert_AutoEmpty_Patch
+    {
+        private static readonly AccessTools.FieldRef<Desalinator, Storage> StorageField =
+            AccessTools.FieldRefAccess<Desalinator, Storage>("storage");
+
+        private static readonly AccessTools.FieldRef<Desalinator, Chore> RemoteChoreField =
+            AccessTools.FieldRefAccess<Desalinator, Chore>("remoteChore");
+
+        private static void Prefix(Desalinator __instance)
+        {
+            AutoEmptyIfNeeded(__instance);
+        }
+
+        internal static void AutoEmptyIfNeeded(Desalinator desalinator)
+        {
+            if (desalinator == null)
+            {
+                return;
+            }
+
+            Storage st = StorageField(desalinator);
+            if (st == null)
+            {
+                return;
+            }
+
+            if (desalinator.SaltStorageLeft <= 0f || st.MassStored() >= desalinator.maxSalt)
+            {
+                if (st.items.Count > 0)
+                {
+                    st.DropAll(false, false, default, true);
+                }
+                desalinator.SaltStorageLeft = desalinator.maxSalt;
+                Chore chore = RemoteChoreField(desalinator);
+                if (chore != null)
+                {
+                    chore.Cancel("OmniMod Auto Empty");
+                    RemoteChoreField(desalinator) = null;
+                }
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(Desalinator), "SaltStorageLeft", MethodType.Setter)]
+    internal static class Desalinator_set_SaltStorageLeft_Patch
+    {
+        private static readonly AccessTools.FieldRef<Desalinator, Storage> StorageField =
+            AccessTools.FieldRefAccess<Desalinator, Storage>("storage");
+
+        private static readonly AccessTools.FieldRef<Desalinator, Chore> RemoteChoreField =
+            AccessTools.FieldRefAccess<Desalinator, Chore>("remoteChore");
+
+        private static void Prefix(Desalinator __instance, ref float value)
+        {
+            if (__instance == null)
+            {
+                return;
+            }
+
+            if (value <= 0f)
+            {
+                Storage st = StorageField(__instance);
+                if (st != null && st.items.Count > 0)
+                {
+                    st.DropAll(false, false, default, true);
+                }
+                value = __instance.maxSalt;
+                Chore chore = RemoteChoreField(__instance);
+                if (chore != null)
+                {
+                    chore.Cancel("OmniMod Auto Empty");
+                    RemoteChoreField(__instance) = null;
+                }
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(Desalinator), "OnSpawn")]
+    internal static class Desalinator_OnSpawn_AutoEmpty_Patch
+    {
+        private static void Postfix(Desalinator __instance)
+        {
+            Desalinator_CheckCanConvert_AutoEmpty_Patch.AutoEmptyIfNeeded(__instance);
+        }
+    }
 }
 
