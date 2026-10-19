@@ -77,8 +77,8 @@ namespace OmniMod.Buildings
             // 侧栏里可勾选收集哪些类别。取消勾选时不把缓冲区碎块倒在地上
             // （由收集器负责把该类退回全局池），避免刷出大堆碎片。
             go.AddOrGet<TreeFilterable>().dropIncorrectOnFilterChange = false;
+            go.AddOrGet<StorageLocker>();
             go.AddOrGet<CopyBuildingSettings>().copyGroupTag = GameTags.StorageLocker;  // 支持"复制设置"
-            go.AddOrGet<StorageLocker>();                                      // 储物柜行为（动画、音效、状态）
             go.AddOrGet<UserNameable>();                                       // 可自定义名字
             go.AddOrGetDef<RocketUsageRestriction.Def>();                      // 火箭内使用限制（香草储物柜也有）
         }

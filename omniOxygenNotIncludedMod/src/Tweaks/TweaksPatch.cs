@@ -106,17 +106,38 @@ namespace OmniMod.Tweaks
     }
 
     /// <summary>
-    /// 更大视野：把相机的"最远拉远"上限从 20 提到 48（约 2.4 倍），
-    /// 起始缩放不变，只是能继续往外滚滚轮。
+    /// 更大视野：把相机的"最远拉远"上限从原版 20 提到 200（参考 Bigger Camera Zoom Out），
+    /// 包含三个关键切入点：
+    /// 1. OnPrefabInit 时将 maxOrthographicSize 初始化为 200；
+    /// 2. SetMaxOrthographicSize 时拦截参数，防止原版游戏在切换世界或重置时重置回 20；
+    /// 3. ConstrainToWorld 返回 false，防止视野拉远超出世界边缘时被边界强制钳位回拉。
     /// </summary>
     [HarmonyPatch(typeof(CameraController), "OnPrefabInit")]
-    internal static class CameraController_ZoomOut_Patch
+    internal static class CameraController_OnPrefabInit_Patch
     {
-        private const float MaxOrthographicSize = 48f;
+        public const float MaxZoom = 200f;
 
         private static void Postfix(CameraController __instance)
         {
-            Traverse.Create(__instance).Field("maxOrthographicSize").SetValue(MaxOrthographicSize);
+            Traverse.Create(__instance).Field("maxOrthographicSize").SetValue(MaxZoom);
+        }
+    }
+
+    [HarmonyPatch(typeof(CameraController), "SetMaxOrthographicSize")]
+    internal static class CameraController_SetMaxOrthographicSize_Patch
+    {
+        private static void Prefix(ref float size)
+        {
+            size = CameraController_OnPrefabInit_Patch.MaxZoom;
+        }
+    }
+
+    [HarmonyPatch(typeof(CameraController), "ConstrainToWorld")]
+    internal static class CameraController_ConstrainToWorld_Patch
+    {
+        private static bool Prefix()
+        {
+            return false;
         }
     }
 

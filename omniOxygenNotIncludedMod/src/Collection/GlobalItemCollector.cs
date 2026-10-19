@@ -7,29 +7,23 @@ namespace OmniMod.Collection
 {
     /// <summary>
     /// 全星球物品收集器。挂在聚合箱（杂物箱 / 食物箱）上，
-    /// 每隔几秒扫描"箱子所在星球"范围内散落在地面的物品，直接吸进箱子的 Storage。
+    /// 每隔几秒扫描"箱子所在星球"范围内散落在地面的物品，直接吸进主箱 Storage 或全局杂物池。
     ///
-    /// 【安全教训】小人（Duplicant）身上也挂着 Pickupable + PrimaryElement 组件！
-    /// 早期版本用"是可拾取的固体"这种宽松判断，结果把小人也收进了箱子（拆箱=殉爆）。
-    /// 现在改成严格白名单：必须是带 Clearable（清扫工具认可的碎片）、且没有 Health /
-    /// Navigator / MinionIdentity 的东西才收。并且每次扫描前先把箱子里任何"活物"放出来兜底。
-    ///
-    /// 其它要点：
-    /// - 实现 ISim1000ms，游戏每 ~1 秒自动回调，无需手动注册定时器。
-    /// - 直接 Storage.Store（不派小人搬），跟自动清扫机同理。
-    /// - 必须先收集候选到 List、枚举结束后再 Store：Store 会改动 Components 全局列表。
-    /// - 收集受箱子的资源筛选（TreeFilterable）控制：没勾选的类别不收；取消勾选时
-    ///   TreeFilterable 自带 dropIncorrectOnFilterChange，会把已存的该类物品倒到箱子脚下。
-    /// - 极端温度固体（岩浆、熔融金属、极低温固体）默认不收，避免取出时炸锅。
+    /// 【全星系 100% 共享、绝不均分架构】
+    /// - 散装固体材料归入 OmniPool，仅在「离散物品之家」（DiscreteHome，第一个生效的杂物箱）物化最多 1000 kg 常备缓冲；
+    /// - 所有以"个"为单位的离散物品（增幅块、种子、移动电源电池、衣服/气压服、蛋、医药、神器等）100% 存放在 DiscreteHome.BoxStorage；
+    /// - 所有食物与烹饪原料 100% 存放在「食物之家」（FoodHome，第一个生效的食物箱）的 BoxStorage；
+    /// - 其它星球只要建有对应类型的聚合箱，即可通过 RemoteFetchPatch 与 WorldInventoryPatch 直接看到并隔空取用主箱中的全部物品，
+    ///   不再按星球数量均分任何物品或材料！
     /// </summary>
     public class GlobalItemCollector : KMonoBehaviour, ISim1000ms
     {
         public enum CollectMode
         {
-            /// <summary>收集带 Clearable 的固体碎片（杂物箱用）。</summary>
+            /// <summary>收集带 Clearable 的固体碎片与离散物品（杂物箱用）。</summary>
             Debris,
 
-            /// <summary>收集可食用物（食物箱用）。</summary>
+            /// <summary>收集可食用物与烹饪原料（食物箱用）。</summary>
             Edibles,
         }
 
@@ -47,17 +41,16 @@ namespace OmniMod.Collection
         /// 换个新字段让老存档再补一次。）
         /// </summary>
         [Serialize]
-        private bool _backfillDiscoveredV2;
+        private bool _backfillDiscoveredV3;
 
-        private const float ScanIntervalSeconds = 2f;
+        private const float ScanIntervalSeconds = 4f;
         /// <summary>高于 100°C 的不收（烫手的留在原地），低温不限——冰之类照收。</summary>
         private const float MaxCollectTemperatureK = 373.15f;   // 100°C
-
 
         /// <summary>缓冲区里某元素超出目标这么多（kg）才退回池，避免抖动。</summary>
         private const float ReturnToPoolThresholdKg = 200f;
 
-        /// <summary>每个箱子本地缓冲维持的目标质量（kg）。按需从池中补充，避免主星独占抽空池子，使多星球/火箭能共享材料。</summary>
+        /// <summary>主杂物箱（DiscreteHome）常备散装材料缓冲的目标质量（kg），供全星系所有建有杂物箱的星球直接隔空取用。</summary>
         private const float LocalBufferTargetPerElementKg = 1000f;
 
         /// <summary>"无疾病"的 disease 索引哨兵值。</summary>
@@ -73,12 +66,17 @@ namespace OmniMod.Collection
         /// <summary>本星球已有同类型箱子、此箱不生效。</summary>
         internal bool IsRedundant => _isRedundant;
 
-        /// <summary>本箱子的 Storage（离散物品之家用来存放共享的种子/电池等）。</summary>
+        /// <summary>本箱子的 Storage。</summary>
         internal Storage BoxStorage => _storage;
 
         private readonly List<GameObject> _bufferScratch = new List<GameObject>(16);
         private readonly List<Pickupable> _candidates = new List<Pickupable>(64);
         private readonly HashSet<SimHashes> _elementScratch = new HashSet<SimHashes>();
+        private readonly Dictionary<SimHashes, float> _localBulkMass = new Dictionary<SimHashes, float>(64);
+        private readonly Dictionary<SimHashes, PrimaryElement> _localBulkChunk = new Dictionary<SimHashes, PrimaryElement>(64);
+        private readonly List<KeyValuePair<Tag, int>> _seedScratch = new List<KeyValuePair<Tag, int>>(32);
+        private readonly List<GlobalItemCollector> _boxesScratch = new List<GlobalItemCollector>(8);
+        private readonly HashSet<Tag> _foodTagsScratch = new HashSet<Tag>();
 
         protected override void OnSpawn()
         {
@@ -124,9 +122,8 @@ namespace OmniMod.Collection
         }
 
         /// <summary>
-        /// 旧版本里杂物箱把碎片存进了自己的 Storage。3b 起碎片统一进全局杂物池，
-        /// 所以生成时把自己 Storage 里的散装固体元素迁移进池、销毁 GameObject；
-        /// 非散装（离散物品）留在原地不动。
+        /// 生成时把自己 Storage 里的散装固体元素迁移进全局杂物池、销毁 GameObject；
+        /// 非散装（离散物品，含种子/增幅块/电池等）保留为真实 GameObject。
         /// </summary>
         private void MigrateOwnStorageToPool()
         {
@@ -144,21 +141,12 @@ namespace OmniMod.Collection
                 }
 
                 Pickupable p = go.GetComponent<Pickupable>();
-                if (p != null && !IsLivingThing(go))
+                if (p != null && !IsLivingThing(go) && IsBulkSolidElementChunk(p))
                 {
-                    if (IsBulkSolidElementChunk(p))
-                    {
-                        PrimaryElement pe = p.PrimaryElement;
-                        OmniPool.Instance.AddSolid(pe.ElementID, pe.Mass, pe.Temperature);
-                        _storage.Remove(go);
-                        Util.KDestroyGameObject(go);
-                    }
-                    else if (p.KPrefabID != null && IsSeedItem(p.KPrefabID))
-                    {
-                        OmniPool.Instance.AddSeed(p.KPrefabID.PrefabTag, 1);
-                        _storage.Remove(go);
-                        Util.KDestroyGameObject(go);
-                    }
+                    PrimaryElement pe = p.PrimaryElement;
+                    OmniPool.Instance.AddSolid(pe.ElementID, pe.Mass, pe.Temperature);
+                    _storage.Remove(go);
+                    Util.KDestroyGameObject(go);
                 }
             }
         }
@@ -180,20 +168,35 @@ namespace OmniMod.Collection
                 return;
             }
 
-            EjectLivingThings();   // 兜底：任何时候都不允许活物留在箱子里
-
-            // 隔空取物 = 把池里的材料"物化"成箱子里的真实碎块（按本星球实际搬运需求），
-            // 之后由小人/机械臂/机器人从箱子正常取用、运进工地。中间有真实搬运者。
             if (!_isRedundant && mode == CollectMode.Debris)
             {
+                // 每个星球的生效杂物箱都在自己箱内物化散装固体材料缓冲（最高 1000 kg/种），
+                // 让本星球小人走去自己星球的箱子取材料，跨星球箱子绝不为空！
                 RestockFromPool();
-                ReleaseUncheckedDiscrete();
-                StockBionicBatteries();
-                RestockSeedsFromPool();
-                ServeDiscreteDemand();
+
+                if (AggregateBoxRegistry.DiscreteHome == this)
+                {
+                    MigratePoolSeedsToHomeStorage();
+                    ReleaseUncheckedDiscrete();
+                }
+                else
+                {
+                    // 非主杂物箱：按本星球实际需求调拨离散物品（已分配增幅块/衣服、种植下单种子、仿生人电池等），
+                    // 闲置未用完的离散物品归还 DiscreteHome，实现全星系共享且绝不均分！
+                    ServeDiscreteDemand();
+                    ReturnIdleDiscrete();
+                }
+            }
+            else if (!_isRedundant && mode == CollectMode.Edibles)
+            {
+                ReleaseUncheckedFood();
+                if (AggregateBoxRegistry.FoodHome == this)
+                {
+                    RebalanceFoodAcrossBoxes();
+                }
             }
 
-            // 主线程刷新"本星球箱内物品"快照，供机械臂（工作线程）无视距离取用（在物化后刷新，保证同秒即见）
+            // 主线程刷新"本星球自身聚合箱内物品"快照，供本星球机械臂无视距离隔空取用
             if (!_isRedundant)
             {
                 AggregateBoxRegistry.RefreshWorldBoxItems(this.GetMyWorldId());
@@ -206,6 +209,8 @@ namespace OmniMod.Collection
             }
             _timer = 0f;
 
+            EjectLivingThings();   // 兜底：任何时候都不允许活物留在箱子里
+
             if (!_isRedundant)
             {
                 Collect();
@@ -213,15 +218,478 @@ namespace OmniMod.Collection
         }
 
         /// <summary>
-        /// 箱子是全局杂物池的窗口：把池里的材料"物化"成缓冲区里的真实碎块，
-        /// 镜像出池里该元素的全部存量（单元素封顶 <see cref="BufferCapPerElementKg"/>，
-        /// 只是防止无限堆积，不是按需筛选）。多出来的退回池。
-        /// 池与缓冲区质量互斥（RemoveSolid 是搬移不是复制），所以总量守恒，不会凭空多出材料。
+        /// 兼容旧存档：如果 OmniPool 的旧种子池里还存有种子数据，一次性还原为真实种子实体存入主杂物箱（DiscreteHome），
+        /// 这样全星系所有星球都能 100% 看到并共享全部种子，不再按每星球 2 颗拆分。
+        /// </summary>
+        private void MigratePoolSeedsToHomeStorage()
+        {
+            OmniPool pool = OmniPool.Instance;
+            if (pool == null || _storage == null)
+            {
+                return;
+            }
+
+            _seedScratch.Clear();
+            foreach (KeyValuePair<Tag, int> pair in pool.EnumerateSeeds())
+            {
+                if (pair.Value > 0)
+                {
+                    _seedScratch.Add(pair);
+                }
+            }
+            if (_seedScratch.Count == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _seedScratch.Count; i++)
+            {
+                Tag seedTag = _seedScratch[i].Key;
+                int count = _seedScratch[i].Value;
+                if (count <= 0 || !pool.RemoveSeed(seedTag, count))
+                {
+                    continue;
+                }
+
+                GameObject prefab = Assets.TryGetPrefab(seedTag);
+                if (prefab == null)
+                {
+                    continue;
+                }
+
+                GameObject inst = GameUtil.KInstantiate(prefab, transform.GetPosition(), Grid.SceneLayer.Ore);
+                inst.SetActive(true);
+                PrimaryElement pe = inst.GetComponent<PrimaryElement>();
+                if (pe != null && count > 1)
+                {
+                    pe.Units = count;
+                }
+                _storage.Store(inst, hide_popups: true);
+            }
+        }
+
+        private static bool WorldHasLiveBionicMinion(int worldId)
+        {
+            if (worldId < 0 || worldId == 255 || Components.LiveMinionIdentities == null)
+            {
+                return false;
+            }
+            List<MinionIdentity> minions = Components.LiveMinionIdentities.GetWorldItems(worldId, checkChildWorlds: true);
+            for (int i = 0; i < minions.Count; i++)
+            {
+                MinionIdentity m = minions[i];
+                if (m != null && (m.model == BionicMinionConfig.MODEL || m.HasTag(GameTags.Minions.Models.Bionic)))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsStorageToStorageDestination(Storage dest)
+        {
+            if (dest == null)
+            {
+                return true;
+            }
+            return dest.GetComponent<StorageLocker>() != null ||
+                   dest.GetComponent<SolidConduitInbox>() != null ||
+                   dest.GetComponent<ObjectDispenser>() != null ||
+                   AggregateBoxRegistry.IsBoxStorage(dest);
+        }
+
+        /// <summary>
+        /// 非主杂物箱：按需把本星球需要的离散物品调拨到本箱，供本星球小人走去本箱拾取（不隔空取物、不均分）：
+        /// 1. 分配给本星球小人的增幅块（BionicUpgradeComponent）与衣物装备（Equippable）；
+        /// 2. 若本星球有仿生人，常备最多 2 块充满电的移动电源（ChargedPortableBattery）；
+        /// 3. 本星球当前活跃 FetchChore 所需的种子、蛋、医药、展台神器等离散物品。
+        /// </summary>
+        private void ServeDiscreteDemand()
+        {
+            if (_storage == null || _storage.items == null)
+            {
+                return;
+            }
+
+            int myWorld = this.GetMyWorldId();
+            int myParentWorld = this.GetMyParentWorldId();
+            if (myWorld < 0 || myWorld == 255)
+            {
+                return;
+            }
+
+            // 1. 调拨已分配给本星球小人的增幅块与衣物装备
+            if (Components.AssignableItems != null)
+            {
+                List<Assignable> assignables = Components.AssignableItems.Items;
+                for (int i = 0; i < assignables.Count; i++)
+                {
+                    Assignable a = assignables[i];
+                    if (a == null || a.gameObject == null || !a.IsAssigned())
+                    {
+                        continue;
+                    }
+                    if (a is Equippable eq && eq.isEquipped)
+                    {
+                        continue;
+                    }
+                    if (a.HasTag(GameTags.StoredPrivate))
+                    {
+                        continue;
+                    }
+                    int targetWorld = AggregateBoxRegistry.GetAssigneeWorldId(a.assignee);
+                    if (targetWorld == myWorld && a.GetMyWorldId() != myWorld)
+                    {
+                        AggregateBoxRegistry.TransferItemToWorldJunkBox(a.gameObject, myWorld);
+                    }
+                }
+            }
+
+            // 2. 若本星球有仿生人，按需保留最多 2 块便携电池供其去本星箱子换电
+            if (WorldHasLiveBionicMinion(myWorld))
+            {
+                AggregateBoxRegistry.EnsureDiscreteTagInWorldJunkBox(GameTags.ChargedPortableBattery, Tag.Invalid, myWorld, 2f);
+            }
+
+            // 3. 响应本星球活跃的 FetchChore（种植砖选种、孵化器选蛋、制药台、展台等）
+            if (GlobalChoreProvider.Instance == null ||
+                !GlobalChoreProvider.Instance.fetchMap.TryGetValue(myParentWorld, out List<FetchChore> chores) ||
+                chores == null)
+            {
+                return;
+            }
+
+            _boxesScratch.Clear();
+            AggregateBoxRegistry.GetActiveBoxes(CollectMode.Debris, _boxesScratch);
+
+            for (int cIdx = 0; cIdx < chores.Count; cIdx++)
+            {
+                FetchChore fc = chores[cIdx];
+                if (fc == null || fc.destination == null || fc.fetchTarget != null || fc.driver != null || fc.amount <= 0f)
+                {
+                    continue;
+                }
+                if (IsStorageToStorageDestination(fc.destination))
+                {
+                    continue;
+                }
+
+                // 检查本箱是否已有满足该任务的未预留物品
+                bool alreadyHave = false;
+                for (int i = 0; i < _storage.items.Count; i++)
+                {
+                    GameObject localGo = _storage.items[i];
+                    Pickupable localP = localGo != null ? localGo.GetComponent<Pickupable>() : null;
+                    if (localP != null && localP.UnreservedFetchAmount > 0f && FetchManager.IsFetchablePickup(localP, fc, fc.destination))
+                    {
+                        alreadyHave = true;
+                        break;
+                    }
+                }
+                if (alreadyHave)
+                {
+                    continue;
+                }
+
+                // 从其它星球的杂物箱按需调拨 1 份匹配的离散物品到本箱
+                bool fulfilled = false;
+                for (int bIdx = 0; bIdx < _boxesScratch.Count && !fulfilled; bIdx++)
+                {
+                    GlobalItemCollector donor = _boxesScratch[bIdx];
+                    if (donor == null || donor == this || donor.BoxStorage == null || donor.BoxStorage.items == null)
+                    {
+                        continue;
+                    }
+
+                    List<GameObject> donorItems = donor.BoxStorage.items;
+                    for (int i = donorItems.Count - 1; i >= 0; i--)
+                    {
+                        GameObject go = donorItems[i];
+                        if (go == null || !IsDiscreteManaged(go))
+                        {
+                            continue;
+                        }
+                        Pickupable p = go.GetComponent<Pickupable>();
+                        if (p == null || p.ReservedAmount > 0f || p.UnreservedFetchAmount <= 0f)
+                        {
+                            continue;
+                        }
+                        Assignable assignable = go.GetComponent<Assignable>();
+                        if (assignable != null && assignable.IsAssigned() && AggregateBoxRegistry.GetAssigneeWorldId(assignable.assignee) != myWorld)
+                        {
+                            continue;
+                        }
+                        if (!FetchManager.IsFetchablePickup(p, fc, fc.destination))
+                        {
+                            continue;
+                        }
+
+                        PrimaryElement pe = p.PrimaryElement;
+                        float massPerUnit = pe != null && pe.MassPerUnit > 0f ? pe.MassPerUnit : 1f;
+                        float unitsNeeded = Mathf.Max(1f, Mathf.Ceil(fc.amount / massPerUnit));
+                        if (pe != null && pe.Units > unitsNeeded)
+                        {
+                            Pickupable split = p.TakeUnit(unitsNeeded);
+                            if (split != null)
+                            {
+                                _storage.Store(split.gameObject, hide_popups: true);
+                            }
+                        }
+                        else
+                        {
+                            donor.BoxStorage.Transfer(go, _storage, block_events: false, hide_popups: true);
+                        }
+                        fulfilled = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 非主杂物箱：将本星球不再需要的闲置离散物品归还主杂物箱（DiscreteHome），确保离散物品不均分。
+        /// 已预留、已分配给本星小人、本星仿生人常备的 2 块电池、或本星 FetchChore 正在请求的离散物品留在本地箱内等待小人来取。
+        /// </summary>
+        private void ReturnIdleDiscrete()
+        {
+            if (_storage == null || _storage.items == null || _storage.items.Count == 0)
+            {
+                return;
+            }
+
+            GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
+            Storage homeStore = home != null && home != this ? home.BoxStorage : null;
+            if (homeStore == null)
+            {
+                return;
+            }
+
+            int myWorld = this.GetMyWorldId();
+            int myParentWorld = this.GetMyParentWorldId();
+            bool hasBionic = WorldHasLiveBionicMinion(myWorld);
+            float keptBatteries = 0f;
+
+            List<FetchChore> chores = null;
+            if (GlobalChoreProvider.Instance != null)
+            {
+                GlobalChoreProvider.Instance.fetchMap.TryGetValue(myParentWorld, out chores);
+            }
+
+            for (int i = _storage.items.Count - 1; i >= 0; i--)
+            {
+                GameObject go = _storage.items[i];
+                if (go == null || !IsDiscreteManaged(go))
+                {
+                    continue;
+                }
+
+                Pickupable p = go.GetComponent<Pickupable>();
+                KPrefabID id = go.GetComponent<KPrefabID>();
+                if (p == null || id == null || p.ReservedAmount > 0f)
+                {
+                    continue;
+                }
+
+                // 1. 已分配给本星球小人的增幅块或装备：留在本地杂物箱等待小人走过来拿
+                Assignable assignable = go.GetComponent<Assignable>();
+                if (assignable != null && assignable.IsAssigned() && AggregateBoxRegistry.GetAssigneeWorldId(assignable.assignee) == myWorld)
+                {
+                    continue;
+                }
+
+                // 2. 本星球有仿生人时，保留最多 2 块便携电池
+                if (hasBionic && id.HasTag(GameTags.ChargedPortableBattery) && keptBatteries < 2f)
+                {
+                    keptBatteries += p.PrimaryElement != null ? p.PrimaryElement.Units : 1f;
+                    continue;
+                }
+
+                // 3. 本星球有活跃 FetchChore 需要该离散物品（如刚下单的种子/蛋）时，留在本地箱内
+                bool wantedByChore = false;
+                if (chores != null)
+                {
+                    for (int cIdx = 0; cIdx < chores.Count; cIdx++)
+                    {
+                        FetchChore fc = chores[cIdx];
+                        if (fc != null && fc.destination != null && fc.driver == null && fc.amount > 0f
+                            && !IsStorageToStorageDestination(fc.destination)
+                            && FetchManager.IsFetchablePickup(p, fc, fc.destination))
+                        {
+                            wantedByChore = true;
+                            break;
+                        }
+                    }
+                }
+                if (wantedByChore)
+                {
+                    continue;
+                }
+
+                _storage.Transfer(go, homeStore, block_events: false, hide_popups: true);
+            }
+        }
+
+        private static float GetUnreservedTagMass(Storage storage, Tag prefabTag)
+        {
+            if (storage == null || storage.items == null)
+            {
+                return 0f;
+            }
+            float sum = 0f;
+            for (int i = 0; i < storage.items.Count; i++)
+            {
+                GameObject go = storage.items[i];
+                if (go == null)
+                {
+                    continue;
+                }
+                KPrefabID id = go.GetComponent<KPrefabID>();
+                Pickupable p = go.GetComponent<Pickupable>();
+                if (id != null && p != null && p.ReservedAmount <= 0f && id.PrefabTag == prefabTag)
+                {
+                    sum += p.TotalAmount;
+                }
+            }
+            return sum;
+        }
+
+        /// <summary>
+        /// 协调所有生效的食物箱：将可拆分食物均衡调配到各个星球的食物箱中，确保跨星球的食物箱绝不为空，
+        /// 让每个星球的小人都能走到自己星球的食物箱取食。
+        /// </summary>
+        private void RebalanceFoodAcrossBoxes()
+        {
+            _boxesScratch.Clear();
+            AggregateBoxRegistry.GetActiveBoxes(CollectMode.Edibles, _boxesScratch);
+            int boxCount = _boxesScratch.Count;
+            if (boxCount <= 1)
+            {
+                return;
+            }
+
+            _foodTagsScratch.Clear();
+            for (int b = 0; b < boxCount; b++)
+            {
+                Storage st = _boxesScratch[b].BoxStorage;
+                if (st == null || st.items == null)
+                {
+                    continue;
+                }
+                for (int i = 0; i < st.items.Count; i++)
+                {
+                    GameObject go = st.items[i];
+                    KPrefabID id = go != null ? go.GetComponent<KPrefabID>() : null;
+                    if (id != null && !IsLivingThing(go))
+                    {
+                        _foodTagsScratch.Add(id.PrefabTag);
+                    }
+                }
+            }
+
+            foreach (Tag foodTag in _foodTagsScratch)
+            {
+                float totalMass = 0f;
+                for (int b = 0; b < boxCount; b++)
+                {
+                    totalMass += GetUnreservedTagMass(_boxesScratch[b].BoxStorage, foodTag);
+                }
+
+                float targetPerBox = totalMass / boxCount;
+                if (targetPerBox < 0.2f)
+                {
+                    continue;
+                }
+
+                for (int r = 0; r < boxCount; r++)
+                {
+                    Storage recipient = _boxesScratch[r].BoxStorage;
+                    float rHave = GetUnreservedTagMass(recipient, foodTag);
+                    if (rHave >= targetPerBox * 0.65f)
+                    {
+                        continue;
+                    }
+
+                    float need = targetPerBox - rHave;
+                    for (int d = 0; d < boxCount && need > 0.05f; d++)
+                    {
+                        if (d == r)
+                        {
+                            continue;
+                        }
+                        Storage donor = _boxesScratch[d].BoxStorage;
+                        float dHave = GetUnreservedTagMass(donor, foodTag);
+                        float dSurplus = dHave - targetPerBox;
+                        if (dSurplus <= 0.05f)
+                        {
+                            continue;
+                        }
+
+                        float toMove = Mathf.Min(need, dSurplus);
+                        for (int i = donor.items.Count - 1; i >= 0 && toMove > 0.05f; i--)
+                        {
+                            GameObject go = donor.items[i];
+                            if (go == null)
+                            {
+                                continue;
+                            }
+                            KPrefabID id = go.GetComponent<KPrefabID>();
+                            Pickupable p = go.GetComponent<Pickupable>();
+                            if (id == null || p == null || p.ReservedAmount > 0f || id.PrefabTag != foodTag)
+                            {
+                                continue;
+                            }
+
+                            float avail = p.TotalAmount;
+                            if (avail > toMove + 0.05f)
+                            {
+                                Pickupable split = p.Take(toMove);
+                                if (split != null)
+                                {
+                                    recipient.Store(split.gameObject, hide_popups: true);
+                                    need -= toMove;
+                                    toMove = 0f;
+                                }
+                            }
+                            else
+                            {
+                                donor.Transfer(go, recipient, block_events: false, hide_popups: true);
+                                need -= avail;
+                                toMove -= avail;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>把食物箱里"已被取消勾选"的食物放回地面。</summary>
+        private void ReleaseUncheckedFood()
+        {
+            if (_treeFilterable == null || _storage == null || _storage.items == null)
+            {
+                return;
+            }
+
+            for (int i = _storage.items.Count - 1; i >= 0; i--)
+            {
+                GameObject go = _storage.items[i];
+                KPrefabID id = go != null ? go.GetComponent<KPrefabID>() : null;
+                Pickupable p = go != null ? go.GetComponent<Pickupable>() : null;
+                if (id != null && p != null && p.ReservedAmount <= 0f && !IsLivingThing(go) && !IsAcceptedByFilter(id))
+                {
+                    _storage.Drop(go);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 每个星球的生效杂物箱都在自己内部物化散装固体材料缓冲（单箱单元素封顶 <see cref="LocalBufferTargetPerElementKg"/>），
+        /// 保证每个星球的杂物箱都有实物材料可供本星球小人走过来取用、本星球机械手隔空取用。
         /// </summary>
         private void RestockFromPool()
         {
             OmniPool pool = OmniPool.Instance;
-            if (pool == null || _treeFilterable == null)
+            if (pool == null || _treeFilterable == null || _storage.items == null)
             {
                 return;
             }
@@ -232,18 +700,36 @@ namespace OmniMod.Collection
                 return;
             }
 
-            // 遍历池内容 + 缓冲区已有内容的并集（复用 scratch，避免每秒分配）
+            int boxCount = Mathf.Max(1, AggregateBoxRegistry.ActiveJunkBoxCount);
+            bool isHome = AggregateBoxRegistry.DiscreteHome == this;
+
+            // 单次遍历收集池内容 + 缓冲区已有散装块的质量与首块引用（避免 O(E*N) 反复遍历 Storage，且绝不误触同材质离散物品）
             _elementScratch.Clear();
+            _localBulkMass.Clear();
+            _localBulkChunk.Clear();
+
             foreach (OmniPool.PoolLine line in pool.EnumerateJunk())
             {
                 _elementScratch.Add(line.Element);
             }
-            foreach (GameObject go in _storage.items)
+            for (int i = 0; i < _storage.items.Count; i++)
             {
-                Pickupable p0 = go != null ? go.GetComponent<Pickupable>() : null;
-                if (p0 != null && IsBulkSolidElementChunk(p0))   // 只管散装元素缓冲，别碰离散物品（种子等）
+                GameObject go = _storage.items[i];
+                if (go == null)
                 {
-                    _elementScratch.Add(p0.PrimaryElement.ElementID);
+                    continue;
+                }
+                Pickupable p0 = go.GetComponent<Pickupable>();
+                if (p0 != null && IsBulkSolidElementChunk(p0))   // 只管散装元素缓冲，别碰离散物品（金属移动电源/宇航服/种子/增幅块等）
+                {
+                    PrimaryElement pe = p0.PrimaryElement;
+                    SimHashes elemId = pe.ElementID;
+                    _elementScratch.Add(elemId);
+                    _localBulkMass[elemId] = _localBulkMass.TryGetValue(elemId, out float m) ? m + pe.Mass : pe.Mass;
+                    if (!_localBulkChunk.ContainsKey(elemId) && pe.Mass > 0.001f)
+                    {
+                        _localBulkChunk[elemId] = pe;
+                    }
                 }
             }
 
@@ -256,7 +742,7 @@ namespace OmniMod.Collection
                 }
 
                 Tag tag = e.tag;
-                float have = _storage.GetMassAvailable(element);
+                float have = _localBulkMass.TryGetValue(element, out float hm) ? hm : 0f;
 
                 if (!_treeFilterable.ContainsTag(tag))
                 {
@@ -264,22 +750,30 @@ namespace OmniMod.Collection
                     if (have > 0f)
                     {
                         MoveBufferElementToPool(element, have);
+                        _localBulkMass[element] = 0f;
                     }
-                    // 再把池里这种元素逐步吐到箱子脚下，让玩家能把它彻底拿出 OmniMod 系统
-                    DrainUncheckedElementToFloor(element, e);
+                    // 由主杂物箱把池里这种元素逐步吐到箱子脚下，让玩家能把它彻底拿出 OmniMod 系统
+                    if (isHome)
+                    {
+                        DrainUncheckedElementToFloor(element, e);
+                    }
                     continue;
                 }
 
                 float inPool = pool.GetMass(element);
                 float target = Mathf.Min(inPool + have, LocalBufferTargetPerElementKg);
-
-                if (target > have + 1f)
+                if (boxCount > 1 && inPool + have < LocalBufferTargetPerElementKg)
                 {
-                    // 池里同种材料按温度分档存放。Storage.AddOre 会把新料和缓冲区已有的那块按质量混温，
-                    // 所以缓冲区有料时只从"同一温度档"补；那一档没了就等小人把缓冲区这块用完，
-                    // 缓冲区空了再从别的温度档补。（不要把缓冲区退回池再换档：池里只剩零碎小档时
-                    // 会"物化→退回→再物化"来回倒腾。）
-                    PrimaryElement chunk = have > 0f ? _storage.FindPrimaryElement(element) : null;
+                    float otherHave = AggregateBoxRegistry.GetOtherBoxesBulkMass(this, element);
+                    float fairShare = (inPool + have + otherHave) / boxCount;
+                    target = Mathf.Min(fairShare, LocalBufferTargetPerElementKg);
+                }
+
+                if (target > have + 1f && inPool > 0.001f)
+                {
+                    // 池里同种材料按温度分档存放。缓冲区有料时只从"同一温度档"补；那一档没了就等小人把缓冲区这块用完，
+                    // 缓冲区空了再从别的温度档补。
+                    PrimaryElement chunk = _localBulkChunk.TryGetValue(element, out PrimaryElement peChunk) ? peChunk : null;
                     float taken;
                     float tempK;
                     if (chunk != null && chunk.Mass > 0.001f)
@@ -292,13 +786,34 @@ namespace OmniMod.Collection
                     }
                     if (taken > 0f)
                     {
-                        _storage.AddOre(element, taken, tempK, NoDisease, 0);
-                        Debug.Log($"[OmniMod] 物化 {taken:0.#} kg {e.name} 进箱子");
+                        if (chunk != null)
+                        {
+                            float finalTemp = GameUtil.GetFinalTemperature(chunk.Temperature, chunk.Mass, tempK, taken);
+                            chunk.Mass += taken;
+                            chunk.Temperature = finalTemp;
+                            _storage.Trigger(-1697596308, chunk.gameObject);
+                            _storage.OnStorageChange?.Invoke(chunk.gameObject);
+                        }
+                        else if (e.substance != null)
+                        {
+                            GameObject go = e.substance.SpawnResource(transform.GetPosition(), taken, tempK, NoDisease, 0, prevent_merge: true, forceTemperature: false, manual_activation: true);
+                            Pickupable p = go.GetComponent<Pickupable>();
+                            if (p != null)
+                            {
+                                p.prevent_absorb_until_stored = true;
+                            }
+                            e.substance.ActivateSubstanceGameObject(go, NoDisease, 0);
+                            _storage.Store(go, hide_popups: true, block_events: false, do_disease_transfer: false);
+                        }
+                        _localBulkMass[element] = have + taken;
                     }
                 }
-                else if (have > target + ReturnToPoolThresholdKg)
+                else if (have > target + ReturnToPoolThresholdKg ||
+                         (boxCount > 1 && target < LocalBufferTargetPerElementKg - 1f && have > target + 2f))
                 {
-                    MoveBufferElementToPool(element, have - target);
+                    float ret = have - target;
+                    MoveBufferElementToPool(element, ret);
+                    _localBulkMass[element] = Mathf.Max(0f, have - ret);
                 }
             }
         }
@@ -411,6 +926,17 @@ namespace OmniMod.Collection
                 // ……但蛋、衣物默认不勾（玩家想收再自己勾）
                 if (mode == CollectMode.Debris)
                 {
+                    // 修正原版 BionicUpgrade 同时带有 MiscPickupable 导致被归入 MiscPickupable 类别的问题
+                    foreach (Tag resource in new List<Tag>(DiscoveredResources.Instance.GetDiscoveredResourcesFromTag(GameTags.MiscPickupable)))
+                    {
+                        GameObject prefab = Assets.TryGetPrefab(resource);
+                        if (prefab != null && prefab.HasTag(GameTags.BionicUpgrade))
+                        {
+                            DiscoveredResources.Instance.Discover(resource, GameTags.BionicUpgrade);
+                            accepted.Add(resource);
+                        }
+                    }
+
                     foreach (Tag category in new[] { GameTags.Egg, GameTags.Clothes })
                     {
                         accepted.Remove(category);
@@ -435,11 +961,17 @@ namespace OmniMod.Collection
             GameObject prefab = Assets.TryGetPrefab(resource);
             KPrefabID pid = prefab != null ? prefab.GetComponent<KPrefabID>() : null;
             bool isSeed = pid != null && IsSeedItem(pid);
+            bool isBionicUpgrade = pid != null && pid.HasTag(GameTags.BionicUpgrade);
             if (mode == CollectMode.Debris)
             {
                 if (category == GameTags.Egg || category == GameTags.Clothes)
                 {
                     return false;
+                }
+                if (isBionicUpgrade)
+                {
+                    DiscoveredResources.Instance?.Discover(resource, GameTags.BionicUpgrade);
+                    return true;
                 }
                 return _storage.storageFilters.Contains(category) || (isSeed && !category.IsValid);
             }
@@ -458,19 +990,23 @@ namespace OmniMod.Collection
         /// <summary>老存档一次性补勾：把所有已发现、本该收的资源勾上。</summary>
         private void BackfillDiscoveredOnce()
         {
-            if (_backfillDiscoveredV2 || _treeFilterable == null || DiscoveredResources.Instance == null
+            if (_backfillDiscoveredV3 || _treeFilterable == null || DiscoveredResources.Instance == null
                 || _storage == null || _storage.storageFilters == null)
             {
                 return;
             }
-            _backfillDiscoveredV2 = true;
+            _backfillDiscoveredV3 = true;
 
             var accepted = new HashSet<Tag>(_treeFilterable.GetTags());
             var categories = new List<Tag>(_storage.storageFilters);
+            if (mode == CollectMode.Debris && !categories.Contains(GameTags.MiscPickupable))
+            {
+                categories.Add(GameTags.MiscPickupable);
+            }
             int added = 0;
             foreach (Tag category in categories)
             {
-                foreach (Tag resource in DiscoveredResources.Instance.GetDiscoveredResourcesFromTag(category))
+                foreach (Tag resource in new List<Tag>(DiscoveredResources.Instance.GetDiscoveredResourcesFromTag(category)))
                 {
                     if (!accepted.Contains(resource) && ShouldAutoAccept(category, resource))
                     {
@@ -508,6 +1044,20 @@ namespace OmniMod.Collection
             {
                 return true;
             }
+            if (mode == CollectMode.Debris && id.HasTag(GameTags.BionicUpgrade))
+            {
+                // 原版增幅块同时带有 BionicUpgrade 与 MiscPickupable 两个类别标签，
+                // DiscoveredResources.GetCategoryForEntity 可能因 HashSet 顺序返回 MiscPickupable，
+                // 导致增幅块未注册到 BionicUpgrade 类别下。首次遇到时将其补注册并默认勾选。
+                if (DiscoveredResources.Instance != null
+                    && !DiscoveredResources.Instance.GetDiscoveredResourcesFromTag(GameTags.BionicUpgrade).Contains(id.PrefabTag))
+                {
+                    DiscoveredResources.Instance.Discover(id.PrefabTag, GameTags.BionicUpgrade);
+                    _treeFilterable.AddTagToFilter(id.PrefabTag);
+                    return true;
+                }
+                return _treeFilterable.ContainsTag(GameTags.BionicUpgrade);
+            }
             Tag category = DiscoveredResources.GetCategoryForEntity(id);
             if (!category.IsValid)
             {
@@ -538,6 +1088,14 @@ namespace OmniMod.Collection
                 {
                     Debug.LogWarning($"[OmniMod] 从聚合箱中放出了不该被收进来的对象: {go.name}");
                     _storage.Drop(go);
+                    continue;
+                }
+
+                PrimaryElement pe = go.GetComponent<PrimaryElement>();
+                if (pe != null && pe.Element != null && (pe.Element.IsLiquid || pe.Element.IsGas))
+                {
+                    Debug.LogWarning($"[OmniMod] 从聚合箱中放出了瓶装流体: {go.name}");
+                    _storage.Drop(go);
                 }
             }
         }
@@ -545,26 +1103,38 @@ namespace OmniMod.Collection
         private static bool IsLivingThing(GameObject go)
         {
             KPrefabID id = go.GetComponent<KPrefabID>();
+            if (id != null)
+            {
+                // 蛋 / 衣物 / 食物 / 种子 / 便携电池 / 增幅块 是安全的可收纳物品，无需后续 GetComponent 检查
+                if (id.HasTag(GameTags.Egg) ||
+                    id.HasTag(GameTags.Clothes) ||
+                    id.HasTag(GameTags.Edible) ||
+                    id.HasTag(GameTags.ChargedPortableBattery) ||
+                    id.HasTag(GameTags.BionicUpgrade) ||
+                    IsSeedItem(id))
+                {
+                    return false;
+                }
 
-            // 蛋 / 衣物是安全的可收纳离散物品（它们可能带 Health 组件，但不是"活物"）
-            if (id != null && (id.HasTag(GameTags.Egg) || id.HasTag(GameTags.Clothes)))
+                if (id.HasTag(GameTags.DupeBrain) ||
+                    id.HasTag(GameTags.BaseMinion) ||
+                    id.HasTag(GameTags.Creature) ||
+                    id.HasTag(GameTags.BagableCreature))
+                {
+                    return true;
+                }
+            }
+
+            Pickupable p = go.GetComponent<Pickupable>();
+            if (p != null && IsBulkSolidElementChunk(p))
             {
                 return false;
             }
 
             // 会移动 / 有身份的一律视为活物（小人、动物）
-            if (go.GetComponent<MinionIdentity>() != null ||
-                go.GetComponent<Navigator>() != null ||
-                go.GetComponent<Health>() != null)
-            {
-                return true;
-            }
-
-            return id != null &&
-                   (id.HasTag(GameTags.DupeBrain) ||
-                    id.HasTag(GameTags.BaseMinion) ||
-                    id.HasTag(GameTags.Creature) ||
-                    id.HasTag(GameTags.BagableCreature));
+            return go.GetComponent<MinionIdentity>() != null ||
+                   go.GetComponent<Navigator>() != null ||
+                   go.GetComponent<Health>() != null;
         }
 
         private void Collect()
@@ -647,7 +1217,7 @@ namespace OmniMod.Collection
                     }
                     else
                     {
-                        // 其它一切通过安全 + 筛选的固体（种子/电池/神器/医疗/衣物…）当离散物品收
+                        // 其它一切通过安全 + 筛选的固体（增幅块/种子/电池/神器/医疗/衣物/蛋…）当离散物品收
                         _candidates.Add(p);
                     }
                 }
@@ -670,15 +1240,17 @@ namespace OmniMod.Collection
                 }
                 else if (mode == CollectMode.Debris)
                 {
-                    if (p.KPrefabID != null && IsSeedItem(p.KPrefabID))
+                    // 已分配给本星球小人的增幅块/衣物直接留在本地杂物箱等待小人走来取；
+                    // 其它闲置离散物品（含种子、增幅块、便携电池、衣物、蛋、神器、医药等）统一收进 DiscreteHome，
+                    // 按需调拨、绝不均分！
+                    Assignable assignable = p.GetComponent<Assignable>();
+                    if (assignable != null && assignable.IsAssigned()
+                        && AggregateBoxRegistry.GetAssigneeWorldId(assignable.assignee) == worldId)
                     {
-                        // 种子 → 统一进 OmniPool 种子全局数据池，销毁 GameObject
-                        OmniPool.Instance.AddSeed(p.KPrefabID.PrefabTag, 1);
-                        Util.KDestroyGameObject(p.gameObject);
+                        _storage.Store(p.gameObject, hide_popups: true);
                     }
                     else
                     {
-                        // 其余离散物品（电池/可选蛋衣物）→ 收进「离散物品之家」箱子的 Storage，实现星系共享
                         GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
                         Storage dest = (home != null ? home.BoxStorage : null) ?? _storage;
                         dest.Store(p.gameObject, hide_popups: true);
@@ -686,7 +1258,7 @@ namespace OmniMod.Collection
                 }
                 else
                 {
-                    // 食物箱：作为真实物品收进自己的 Storage
+                    // 食物箱：直接收进本星球食物箱，并由 RebalanceFoodAcrossBoxes 跨星球平衡库存，保证每个星球食物箱都有食物！
                     _storage.Store(p.gameObject, hide_popups: true);
                 }
             }
@@ -694,266 +1266,8 @@ namespace OmniMod.Collection
             _candidates.Clear();
         }
 
-        /// <summary>在一个 Storage 里找一件带指定 tag、未被预定的物品。</summary>
-        private static GameObject FindUnreservedInStore(Storage store, Tag tag)
-        {
-            if (store == null || store.items == null)
-            {
-                return null;
-            }
-
-            for (int i = 0; i < store.items.Count; i++)
-            {
-                GameObject go = store.items[i];
-                if (go == null)
-                {
-                    continue;
-                }
-
-                KPrefabID id = go.GetComponent<KPrefabID>();
-                Pickupable p = go.GetComponent<Pickupable>();
-                if (id != null && p != null && id.HasTag(tag) && p.ReservedAmount <= 0f)
-                {
-                    return go;
-                }
-            }
-
-            return null;
-        }
-
-        /// <summary>每个仿生复制人在本星球箱子里常备几块充满电的电池。</summary>
-        private const int BionicBatteriesPerDupe = 4;
-
-        /// <summary>
-        /// 仿生复制人"换电池"不走普通搬运任务（FetchChore），而是自己的传感器
-        /// （ClosestElectrobankSensor）只在「本星球及对接火箭」的物品里找电池。离散物品统一存在
-        /// 「家」箱，家箱在别的星球时，仿生人一块电池都看不到。所以：本星球有仿生人、而本箱不是
-        /// 家箱时，从家箱调几块充满电、仿生人能用的电池过来常备在本箱。
-        /// </summary>
-        private void StockBionicBatteries()
-        {
-            GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
-            Storage homeStore = home != null ? home.BoxStorage : null;
-            if (home == this || homeStore == null || homeStore.items == null || _storage == null)
-            {
-                return;
-            }
-
-            int myWorld = this.GetMyParentWorldId();
-            int bionics = 0;
-            foreach (MinionIdentity mi in Components.LiveMinionIdentities.Items)
-            {
-                if (mi != null && mi.GetMyParentWorldId() == myWorld && mi.HasTag(GameTags.Minions.Models.Bionic))
-                {
-                    bionics++;
-                }
-            }
-            if (bionics == 0)
-            {
-                return;
-            }
-
-            int want = bionics * BionicBatteriesPerDupe;
-            int have = 0;
-            foreach (GameObject go in _storage.items)
-            {
-                if (IsUsableBionicBattery(go))
-                {
-                    have++;
-                }
-            }
-
-            for (int i = homeStore.items.Count - 1; i >= 0 && have < want; i--)
-            {
-                GameObject go = homeStore.items[i];
-                Pickupable p = go != null ? go.GetComponent<Pickupable>() : null;
-                if (IsUsableBionicBattery(go) && p != null && p.ReservedAmount <= 0f)
-                {
-                    homeStore.Transfer(go, _storage, block_events: false, hide_popups: true);
-                    have++;
-                }
-            }
-        }
-
-        private static bool IsUsableBionicBattery(GameObject go)
-        {
-            KPrefabID id = go != null ? go.GetComponent<KPrefabID>() : null;
-            if (id == null || !id.HasTag(GameTags.ChargedPortableBattery))
-            {
-                return false;
-            }
-            foreach (Tag t in GameTags.BionicIncompatibleBatteries)
-            {
-                if (id.HasTag(t))
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        /// <summary>杂物箱在本地常备每种受筛选种子的目标数量。</summary>
-        private const int SeedsBufferPerType = 2;
-
-        /// <summary>
-        /// 从 OmniPool 种子全局数据池物化种子，使所有星球与火箭内的杂物箱均能保持本地常备 2 颗现货，
-        /// 供本地小人与机械手直接抓取种植。
-        /// </summary>
-        private void RestockSeedsFromPool()
-        {
-            OmniPool pool = OmniPool.Instance;
-            if (pool == null || _storage == null)
-            {
-                return;
-            }
-
-            // 统计本地每种种子已有多少颗
-            Dictionary<Tag, int> localCount = new Dictionary<Tag, int>();
-            if (_storage.items != null)
-            {
-                for (int i = 0; i < _storage.items.Count; i++)
-                {
-                    GameObject go = _storage.items[i];
-                    KPrefabID id = go != null ? go.GetComponent<KPrefabID>() : null;
-                    if (id != null && IsSeedItem(id))
-                    {
-                        Tag t = id.PrefabTag;
-                        localCount[t] = localCount.TryGetValue(t, out int c) ? c + 1 : 1;
-                    }
-                }
-            }
-
-            List<KeyValuePair<Tag, int>> seedList = new List<KeyValuePair<Tag, int>>(pool.EnumerateSeeds());
-            foreach (KeyValuePair<Tag, int> pair in seedList)
-            {
-                Tag seedTag = pair.Key;
-                int inPool = pair.Value;
-                if (inPool <= 0)
-                {
-                    continue;
-                }
-
-                GameObject prefab = Assets.TryGetPrefab(seedTag);
-                if (prefab == null)
-                {
-                    continue;
-                }
-                KPrefabID pid = prefab.GetComponent<KPrefabID>();
-                if (!IsAcceptedByFilter(pid))
-                {
-                    continue;
-                }
-
-                int haveLocal = localCount.TryGetValue(seedTag, out int c) ? c : 0;
-                int needed = SeedsBufferPerType - haveLocal;
-                while (needed > 0 && inPool > 0)
-                {
-                    if (!pool.RemoveSeed(seedTag, 1))
-                    {
-                        break;
-                    }
-                    GameObject inst = GameUtil.KInstantiate(prefab, transform.GetPosition(), Grid.SceneLayer.Ore);
-                    inst.SetActive(true);
-                    _storage.Store(inst, hide_popups: true);
-                    needed--;
-                    inPool--;
-                }
-            }
-        }
-
-        /// <summary>非「家」箱：按本星球未满足的搬运需求，把匹配的离散物品从「家」箱调过来。</summary>
-        private void ServeDiscreteDemand()
-        {
-            GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
-            Storage homeStore = home != null ? home.BoxStorage : null;
-            if (homeStore == null || homeStore.items == null || homeStore.items.Count == 0)
-            {
-                return;
-            }
-
-            GlobalChoreProvider gcp = GlobalChoreProvider.Instance;
-            if (gcp == null)
-            {
-                return;
-            }
-
-            int myWorld = this.GetMyWorldId();
-            int parentWorld = this.GetMyParentWorldId();
-            List<FetchChore> fetches = null;
-            if (!gcp.fetchMap.TryGetValue(myWorld, out fetches) && parentWorld >= 0)
-            {
-                gcp.fetchMap.TryGetValue(parentWorld, out fetches);
-            }
-
-            if (fetches == null)
-            {
-                return;
-            }
-
-            foreach (FetchChore fc in fetches)
-            {
-                if (fc == null || fc.fetchTarget != null || fc.tags == null)
-                {
-                    continue;   // 无效 / 已经找到供应源了
-                }
-
-                foreach (Tag want in fc.tags)
-                {
-                    GameObject match = FindUnreservedInStore(homeStore, want);
-                    if (match != null)
-                    {
-                        homeStore.Transfer(match, _storage, block_events: false, hide_popups: true);
-                        break;
-                    }
-                }
-            }
-        }
-
-        /// <summary>非「家」箱：本星球已没有对应需求、且未被预定的离散物品，送回「家」箱。</summary>
-        private void ReturnIdleDiscrete()
-        {
-            GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
-            Storage homeStore = home != null ? home.BoxStorage : null;
-            if (homeStore == null || _storage == null || _storage.items == null)
-            {
-                return;
-            }
-
-            List<FetchChore> fetches = null;
-            GlobalChoreProvider.Instance?.fetchMap.TryGetValue(this.GetMyParentWorldId(), out fetches);
-
-            for (int i = _storage.items.Count - 1; i >= 0; i--)
-            {
-                GameObject go = _storage.items[i];
-                KPrefabID id = go != null ? go.GetComponent<KPrefabID>() : null;
-                Pickupable p = go != null ? go.GetComponent<Pickupable>() : null;
-                if (id == null || p == null || !IsDiscreteManaged(go) || p.ReservedAmount > 0f)
-                {
-                    continue;
-                }
-
-                bool wanted = false;
-                if (fetches != null)
-                {
-                    foreach (FetchChore fc in fetches)
-                    {
-                        if (fc != null && fc.fetchTarget == null && fc.tags != null && fc.tags.Contains(id.PrefabTag))
-                        {
-                            wanted = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (!wanted)
-                {
-                    _storage.Transfer(go, homeStore, block_events: false, hide_popups: true);
-                }
-            }
-        }
-
         /// <summary>预制体本身就是一块元素（预制体 tag == 元素 tag）的固体碎片。</summary>
-        private static bool IsBulkSolidElementChunk(Pickupable p)
+        internal static bool IsBulkSolidElementChunk(Pickupable p)
         {
             PrimaryElement pe = p.PrimaryElement;
             Element e = pe != null ? pe.Element : null;
@@ -964,14 +1278,23 @@ namespace OmniMod.Collection
         /// 这个已入库物品是不是"由我们当离散物品管理"的——即：不是散装元素缓冲块、
         /// 也不是活物。散装缓冲块归 RestockFromPool 管，不能在这里被当离散物品挪动。
         /// </summary>
-        private static bool IsDiscreteManaged(GameObject go)
+        internal static bool IsDiscreteManaged(GameObject go)
         {
             if (go == null || IsLivingThing(go))
             {
                 return false;
             }
             Pickupable p = go.GetComponent<Pickupable>();
-            return p != null && !IsBulkSolidElementChunk(p);
+            if (p == null || IsBulkSolidElementChunk(p))
+            {
+                return false;
+            }
+            PrimaryElement pe = p.PrimaryElement;
+            if (pe != null && pe.Element != null && (pe.Element.IsLiquid || pe.Element.IsGas))
+            {
+                return false; // 瓶装液体/气体不进箱子，留在原地供机械手或小人取用
+            }
+            return true;
         }
 
         /// <summary>把「家」箱里"已被取消勾选"的离散物品放回地面。</summary>
@@ -987,7 +1310,8 @@ namespace OmniMod.Collection
             {
                 GameObject go = _storage.items[i];
                 KPrefabID id = go != null ? go.GetComponent<KPrefabID>() : null;
-                if (id != null && IsDiscreteManaged(go) && !IsAcceptedByFilter(id))
+                Pickupable p = go != null ? go.GetComponent<Pickupable>() : null;
+                if (id != null && p != null && p.ReservedAmount <= 0f && IsDiscreteManaged(go) && !IsAcceptedByFilter(id))
                 {
                     _storage.Drop(go);
                 }
@@ -1003,31 +1327,52 @@ namespace OmniMod.Collection
         {
             if (p == null || p.storage != null)
             {
-                return false;   // 已在存储里，或正被搬运
+                return false;   // 已在存储里，或正被搬运（O(1) 指针判断，极速剔除绝大多数物品）
             }
 
             KPrefabID id = p.KPrefabID;
-            if (id == null || id.HasTag(GameTags.Stored))
+            if (id == null || id.HasTag(GameTags.Stored) || p.ReservedAmount > 0f)
             {
                 return false;
             }
 
-            if (p.ReservedAmount > 0f)
+            // —— 极速排除生命/移动体（小人、动物、装袋动物、脑体）——
+            // 先通过 Tag 快速拦截，避免调用极慢的 Unity GetComponent
+            if (id.HasTag(GameTags.Creature) ||
+                id.HasTag(GameTags.BaseMinion) ||
+                id.HasTag(GameTags.DupeBrain) ||
+                id.HasTag(GameTags.BagableCreature))
             {
-                return false;   // 已被某个任务预定
+                return false;
             }
 
-            // 蛋 / 衣物：安全的离散物品（可能带 Health），放行；仍受下面移动体/身份的硬排除保护
-            bool safeDiscrete = id.HasTag(GameTags.Egg) || id.HasTag(GameTags.Clothes);
+            PrimaryElement pe = p.PrimaryElement;
+            // 高于 100°C 的不收，其余（含冰等低温物品）都收
+            if (pe == null || pe.Mass <= 0f || pe.Temperature > MaxCollectTemperatureK)
+            {
+                return false;
+            }
 
-            // —— 生命/移动体一律排除（小人、动物、装袋动物）——
+            Element e = pe.Element;
+            // 瓶装水/瓶装液体/气体绝不进箱子，留在原地供机械手或小人取用！
+            if (e != null && (e.IsLiquid || e.IsGas))
+            {
+                return false;
+            }
+
+            // 绝大多数地面杂物都是矿石/冰等散装固体碎片（PrefabTag == e.tag）。
+            // 这类碎片绝无可能具有生命/导航/小人组件，直接放行，跳过 4 次极昂贵的 GetComponent！
+            if (e != null && e.IsSolid && id.PrefabTag == e.tag)
+            {
+                Clearable clearableOre = p.GetComponent<Clearable>();
+                return clearableOre == null || clearableOre.isClearable;
+            }
+
+            // 离散物品（蛋、衣物、装备、医疗、种子等）走常规安全检查
+            bool safeDiscrete = id.HasTag(GameTags.Egg) || id.HasTag(GameTags.Clothes);
             if ((p.GetComponent<Health>() != null && !safeDiscrete) ||
                 p.GetComponent<Navigator>() != null ||
-                p.GetComponent<MinionIdentity>() != null ||
-                id.HasTag(GameTags.DupeBrain) ||
-                id.HasTag(GameTags.BaseMinion) ||
-                id.HasTag(GameTags.Creature) ||
-                id.HasTag(GameTags.BagableCreature))
+                p.GetComponent<MinionIdentity>() != null)
             {
                 return false;
             }
@@ -1035,14 +1380,7 @@ namespace OmniMod.Collection
             // 游戏明确标记"别自动搬我"的（Clearable.isClearable == false）→ 跳过；
             // 没有 Clearable 组件的（很多离散物品如科技组件/医疗物资）仍然收——靠上面的硬排除保命。
             Clearable clearable = p.GetComponent<Clearable>();
-            if (clearable != null && !clearable.isClearable)
-            {
-                return false;
-            }
-
-            PrimaryElement pe = p.PrimaryElement;
-            // 高于 100°C 的不收，其余（含冰等低温物品）都收
-            return pe != null && pe.Mass > 0f && pe.Temperature <= MaxCollectTemperatureK;
+            return clearable == null || clearable.isClearable;
         }
     }
 }

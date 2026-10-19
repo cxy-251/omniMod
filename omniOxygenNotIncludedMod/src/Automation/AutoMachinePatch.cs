@@ -360,4 +360,96 @@ namespace OmniMod.Automation
             return true;
         }
     }
+
+    // =========================================================================
+    // 原油精炼机（Oil Refinery）自动运行——免人力操作
+    // 原版中原油精炼机属于 StateMachineComponent 而非 ComplexFabricator，
+    // 需要小人站上去操作才调用 operational.SetActive(true) 触发 ElementConverter。
+    // 这里在 ready 状态下直接激活，并给小人任务追加永假前置条件，彻底免除小人跑腿。
+    // =========================================================================
+
+    [HarmonyPatch(typeof(OilRefinery.States), nameof(OilRefinery.States.InitializeStates))]
+    internal static class OilRefinery_States_InitializeStates_AutoRun_Patch
+    {
+        private static void Postfix(OilRefinery.States __instance)
+        {
+            if (__instance == null) return;
+
+            __instance.ready
+                .Enter((OilRefinery.StatesInstance smi) =>
+                {
+                    if (smi == null || smi.master == null) return;
+                    Operational op = smi.master.GetComponent<Operational>();
+                    if (op != null)
+                    {
+                        op.SetActive(true);
+                    }
+                    ResearchCenter_Sim200ms_AutoResearch_Patch.PlayWorkingAnim(smi.GetComponent<KBatchedAnimController>());
+                    smi.GetComponent<KSelectable>()?.AddStatusItem(Db.Get().BuildingStatusItems.Working);
+                })
+                .Exit((OilRefinery.StatesInstance smi) =>
+                {
+                    if (smi == null || smi.master == null) return;
+                    Operational op = smi.master.GetComponent<Operational>();
+                    if (op != null)
+                    {
+                        op.SetActive(false);
+                    }
+                    ResearchCenter_Sim200ms_AutoResearch_Patch.StopWorkingAnim(smi.GetComponent<KBatchedAnimController>(), op);
+                    smi.GetComponent<KSelectable>()?.RemoveStatusItem(Db.Get().BuildingStatusItems.Working);
+                });
+        }
+    }
+
+    [HarmonyPatch(typeof(OilRefinery), "OnSpawn")]
+    internal static class OilRefinery_OnSpawn_AutoRun_Patch
+    {
+        private static int _logged;
+
+        private static void Postfix(OilRefinery __instance)
+        {
+            if (__instance == null) return;
+
+            var smi = __instance.GetSMI<OilRefinery.StatesInstance>();
+            if (smi != null && smi.GetCurrentState() == smi.sm.ready)
+            {
+                __instance.GetComponent<Operational>()?.SetActive(true);
+                ResearchCenter_Sim200ms_AutoResearch_Patch.PlayWorkingAnim(__instance.GetComponent<KBatchedAnimController>());
+                __instance.GetComponent<KSelectable>()?.AddStatusItem(Db.Get().BuildingStatusItems.Working);
+            }
+
+            var remote = __instance.GetComponent<ManuallySetRemoteWorkTargetComponent>();
+            if (remote != null && remote.RemoteDockChore != null)
+            {
+                remote.RemoteDockChore.AddPrecondition(OilRefinery_SetChore_AutoRun_Patch.NeverAvailable);
+            }
+
+            if (_logged < 5)
+            {
+                _logged++;
+                Debug.Log($"[OmniMod] 机械自动运行：{__instance.name} 设为免人力自动精炼原油");
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(ManuallySetRemoteWorkTargetComponent), nameof(ManuallySetRemoteWorkTargetComponent.SetChore))]
+    internal static class OilRefinery_SetChore_AutoRun_Patch
+    {
+        internal static readonly Chore.Precondition NeverAvailable = new Chore.Precondition
+        {
+            id = "OmniMod_NeverAvailable",
+            description = "OmniMod Auto Refinery",
+            fn = (ref Chore.Precondition.Context context, object data) => false,
+            canExecuteOnAnyThread = true
+        };
+
+        private static void Postfix(ManuallySetRemoteWorkTargetComponent __instance, Chore chore_)
+        {
+            if (__instance != null && __instance.GetComponent<OilRefinery>() != null && chore_ != null)
+            {
+                chore_.AddPrecondition(NeverAvailable);
+            }
+        }
+    }
 }
+

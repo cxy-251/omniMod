@@ -16,11 +16,6 @@ namespace OmniMod.Pool
     {
         private static void Postfix(TreeFilterableSideScreen __instance, Tag tag, ref float __result)
         {
-            if (OmniPool.Instance == null)
-            {
-                return;
-            }
-
             Storage storage = Traverse.Create(__instance).Field("storage").GetValue<Storage>();
             GlobalItemCollector box = storage != null ? storage.GetComponent<GlobalItemCollector>() : null;
             if (box == null)
@@ -28,22 +23,21 @@ namespace OmniMod.Pool
                 return;   // 不是我们的聚合箱
             }
 
-            // 散装元素：加上纯数据池里的量
-            __result += OmniPool.Instance.GetMassMatchingTag(tag);
-
-            // 种子：加上全局种子池里的数量
-            int seedCount = OmniPool.Instance.GetSeedCount(tag);
-            if (seedCount > 0)
+            if (box.mode == GlobalItemCollector.CollectMode.Debris && OmniPool.Instance != null)
             {
-                __result += seedCount;
+                // 散装元素：加上纯数据池里的量
+                __result += OmniPool.Instance.GetMassMatchingTag(tag);
+
+                // 种子：加上全局种子池里的数量
+                int seedCount = OmniPool.Instance.GetSeedCount(tag);
+                if (seedCount > 0)
+                {
+                    __result += seedCount;
+                }
             }
 
-            // 离散物品（电池/蛋/衣物等未进池的）：共享份存在「家」箱里；不是家箱时补上家箱的量
-            GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
-            if (home != null && home != box && home.BoxStorage != null)
-            {
-                __result += home.BoxStorage.GetMassAvailable(tag);
-            }
+            // 加上其它星球同类型聚合箱（杂物箱或食物箱）里的缓冲/共享存量，使任意星球的侧边栏都显示全星系总存量
+            __result += AggregateBoxRegistry.GetOtherBoxesMassAvailable(box, tag);
         }
     }
 }

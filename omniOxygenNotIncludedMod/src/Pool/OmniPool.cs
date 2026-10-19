@@ -51,7 +51,7 @@ namespace OmniMod.Pool
         private readonly Dictionary<Tag, int> _seeds = new Dictionary<Tag, int>();
 
         private const float DefaultTemperatureK = 293.15f;
-        private const float LogIntervalSeconds = 15f;
+        private const float LogIntervalSeconds = 60f;
         private float _logTimer;
 
         private static int BucketKey(float temperatureK) => Mathf.RoundToInt(temperatureK);
