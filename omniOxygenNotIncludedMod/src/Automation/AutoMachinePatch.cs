@@ -585,5 +585,39 @@ namespace OmniMod.Automation
             Desalinator_CheckCanConvert_AutoEmpty_Patch.AutoEmptyIfNeeded(__instance);
         }
     }
+
+    // =========================================================================
+    // 碎石机新增冰块粉碎配方：100kg 冰 -> 100kg 雪。
+    // 配合 ComplexFabricator 自动运行，全自动无限供应糖心树等寒带作物所需的雪花肥料。
+    // =========================================================================
+    [HarmonyPatch(typeof(RockCrusherConfig), "ConfigureBuildingTemplate")]
+    internal static class RockCrusherConfig_ConfigureBuildingTemplate_SnowRecipe_Patch
+    {
+        private static void Postfix()
+        {
+            ComplexRecipe.RecipeElement[] input = new[]
+            {
+                new ComplexRecipe.RecipeElement(SimHashes.Ice.CreateTag(), 100f)
+            };
+            ComplexRecipe.RecipeElement[] output = new[]
+            {
+                new ComplexRecipe.RecipeElement(SimHashes.Snow.CreateTag(), 100f, ComplexRecipe.RecipeElement.TemperatureOperation.AverageTemperature)
+            };
+            string recipeId = ComplexRecipeManager.MakeRecipeID("RockCrusher", input, output);
+            if (ComplexRecipeManager.Get() != null && ComplexRecipeManager.Get().GetRecipe(recipeId) != null)
+            {
+                return;
+            }
+
+            new ComplexRecipe(recipeId, input, output)
+            {
+                time = 20f,
+                description = "将致密冰块粉碎成疏松雪花，供寒带植物（如糖心树）施肥使用。",
+                nameDisplay = ComplexRecipe.RecipeNameDisplay.IngredientToResult,
+                fabricators = new System.Collections.Generic.List<Tag> { TagManager.Create("RockCrusher") },
+                sortOrder = 9
+            };
+        }
+    }
 }
 
