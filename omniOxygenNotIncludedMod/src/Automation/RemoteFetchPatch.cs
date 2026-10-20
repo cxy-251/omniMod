@@ -468,4 +468,28 @@ namespace OmniMod.Automation
             }
         }
     }
+
+    // =========================================================================
+    // 5. 机械臂搬运瓶装液体与气罐：
+    //    原版中机械臂（SolidTransferArm）仅支持固体物品（SOLID_TRANSFER_ARM_CONVEYABLE）。
+    //    当世界中存在瓶装水/瓶装液体或气罐时，机械臂因 IsTagSolidTransferArmConveyable 判定为 false
+    //    而彻底无视这些瓶装物品，导致液桶抽出器（BottleEmptierConduitLiquid）、空瓶器等建筑无法被机械手供货。
+    //    此处放行所有液体与气体元素的瓶装物品，使机械臂能够全自动给液桶抽出器补充瓶装水！
+    // =========================================================================
+    [HarmonyPatch(typeof(Assets), nameof(Assets.IsTagSolidTransferArmConveyable))]
+    internal static class Assets_IsTagSolidTransferArmConveyable_LiquidGasPatch
+    {
+        private static void Postfix(Tag tag, ref bool __result)
+        {
+            if (!__result)
+            {
+                Element element = ElementLoader.GetElement(tag);
+                if (element != null && (element.IsLiquid || element.IsGas))
+                {
+                    __result = true;
+                }
+            }
+        }
+    }
 }
+

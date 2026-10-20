@@ -622,10 +622,8 @@ namespace OmniMod.Automation
 
     // =========================================================================
     // 窖炉新增煤炭炼制配方：
-    // 1. 木材 (100kg) -> 煤炭 (100kg) 【经典闷烧木炭】
-    // 2. 精炼碳 (100kg) -> 煤炭 (100kg) 【精炼碳降级还原为常规煤炭，供煤炭发电机使用】
-    // 3. 泥土 (100kg) -> 煤炭 (100kg) 【泥土高温碳化】
-    // 4. 泥炭 (100kg) -> 煤炭 (100kg) 【泥炭压制碳化】
+    // 与原版炼制精炼炭完全对齐，合并为一个支持多选原料的单一配方（RecipeNameDisplay.Result）。
+    // 在同一个煤炭配方下，可自由下拉选择原料：木材（原木/人造木/棕榈木）、精炼碳、泥土、泥炭。
     // 配合 ComplexFabricator 自动运行，全自动无限供应煤炭！
     // =========================================================================
     [HarmonyPatch(typeof(KilnConfig), "ConfigureBuildingTemplate")]
@@ -633,16 +631,28 @@ namespace OmniMod.Automation
     {
         private static void Postfix()
         {
-            AddRecipe("WoodLog", 100f, SimHashes.Carbon, 100f, 20f, "将木材在低氧密闭窖炉中闷烧碳化为煤炭（木炭），高效供给电网。", 10);
-            AddRecipe(SimHashes.RefinedCarbon.CreateTag(), 100f, SimHashes.Carbon, 100f, 10f, "将闲置的精炼碳重新研磨还原为常规煤炭，供煤炭发电机发电。", 11);
-            AddRecipe(SimHashes.Dirt.CreateTag(), 100f, SimHashes.Carbon, 100f, 20f, "将富含有机质的泥土高温烧结碳化为煤炭。", 12);
-            AddRecipe(SimHashes.Peat.CreateTag(), 100f, SimHashes.Carbon, 100f, 20f, "将天然泥炭脱水压制烘烤成优质煤炭。", 13);
-        }
+            var inputTags = new System.Collections.Generic.List<Tag>();
+            if (GameTags.BasicWoods != null && GameTags.BasicWoods.Length > 0)
+            {
+                inputTags.AddRange(GameTags.BasicWoods);
+            }
+            else
+            {
+                inputTags.Add(TagManager.Create("WoodLog"));
+            }
+            inputTags.Add(SimHashes.RefinedCarbon.CreateTag());
+            inputTags.Add(SimHashes.Dirt.CreateTag());
+            inputTags.Add(SimHashes.Peat.CreateTag());
 
-        private static void AddRecipe(Tag inputTag, float inputMass, SimHashes outputHash, float outputMass, float time, string desc, int sortOrder)
-        {
-            var input = new[] { new ComplexRecipe.RecipeElement(inputTag, inputMass) };
-            var output = new[] { new ComplexRecipe.RecipeElement(outputHash.CreateTag(), outputMass, ComplexRecipe.RecipeElement.TemperatureOperation.AverageTemperature) };
+            var input = new ComplexRecipe.RecipeElement[]
+            {
+                new ComplexRecipe.RecipeElement(inputTags.ToArray(), 100f)
+            };
+            var output = new ComplexRecipe.RecipeElement[]
+            {
+                new ComplexRecipe.RecipeElement(SimHashes.Carbon.CreateTag(), 100f, ComplexRecipe.RecipeElement.TemperatureOperation.AverageTemperature)
+            };
+
             string recipeId = ComplexRecipeManager.MakeRecipeID("Kiln", input, output);
             if (ComplexRecipeManager.Get() != null && ComplexRecipeManager.Get().GetRecipe(recipeId) != null)
             {
@@ -651,17 +661,12 @@ namespace OmniMod.Automation
 
             new ComplexRecipe(recipeId, input, output)
             {
-                time = time,
-                description = desc,
-                nameDisplay = ComplexRecipe.RecipeNameDisplay.IngredientToResult,
+                time = 20f,
+                description = "将木材、精炼碳、泥土或泥炭在低氧密闭窖炉中碳化为煤炭，高效供给电网与工业需求。",
+                nameDisplay = ComplexRecipe.RecipeNameDisplay.Result,
                 fabricators = new System.Collections.Generic.List<Tag> { TagManager.Create("Kiln") },
-                sortOrder = sortOrder
+                sortOrder = 150
             };
-        }
-
-        private static void AddRecipe(string inputTagStr, float inputMass, SimHashes outputHash, float outputMass, float time, string desc, int sortOrder)
-        {
-            AddRecipe(TagManager.Create(inputTagStr), inputMass, outputHash, outputMass, time, desc, sortOrder);
         }
     }
 

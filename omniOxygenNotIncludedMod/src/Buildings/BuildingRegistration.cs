@@ -29,6 +29,31 @@ namespace OmniMod.Buildings
             RegisterFoodBox();
             RegisterGasPurifiers();
             RegisterBackgroundLight();
+            RegisterRadboltGenerator();
+        }
+
+        private static void RegisterRadboltGenerator()
+        {
+            if (!DlcManager.IsExpansion1Active()) return;
+
+            ModStrings.AddBuilding(
+                RadboltGeneratorConfig.ID,
+                name: ModStrings.T("辐射粒子发电机", "Radbolt Generator"),
+                desc: ModStrings.T(
+                    "通过磁约束场捕获高能辐射粒子并引发受控微湮灭，将其转化为巨额电能。" +
+                    "可无缝接入自动化电网，高效消纳大量过剩的辐射粒子产能。",
+                    "Captures high-energy radiation particles in a magnetic containment field, converting them into massive electrical power through controlled annihilation. " +
+                    "Can be connected to an automated power grid to efficiently consume excess radbolt production."),
+                effect: ModStrings.T(
+                    "吸收高能辐射粒子，每秒消耗 1 辐射粒子产生 2000W 清洁电能。",
+                    "Absorbs high-energy radbolts, consuming 1 radbolt per second to generate 2000 W of clean electrical power."));
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Power"),
+                RadboltGeneratorConfig.ID,
+                "generators",
+                relativeBuildingId: "HydrogenGenerator",
+                ordering: ModUtil.BuildingOrdering.After);
         }
 
         private static void RegisterBackgroundLight()
