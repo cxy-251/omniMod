@@ -859,6 +859,55 @@ namespace OmniMod.Automation
     }
 
     // =========================================================================
+    // 碎石机新增沙子再生配方：
+    // 支持多选原料下拉（粘土、污染土、泥土、表土、泥炭、粘液、泥浆、污染泥浆）：100kg -> 100kg 沙子。
+    // 完美解决沙子紧缺难题，与空气净化器（粘土产物）及净水器（污染土产物）形成 100% 闭环无损再生！
+    // 配合 ComplexFabricator 自动运行，全自动无限供应沙子。
+    // =========================================================================
+    [HarmonyPatch(typeof(RockCrusherConfig), "ConfigureBuildingTemplate")]
+    internal static class RockCrusherConfig_ConfigureBuildingTemplate_SandRecipe_Patch
+    {
+        private static void Postfix()
+        {
+            var inputTags = new System.Collections.Generic.List<Tag>
+            {
+                SimHashes.Clay.CreateTag(),       // 粘土（空气净化器副产物）
+                SimHashes.ToxicSand.CreateTag(),  // 污染土（净水器过滤副产物）
+                SimHashes.Dirt.CreateTag(),       // 泥土（堆肥与农业副产物）
+                SimHashes.Regolith.CreateTag(),   // 表土（太空无限陨石资源）
+                SimHashes.Peat.CreateTag(),       // 泥炭
+                SimHashes.SlimeMold.CreateTag(),  // 粘液
+                SimHashes.Mud.CreateTag(),        // 泥浆
+                SimHashes.ToxicMud.CreateTag()    // 污染泥浆
+            };
+
+            var input = new ComplexRecipe.RecipeElement[]
+            {
+                new ComplexRecipe.RecipeElement(inputTags.ToArray(), 100f)
+            };
+            var output = new ComplexRecipe.RecipeElement[]
+            {
+                new ComplexRecipe.RecipeElement(SimHashes.Sand.CreateTag(), 100f, ComplexRecipe.RecipeElement.TemperatureOperation.AverageTemperature)
+            };
+
+            string recipeId = ComplexRecipeManager.MakeRecipeID("RockCrusher", input, output);
+            if (ComplexRecipeManager.Get() != null && ComplexRecipeManager.Get().GetRecipe(recipeId) != null)
+            {
+                return;
+            }
+
+            new ComplexRecipe(recipeId, input, output)
+            {
+                time = 20f,
+                description = "将粘土、污染土、泥土、表土或泥炭等材料粉碎筛分为优质沙子，与空气净化器（粘土）及净水器（污染土）形成 100% 闭环无损再生！",
+                nameDisplay = ComplexRecipe.RecipeNameDisplay.Result,
+                fabricators = new System.Collections.Generic.List<Tag> { TagManager.Create("RockCrusher") },
+                sortOrder = 8
+            };
+        }
+    }
+
+    // =========================================================================
     // 窖炉新增煤炭炼制配方：
     // 与原版炼制精炼炭完全对齐，合并为一个支持多选原料的单一配方（RecipeNameDisplay.Result）。
     // 在同一个煤炭配方下，可自由下拉选择原料：木材（原木/人造木/棕榈木）、精炼碳、泥土、泥炭。
