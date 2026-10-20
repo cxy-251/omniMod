@@ -11,9 +11,9 @@ namespace OmniMod.Buildings
     /// 复用材料研究终端（辐射研究站 / material_research_centre_kanim）的外观与粒子接口，
     /// 转换为高功率电网发电机。
     ///
-    /// - 额定功率：2000W（支持供电调谐提升至 3000W）。
-    /// - 粒子消耗：1.0 辐射粒子 / 秒（1 粒子 = 2,000 焦耳清洁能源）。
-    /// - 储量容量：2000 辐射粒子（支持高负荷吞吐与缓冲）。
+    /// - 额定功率：10kW（10,000W，支持供电调谐提升至 15,000W）。
+    /// - 粒子消耗：10.0 辐射粒子 / 秒（1 粒子 = 1,000 焦耳清洁能源）。
+    /// - 储量容量：10,000 辐射粒子（支持高负荷吞吐与海量缓冲）。
     /// - 自动化端口：带自动化输入端（可连智能电池）与粒子储量信号输出端。
     /// </summary>
     public class RadboltGeneratorConfig : IBuildingConfig
@@ -42,12 +42,12 @@ namespace OmniMod.Buildings
                 noise: NOISE_POLLUTION.NOISY.TIER1,
                 decor: TUNING.BUILDINGS.DECOR.NONE);
 
-            def.GeneratorWattageRating = 2000f;
-            def.GeneratorBaseCapacity = 2000f;
+            def.GeneratorWattageRating = 10000f;
+            def.GeneratorBaseCapacity = 10000f;
             def.RequiresPowerOutput = true;
             def.PowerOutputOffset = new CellOffset(1, 0);
-            def.ExhaustKilowattsWhenActive = 0.5f;
-            def.SelfHeatKilowattsWhenActive = 2f;
+            def.ExhaustKilowattsWhenActive = 1f;
+            def.SelfHeatKilowattsWhenActive = 4f;
             def.UseHighEnergyParticleInputPort = true;
             def.HighEnergyParticleInputOffset = new CellOffset(-2, 1);
             def.ViewMode = OverlayModes.Power.ID;
@@ -80,7 +80,7 @@ namespace OmniMod.Buildings
 
             HighEnergyParticleStorage storage = go.AddOrGet<HighEnergyParticleStorage>();
             storage.autoStore = true;
-            storage.capacity = 2000f;
+            storage.capacity = 10000f;
             storage.PORT_ID = PORT_ID;
             storage.showCapacityStatusItem = true;
 
@@ -111,7 +111,7 @@ namespace OmniMod.Buildings
         private KBatchedAnimController _kbac;
 
         [SerializeField]
-        public float particlesPerSecond = 1.0f; // 1 粒子/秒 = 2000W 满载发电
+        public float particlesPerSecond = 10.0f; // 10 粒子/秒 = 10kW（10,000W）满载发电
 
         private bool _wasActive;
 

@@ -45,8 +45,8 @@ namespace OmniMod.Buildings
                     "Captures high-energy radiation particles in a magnetic containment field, converting them into massive electrical power through controlled annihilation. " +
                     "Can be connected to an automated power grid to efficiently consume excess radbolt production."),
                 effect: ModStrings.T(
-                    "吸收高能辐射粒子，每秒消耗 1 辐射粒子产生 2000W 清洁电能。",
-                    "Absorbs high-energy radbolts, consuming 1 radbolt per second to generate 2000 W of clean electrical power."));
+                    "吸收高能辐射粒子，每秒消耗 10 辐射粒子产生 10kW（10,000W）清洁电能。",
+                    "Absorbs high-energy radbolts, consuming 10 radbolts per second to generate 10 kW (10,000 W) of clean electrical power."));
 
             ModUtil.AddBuildingToPlanScreen(
                 new HashedString("Power"),
