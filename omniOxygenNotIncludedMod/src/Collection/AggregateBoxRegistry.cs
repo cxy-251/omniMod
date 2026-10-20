@@ -324,6 +324,17 @@ namespace OmniMod.Collection
         {
             lock (_worldBoxItems)
             {
+                if (_worldBoxItems.TryGetValue(worldId, out Pickupable[] a))
+                {
+                    return a;
+                }
+            }
+
+            // 若尚未生成该星球的快照，按需刷新一次
+            RefreshWorldBoxItems(worldId);
+
+            lock (_worldBoxItems)
+            {
                 return _worldBoxItems.TryGetValue(worldId, out Pickupable[] a) ? a : System.Array.Empty<Pickupable>();
             }
         }

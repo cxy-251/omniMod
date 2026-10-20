@@ -293,7 +293,6 @@ namespace OmniMod.Collection
                 return true;
             }
             return dest.GetComponent<StorageLocker>() != null ||
-                   dest.GetComponent<SolidConduitInbox>() != null ||
                    dest.GetComponent<ObjectDispenser>() != null ||
                    AggregateBoxRegistry.IsBoxStorage(dest);
         }

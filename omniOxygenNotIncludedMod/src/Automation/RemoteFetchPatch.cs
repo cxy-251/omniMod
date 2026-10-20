@@ -297,28 +297,17 @@ namespace OmniMod.Automation
             }
 
             // 目标建筑过滤：
-            if (!isRocket)
+            // 禁止机械臂从聚合箱/装瓶器取物送去聚合箱自身、装瓶器自身、或自动分配器（ObjectDispenser 会把物品直接清倒到地面导致被聚合箱反复收集死循环）。
+            // 全面放开对 SolidConduitInbox（轨道装载机 / 跨星球发射架运输需求）以及各类储物箱的限制（地面与火箭均允许抓取供料）！
+            if (AggregateBoxRegistry.IsBoxStorage(destination) ||
+                destination.GetComponent<Bottler>() != null ||
+                destination.GetComponent<ObjectDispenser>() != null)
             {
-                // 普通星球：禁止机械臂从聚合箱/装瓶器取物送去普通储物箱、装瓶器自身、轨道装载机、自动分配器或聚合箱自身，
-                // 避免形成无限取出再掉落回收的死循环卡顿。聚合箱与装瓶器物品只服务于实际消耗设备（精炼机/发电机/农田/建造工地/烹饪台/超算等）。
-                if (destination.GetComponent<SolidConduitInbox>() != null ||
-                    destination.GetComponent<ObjectDispenser>() != null ||
-                    destination.GetComponent<StorageLocker>() != null ||
-                    destination.GetComponent<Bottler>() != null ||
-                    AggregateBoxRegistry.IsBoxStorage(destination))
-                {
-                    return;
-                }
+                return;
             }
-            else
-            {
-                // 火箭内部：放开对 SolidConduitInbox（轨道装载机/运输需求）以及舱内储物箱/设备的限制！
-                // 仅禁止送入聚合箱自身或装瓶器自身以防循环
-                if (AggregateBoxRegistry.IsBoxStorage(destination) || destination.GetComponent<Bottler>() != null)
-                {
-                    return;
-                }
 
+            if (isRocket)
+            {
                 // 火箭舱内如果没有杂物箱，按需低频刷新火箭快照（节流 1 秒，火箭舱内仅数件物品，毫秒级以下开销）
                 AggregateBoxRegistry.RefreshRocketInteriorIfNeeded(world);
             }
@@ -346,6 +335,47 @@ namespace OmniMod.Automation
                     __result = p;
                     RemoteFetch.LogOnce("隔空取物：机械臂锁定目标: " + p.name);
                     return;
+                }
+            }
+
+            // 1.5 若本星球聚合箱未匹配到目标，检查是否有其它星球聚合箱（如主杂物箱 DiscreteHome）中的闲置离散物品满足该搬运需求，
+            //     若有，立即按需调拨 1 件到本星球的杂物箱，并直接锁定供机械臂抓取！
+            GlobalItemCollector localJunk = AggregateBoxRegistry.GetActiveJunkBoxForWorld(world);
+            if (localJunk != null && localJunk.BoxStorage != null)
+            {
+                GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
+                if (home != null && home != localJunk && home.BoxStorage != null && home.BoxStorage.items != null)
+                {
+                    List<GameObject> homeItems = home.BoxStorage.items;
+                    for (int i = homeItems.Count - 1; i >= 0; i--)
+                    {
+                        GameObject go = homeItems[i];
+                        if (go == null || !GlobalItemCollector.IsDiscreteManaged(go))
+                        {
+                            continue;
+                        }
+                        Pickupable p = go.GetComponent<Pickupable>();
+                        if (p == null || p.KPrefabID == null || p.UnreservedFetchAmount <= 0f)
+                        {
+                            continue;
+                        }
+                        if (!Assets.IsTagSolidTransferArmConveyable(p.KPrefabID.PrefabTag))
+                        {
+                            continue;
+                        }
+                        Assignable assignable = go.GetComponent<Assignable>();
+                        if (assignable != null && assignable.IsAssigned() && AggregateBoxRegistry.GetAssigneeWorldId(assignable.assignee) != world)
+                        {
+                            continue;
+                        }
+                        if (FetchManager.IsFetchablePickup(p, chore, destination))
+                        {
+                            AggregateBoxRegistry.TransferItemToWorldJunkBox(go, world);
+                            __result = p;
+                            RemoteFetch.LogOnce("隔空取物：跨星调拨离散物品并锁定: " + p.name);
+                            return;
+                        }
+                    }
                 }
             }
 
