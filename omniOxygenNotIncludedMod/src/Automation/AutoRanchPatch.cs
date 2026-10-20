@@ -62,6 +62,17 @@ namespace OmniMod.Automation
         public override WorkResult Work(float dt) => WorkResult.Success;
     }
 
+    internal static class AutoRanchTracker
+    {
+        private static readonly HashSet<int> _calledCritterIds = new HashSet<int>();
+
+        internal static bool HasBeenCalled(int id) => _calledCritterIds.Contains(id);
+
+        internal static void MarkCalled(int id) => _calledCritterIds.Add(id);
+
+        internal static void Clear(int id) => _calledCritterIds.Remove(id);
+    }
+
     internal static class AutoRanchHelper
     {
         private static readonly AccessTools.FieldRef<RanchStation.Instance, WorkerBase> RancherField =
@@ -148,7 +159,23 @@ namespace OmniMod.Automation
     }
 
     /// <summary>
-    /// 3. 状态机启动时，初始化挂载虚拟照料 Worker。
+    /// 3. 站台就绪状态判定：只要站台通电运转且当前台面上没有动物，即视作随时就绪，
+    /// 确保小动物时刻判定 ShouldGoGetRanched 为 true，不会中途掉出排队。
+    /// </summary>
+    [HarmonyPatch(typeof(RanchStation.Instance), "get_IsRancherReady")]
+    internal static class RanchStation_IsRancherReady_Patch
+    {
+        private static void Postfix(RanchStation.Instance __instance, ref bool __result)
+        {
+            if (AutoRanchHelper.IsStationOperational(__instance))
+            {
+                __result = (__instance.ActiveRanchable == null);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 4. 状态机启动时，初始化挂载虚拟照料 Worker。
     /// </summary>
     [HarmonyPatch(typeof(RanchStation.Instance), "StartSM")]
     internal static class RanchStation_StartSM_Patch
@@ -160,28 +187,46 @@ namespace OmniMod.Automation
     }
 
     /// <summary>
-    /// 4. 寻路并召唤小动物：
-    /// - 单一专注队列：当已有小动物被锁定前来或正在站台上时，跳过重复寻路，彻底避免多只动物排队碰撞与频繁重置；
-    /// - 绝不循环重发信号：仅在新选中动物且未就绪时广播一次，避免反复打断移动导致小动物凌空坠落。
+    /// 5. 空间判定兜底：若房间探针暂时未识别到 Cavity，直接取建筑所在 Cell 的 Cavity，避免寻路中断。
+    /// </summary>
+    [HarmonyPatch(typeof(RanchStation.Instance), "GetStationCavity")]
+    internal static class RanchStation_GetStationCavity_Patch
+    {
+        private static void Postfix(RanchStation.Instance __instance, ref CavityInfo __result)
+        {
+            if (__result == null && __instance != null)
+            {
+                __result = Game.Instance.roomProber.GetCavityForCell(__instance.GetRanchNavTarget());
+            }
+        }
+    }
+
+    /// <summary>
+    /// 6. 只要站台处于正常通电工作状态，绝不断开并解散排队小动物。
+    /// </summary>
+    [HarmonyPatch(typeof(RanchStation.Instance), "TriggerRanchStationNoLongerAvailable")]
+    internal static class RanchStation_TriggerRanchStationNoLongerAvailable_Patch
+    {
+        private static bool Prefix(RanchStation.Instance __instance)
+        {
+            if (AutoRanchHelper.IsStationOperational(__instance))
+            {
+                return false;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 7. 寻路并召唤小动物：
+    /// - 放行原版 FindRanchable，使其每 200ms 持续刷新并筛选厩舍内需要照料/产奶/剪毛的动物；
+    /// - 精确单次通知：对加入 targetRanchables 的每只动物仅广播一次呼唤信号，避免重复打断移动。
     /// </summary>
     [HarmonyPatch(typeof(RanchStation.Instance), "FindRanchable")]
     internal static class RanchStation_FindRanchable_Patch
     {
-        private static bool Prefix(RanchStation.Instance __instance)
-        {
-            if (__instance == null || !AutoRanchHelper.IsStationOperational(__instance))
-            {
-                return true;
-            }
-
-            // 如果已有目标动物正在赶来，或正有动物在站台上，暂不继续锁定下一只动物
-            if (__instance.ActiveRanchable != null || __instance.IsCritterAvailableForRanching)
-            {
-                return false;
-            }
-
-            return true;
-        }
+        private static readonly AccessTools.FieldRef<RanchStation.Instance, List<RanchableMonitor.Instance>> TargetRanchablesField =
+            AccessTools.FieldRefAccess<RanchStation.Instance, List<RanchableMonitor.Instance>>("targetRanchables");
 
         private static void Postfix(RanchStation.Instance __instance)
         {
@@ -192,16 +237,64 @@ namespace OmniMod.Automation
 
             AutoRanchHelper.EnsureVirtualRancher(__instance);
 
-            // 仅在有选中小动物且站台尚未就绪时，广播一次就绪呼唤（只呼唤一次，绝不每 200ms 循环重复打断动物行动）
-            if (__instance.ActiveRanchable == null && __instance.IsCritterAvailableForRanching && !__instance.IsRancherReady)
+            List<RanchableMonitor.Instance> list = TargetRanchablesField(__instance);
+            if (list == null || list.Count == 0)
             {
-                __instance.MessageRancherReady();
+                return;
+            }
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                var critter = list[i];
+                if (critter == null || critter.IsNullOrStopped() || critter.gameObject == null)
+                {
+                    continue;
+                }
+
+                int id = critter.gameObject.GetInstanceID();
+                if (!AutoRanchTracker.HasBeenCalled(id))
+                {
+                    AutoRanchTracker.MarkCalled(id);
+                    __instance.sm.RancherIsReady.Set(true, __instance);
+                    Game.BrainScheduler.PrioritizeBrain(critter.GetComponent<CreatureBrain>());
+                    critter.Trigger((int)GameHashes.RancherReadyAtRanchStation);
+                }
             }
         }
     }
 
     /// <summary>
-    /// 5. 小动物到达照料站：自动完成照料/挤奶/剪毛，触发动画与产物掉落，小动物愉快离开。
+    /// 8. 动物完成照料后，清理呼唤状态记录。
+    /// </summary>
+    [HarmonyPatch(typeof(RanchStation.Instance), "RanchCreature")]
+    internal static class RanchStation_RanchCreature_Patch
+    {
+        private static void Prefix(RanchStation.Instance __instance)
+        {
+            if (__instance != null && __instance.ActiveRanchable != null && __instance.ActiveRanchable.gameObject != null)
+            {
+                AutoRanchTracker.Clear(__instance.ActiveRanchable.gameObject.GetInstanceID());
+            }
+        }
+    }
+
+    /// <summary>
+    /// 9. 动物离开队列时，清理呼唤状态记录。
+    /// </summary>
+    [HarmonyPatch(typeof(RanchStation.Instance), "Abandon")]
+    internal static class RanchStation_Abandon_Patch
+    {
+        private static void Postfix(RanchableMonitor.Instance critter)
+        {
+            if (critter != null && critter.gameObject != null)
+            {
+                AutoRanchTracker.Clear(critter.gameObject.GetInstanceID());
+            }
+        }
+    }
+
+    /// <summary>
+    /// 10. 小动物到达照料站：自动完成照料/挤奶/剪毛，触发动画与产物掉落，小动物愉快离开。
     /// </summary>
     [HarmonyPatch(typeof(RanchStation.Instance), "MessageCreatureArrived")]
     internal static class RanchStation_MessageCreatureArrived_Patch
