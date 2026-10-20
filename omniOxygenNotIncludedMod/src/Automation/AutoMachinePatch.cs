@@ -496,6 +496,55 @@ namespace OmniMod.Automation
     }
 
     // =========================================================================
+    // 熏炉（Smoker / FoodSmoker）自动排空：
+    // 食物熏烤完成存入输出仓后，全自动掉落到地面，无需小人耗费 50 秒手动清空。
+    // =========================================================================
+    [HarmonyPatch(typeof(FoodSmoker), nameof(FoodSmoker.InitializeStates))]
+    internal static class FoodSmoker_InitializeStates_AutoEmpty_Patch
+    {
+        private static void Postfix(FoodSmoker __instance)
+        {
+            if (__instance == null) return;
+
+            var requestEmpty = Traverse.Create(__instance).Field("requestEmpty").GetValue<GameStateMachine<FoodSmoker, FoodSmoker.StatesInstance, IStateMachineTarget, FoodSmoker.Def>.State>();
+            var working = Traverse.Create(__instance).Field("working").GetValue<GameStateMachine<FoodSmoker, FoodSmoker.StatesInstance, IStateMachineTarget, FoodSmoker.Def>.State>();
+
+            if (requestEmpty != null && working != null)
+            {
+                requestEmpty.Enter((FoodSmoker.StatesInstance smi) =>
+                {
+                    if (smi != null)
+                    {
+                        smi.OnEmptyComplete(null);
+                        smi.GoTo(working);
+                    }
+                });
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(FoodSmoker), "CreateChore")]
+    internal static class FoodSmoker_CreateChore_Patch
+    {
+        private static void Postfix(FoodSmoker.StatesInstance smi, ref Chore __result)
+        {
+            if (smi != null)
+            {
+                smi.OnEmptyComplete(null);
+                var working = Traverse.Create(smi.sm).Field("working").GetValue<GameStateMachine<FoodSmoker, FoodSmoker.StatesInstance, IStateMachineTarget, FoodSmoker.Def>.State>();
+                if (working != null)
+                {
+                    smi.GoTo(working);
+                }
+            }
+            if (__result != null)
+            {
+                __result.AddPrecondition(OilRefinery_SetChore_AutoRun_Patch.NeverAvailable);
+            }
+        }
+    }
+
+    // =========================================================================
     // 脱盐器（Desalinator）自动排空：
     // 盐分积满时全自动将所有积存盐掉落到地面，重置储盐量，无需小人跑腿手动清空。
     // =========================================================================
