@@ -44,8 +44,8 @@ namespace OmniMod.Collection
         private bool _backfillDiscoveredV3;
 
         private const float ScanIntervalSeconds = 4f;
-        /// <summary>高于 100°C 的不收（烫手的留在原地），低温不限——冰之类照收。</summary>
-        private const float MaxCollectTemperatureK = 373.15f;   // 100°C
+        /// <summary>高于 400°C 的不收（避免过热熔化箱体或物品），低温不限——冰之类照收。</summary>
+        private const float MaxCollectTemperatureK = 673.15f;   // 400°C
 
         /// <summary>缓冲区里某元素超出目标这么多（kg）才退回池，避免抖动。</summary>
         private const float ReturnToPoolThresholdKg = 200f;
@@ -1347,7 +1347,7 @@ namespace OmniMod.Collection
             }
 
             PrimaryElement pe = p.PrimaryElement;
-            // 高于 100°C 的不收，其余（含冰等低温物品）都收
+            // 高于 400°C 的不收，其余（含冰等低温物品）都收
             if (pe == null || pe.Mass <= 0f || pe.Temperature > MaxCollectTemperatureK)
             {
                 return false;
