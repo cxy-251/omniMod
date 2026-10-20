@@ -473,12 +473,7 @@ namespace OmniMod.Automation
                 {
                     smi.DropMilkFat();
                     smi.GoTo(__instance.operational.emptyComplete);
-                })
-                .Update((smi, dt) =>
-                {
-                    smi.DropMilkFat();
-                    smi.GoTo(__instance.operational.emptyComplete);
-                }, UpdateRate.SIM_200ms);
+                });
         }
     }
 
@@ -496,23 +491,6 @@ namespace OmniMod.Automation
             {
                 // 绝不允许生成小人清空任务，杜绝小人跑腿
                 __result.AddPrecondition(OilRefinery_SetChore_AutoRun_Patch.NeverAvailable);
-            }
-        }
-    }
-
-    /// <summary>
-    /// 核心自动产出：当提炼器产出咸乳蜡/鱼子酱达到上限时，直接吐出到地面并重置状态，
-    /// 永不堵塞、永不停机、不再需要进入繁琐的 full 停机状态。
-    /// </summary>
-    [HarmonyPatch(typeof(MilkSeparator.Instance), nameof(MilkSeparator.Instance.MilkFatLimitReached), MethodType.Getter)]
-    internal static class MilkSeparator_MilkFatLimitReached_Patch
-    {
-        private static void Postfix(MilkSeparator.Instance __instance, ref bool __result)
-        {
-            if (__result && __instance != null)
-            {
-                __instance.DropMilkFat();
-                __result = false;
             }
         }
     }

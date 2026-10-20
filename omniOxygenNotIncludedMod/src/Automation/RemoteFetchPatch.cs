@@ -261,9 +261,8 @@ namespace OmniMod.Automation
                     }
                 }
 
-                // 2. 常规世界：聚合箱格子、同世界常规储物箱格子、装瓶器格子
+                // 2. 常规世界：纯 O(1) 字典查找聚合箱与装瓶器，零遍历、零 GC、零延迟！
                 if (AggregateBoxRegistry.IsSameWorldActiveBoxCell(cell, myCell) ||
-                    AggregateBoxRegistry.IsSameWorldStorageCell(cell, myCell) ||
                     BottlerRegistry.IsSameWorldActiveBottlerCell(cell, myCell))
                 {
                     __result = true;
@@ -319,6 +318,9 @@ namespace OmniMod.Automation
                 {
                     return;
                 }
+
+                // 火箭舱内如果没有杂物箱，按需低频刷新火箭快照（节流 1 秒，火箭舱内仅数件物品，毫秒级以下开销）
+                AggregateBoxRegistry.RefreshRocketInteriorIfNeeded(world);
             }
 
             // 1. 本星球聚合箱及火箭舱内储物
