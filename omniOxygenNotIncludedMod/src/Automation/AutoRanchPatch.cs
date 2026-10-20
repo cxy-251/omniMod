@@ -160,11 +160,29 @@ namespace OmniMod.Automation
     }
 
     /// <summary>
-    /// 4. 寻路并召唤小动物：当照料站通电运转且空闲时，主动广播就绪信号，唤引符合条件的小动物主动过来。
+    /// 4. 寻路并召唤小动物：
+    /// - 单一专注队列：当已有小动物被锁定前来或正在站台上时，跳过重复寻路，彻底避免多只动物排队碰撞与频繁重置；
+    /// - 绝不循环重发信号：仅在新选中动物且未就绪时广播一次，避免反复打断移动导致小动物凌空坠落。
     /// </summary>
     [HarmonyPatch(typeof(RanchStation.Instance), "FindRanchable")]
     internal static class RanchStation_FindRanchable_Patch
     {
+        private static bool Prefix(RanchStation.Instance __instance)
+        {
+            if (__instance == null || !AutoRanchHelper.IsStationOperational(__instance))
+            {
+                return true;
+            }
+
+            // 如果已有目标动物正在赶来，或正有动物在站台上，暂不继续锁定下一只动物
+            if (__instance.ActiveRanchable != null || __instance.IsCritterAvailableForRanching)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
         private static void Postfix(RanchStation.Instance __instance)
         {
             if (!AutoRanchHelper.IsStationOperational(__instance))
@@ -174,16 +192,10 @@ namespace OmniMod.Automation
 
             AutoRanchHelper.EnsureVirtualRancher(__instance);
 
-            if (__instance.ActiveRanchable == null)
+            // 仅在有选中小动物且站台尚未就绪时，广播一次就绪呼唤（只呼唤一次，绝不每 200ms 循环重复打断动物行动）
+            if (__instance.ActiveRanchable == null && __instance.IsCritterAvailableForRanching && !__instance.IsRancherReady)
             {
-                if (!__instance.IsRancherReady)
-                {
-                    __instance.MessageRancherReady();
-                }
-                else
-                {
-                    __instance.MessageRanchables(GameHashes.RancherReadyAtRanchStation);
-                }
+                __instance.MessageRancherReady();
             }
         }
     }
