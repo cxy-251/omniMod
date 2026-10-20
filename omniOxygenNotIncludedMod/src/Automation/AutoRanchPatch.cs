@@ -237,6 +237,13 @@ namespace OmniMod.Automation
 
             AutoRanchHelper.EnsureVirtualRancher(__instance);
 
+            // 看门狗：如果站台上已有到位的动物（如旧存档停滞或刚走到位），立即触发完成并驱离，防止死锁
+            if (__instance.ActiveRanchable != null)
+            {
+                __instance.RanchCreature();
+                return;
+            }
+
             List<RanchableMonitor.Instance> list = TargetRanchablesField(__instance);
             if (list == null || list.Count == 0)
             {
@@ -264,17 +271,46 @@ namespace OmniMod.Automation
     }
 
     /// <summary>
-    /// 8. 动物完成照料后，清理呼唤状态记录。
+    /// 8. 动物完成照料后，清理呼唤状态记录并强制小动物离场。
     /// </summary>
     [HarmonyPatch(typeof(RanchStation.Instance), "RanchCreature")]
     internal static class RanchStation_RanchCreature_Patch
     {
+        private static readonly AccessTools.FieldRef<RanchedStates, RanchedStates.RanchStates> RanchStatesRef =
+            AccessTools.FieldRefAccess<RanchedStates, RanchedStates.RanchStates>("ranch");
+
+        private static RanchedStates.Instance _lastActiveRanched;
+
         private static void Prefix(RanchStation.Instance __instance)
         {
-            if (__instance != null && __instance.ActiveRanchable != null && __instance.ActiveRanchable.gameObject != null)
+            _lastActiveRanched = __instance?.ActiveRanchable;
+            if (_lastActiveRanched != null && _lastActiveRanched.gameObject != null)
             {
-                AutoRanchTracker.Clear(__instance.ActiveRanchable.gameObject.GetInstanceID());
+                AutoRanchTracker.Clear(_lastActiveRanched.gameObject.GetInstanceID());
             }
+        }
+
+        private static void Postfix(RanchStation.Instance __instance)
+        {
+            if (_lastActiveRanched != null && !_lastActiveRanched.IsNullOrStopped())
+            {
+                try
+                {
+                    if (_lastActiveRanched.sm != null)
+                    {
+                        var ranch = RanchStatesRef(_lastActiveRanched.sm);
+                        if (ranch?.Runaway != null)
+                        {
+                            _lastActiveRanched.GoTo(ranch.Runaway);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[OmniMod] 照料离场跳转异常: {ex.Message}");
+                }
+            }
+            _lastActiveRanched = null;
         }
     }
 
@@ -294,7 +330,7 @@ namespace OmniMod.Automation
     }
 
     /// <summary>
-    /// 10. 小动物到达照料站：自动完成照料/挤奶/剪毛，触发动画与产物掉落，小动物愉快离开。
+    /// 10. 小动物到达照料站：立即触发完成照料/挤奶/剪毛。
     /// </summary>
     [HarmonyPatch(typeof(RanchStation.Instance), "MessageCreatureArrived")]
     internal static class RanchStation_MessageCreatureArrived_Patch
@@ -314,21 +350,39 @@ namespace OmniMod.Automation
                 return;
             }
 
-            // 延迟 0.25 秒执行完成，确保小动物进入站台、动画图层切换正常
-            if (GameScheduler.Instance != null)
+            // 到位后立即执行照料与产出，无需延迟，避免竞态卡顿
+            __instance.RanchCreature();
+        }
+    }
+
+    /// <summary>
+    /// 11. 动物状态机补丁：
+    /// 原版 Wavegoodbye 依赖小人工作完成播放收尾动画，由 OnAnimQueueComplete 触发 Runaway 离场。
+    /// 全自动免小人照料时，小动物可能处于循环动画中，OnAnimQueueComplete 不会自发触发，导致小动物卡在台面上不动。
+    /// 此补丁在进入 Wavegoodbye 时直接过渡到 Runaway，让小动物照料完毕后立刻离开站台。
+    /// </summary>
+    [HarmonyPatch(typeof(RanchedStates), "InitializeStates")]
+    internal static class RanchedStates_InitializeStates_Patch
+    {
+        private static readonly AccessTools.FieldRef<RanchedStates, RanchedStates.RanchStates> RanchStatesRef =
+            AccessTools.FieldRefAccess<RanchedStates, RanchedStates.RanchStates>("ranch");
+
+        private static void Postfix(RanchedStates __instance)
+        {
+            var ranch = RanchStatesRef(__instance);
+            if (ranch?.Wavegoodbye != null && ranch?.Runaway != null)
             {
-                GameScheduler.Instance.Schedule("OmniAutoRanch", 0.25f, _ =>
+                ranch.Wavegoodbye.Enter(smi =>
                 {
-                    if (AutoRanchHelper.IsStationOperational(__instance) && __instance.ActiveRanchable == targetCritter)
+                    if (smi != null && !smi.IsNullOrStopped())
                     {
-                        AutoRanchHelper.EnsureVirtualRancher(__instance);
-                        __instance.RanchCreature();
+                        var rs = RanchStatesRef(smi.sm);
+                        if (rs?.Runaway != null)
+                        {
+                            smi.GoTo(rs.Runaway);
+                        }
                     }
                 });
-            }
-            else
-            {
-                __instance.RanchCreature();
             }
         }
     }
