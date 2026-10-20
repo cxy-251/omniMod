@@ -72,7 +72,11 @@ namespace OmniMod.Automation
             if (smi == null || !smi.IsRunning()) return false;
             Operational op = smi.GetComponent<Operational>();
             if (op != null && !op.IsOperational) return false;
-            return smi.IsInsideState(smi.sm.Operational);
+            if (smi.sm != null && smi.sm.Operational != null)
+            {
+                return smi.IsInsideState(smi.sm.Operational);
+            }
+            return true;
         }
 
         internal static void EnsureVirtualRancher(RanchStation.Instance smi)
@@ -89,22 +93,42 @@ namespace OmniMod.Automation
     }
 
     /// <summary>
-    /// 1. 禁用复制人工作任务：返回 null，小人永远不会被派来操作照料站。
+    /// 1. 禁用复制人工作任务：让香草生成正常 Chore 避免 ToggleChore/SetupChore 抛 NRE，
+    /// 但追加永远返回 false 的前置条件，并隐藏悬浮提示，使小人永远不会接取该任务。
     /// </summary>
     [HarmonyPatch(typeof(RanchStation.Instance), "CreateChore")]
     internal static class RanchStation_CreateChore_Patch
     {
         private static int _logged;
 
-        private static bool Prefix(RanchStation.Instance __instance, ref Chore __result)
+        private static void Postfix(RanchStation.Instance __instance, ref Chore __result)
         {
-            __result = null;
+            if (__result != null)
+            {
+                __result.AddPrecondition(new Chore.Precondition
+                {
+                    id = "OmniMod_PreventDuplicantRanching",
+                    description = "OmniMod Automated Ranching",
+                    fn = (ref Chore.Precondition.Context context, object data) => false
+                });
+                __result.showAvailabilityInHoverText = false;
+            }
+            AutoRanchHelper.EnsureVirtualRancher(__instance);
+
             if (_logged < 5)
             {
                 _logged++;
-                Debug.Log($"[OmniMod] 照料站免人工操作生效：{__instance.gameObject.name} 不再生成复制人工作任务");
+                Debug.Log($"[OmniMod] 照料站免人工操作生效：{__instance.gameObject.name} 任务已屏蔽复制人接取");
             }
-            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(RanchStation.Instance), "OnRancherChanged")]
+    internal static class RanchStation_OnRancherChanged_Patch
+    {
+        private static void Postfix(RanchStation.Instance __instance)
+        {
+            AutoRanchHelper.EnsureVirtualRancher(__instance);
         }
     }
 
