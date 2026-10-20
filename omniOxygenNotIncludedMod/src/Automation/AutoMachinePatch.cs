@@ -24,17 +24,206 @@ namespace OmniMod.Automation
 
         private static void Postfix(ComplexFabricator __instance)
         {
-            if (__instance != null)
+            if (__instance == null) return;
+
+            __instance.duplicantOperated = false;
+            __instance.showProgressBar = true;
+
+            BuildingComplete bc = __instance.GetComponent<BuildingComplete>();
+            if (bc != null)
             {
-                __instance.duplicantOperated = false;
-                if (_logged < 8)
-                {
-                    _logged++;
-                    UnityEngine.Debug.Log($"[OmniMod] 机械自动运行：{__instance.name} 设为免人力操作");
-                }
+                bc.isManuallyOperated = false;
+            }
+
+            if (__instance.Workable != null)
+            {
+                __instance.Workable.requiredSkillPerk = null;
+            }
+
+            KSelectable sel = __instance.GetComponent<KSelectable>();
+            if (sel != null)
+            {
+                sel.RemoveStatusItem(Db.Get().BuildingStatusItems.RequiresSkillPerk);
+                sel.RemoveStatusItem(Db.Get().BuildingStatusItems.PendingWork);
+            }
+
+            if (_logged < 8)
+            {
+                _logged++;
+                UnityEngine.Debug.Log($"[OmniMod] 机械自动运行：{__instance.name} 设为免人力操作");
             }
         }
     }
+
+    [HarmonyPatch(typeof(SushiBar), "OnSpawn")]
+    internal static class SushiBar_OnSpawn_AutoRun_Patch
+    {
+        private static void Postfix(SushiBar __instance)
+        {
+            if (__instance == null) return;
+
+            __instance.duplicantOperated = false;
+            __instance.showProgressBar = true;
+
+            BuildingComplete bc = __instance.GetComponent<BuildingComplete>();
+            if (bc != null)
+            {
+                bc.isManuallyOperated = false;
+            }
+
+            if (__instance.Workable != null)
+            {
+                __instance.Workable.requiredSkillPerk = null;
+            }
+
+            KSelectable sel = __instance.GetComponent<KSelectable>();
+            if (sel != null)
+            {
+                sel.RemoveStatusItem(Db.Get().BuildingStatusItems.RequiresSkillPerk);
+                sel.RemoveStatusItem(Db.Get().BuildingStatusItems.PendingWork);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 工业制造机与烹饪站（包括寿司台、电烤炉、碎石机、金属精炼机等所有 ComplexFabricator）免人力全自动运行。
+    /// 
+    /// 核心原理与原版机制修复：
+    /// 1. 原版 Sim200ms 中存在一段逻辑：<c>operational.SetActive(HasWorkingOrder &amp;&amp; HasWorker)</c>。
+    ///    当 <c>duplicantOperated = false</c> 时，因为没有小人站上去工作，<c>HasWorker</c> 永远为 false！
+    ///    导致原版每 200ms 都会把机器设为 Inactive，打断 ComplexFabricatorSM 状态机（不断跳回等待小人/空闲状态），
+    ///    阻断工作动画与音效，并让建筑状态显示为"待处理任务"或"缺少原料/空闲"。
+    /// 2. 原版多数制造机未开启 <c>showProgressBar = true</c>，导致免人力制作时无法显示头顶制作进度条。
+    /// 3. 本 Patch 前置接管 Sim200ms：
+    ///    - 有待制订单时，保持机器处于 Active 激活状态，播放工作循环动画，弹出头顶进度条；
+    ///    - 提供 2.5 倍熟练厨师/技工的工作效率加速（避免原版 50 秒单件烹饪时间的漫长等待）；
+    ///    - 无工作订单或原料不足时，重置为 Inactive 并隐藏进度条；
+    ///    - 杜绝小人领取操作 Chore，彻底实现无人化全自动流水线！
+    /// </summary>
+    [HarmonyPatch(typeof(ComplexFabricator), "Sim200ms")]
+    internal static class ComplexFabricator_Sim200ms_AutoRun_Patch
+    {
+        private static readonly AccessTools.FieldRef<ComplexFabricator, ComplexRecipe[]> RecipeListField =
+            AccessTools.FieldRefAccess<ComplexFabricator, ComplexRecipe[]>("recipe_list");
+
+        private static readonly AccessTools.FieldRef<ComplexFabricator, int> WorkingOrderIdxField =
+            AccessTools.FieldRefAccess<ComplexFabricator, int>("workingOrderIdx");
+
+        private static readonly AccessTools.FieldRef<ComplexFabricator, float> OrderProgressField =
+            AccessTools.FieldRefAccess<ComplexFabricator, float>("orderProgress");
+
+        private static readonly AccessTools.FieldRef<ComplexFabricator, Chore> ChoreField =
+            AccessTools.FieldRefAccess<ComplexFabricator, Chore>("chore");
+
+        private static readonly MethodInfo ShowProgressBarMethod =
+            AccessTools.Method(typeof(ComplexFabricator), "ShowProgressBar", new[] { typeof(bool) });
+
+        private static readonly MethodInfo CancelChoreMethod =
+            AccessTools.Method(typeof(ComplexFabricator), "CancelChore");
+
+        private static readonly MethodInfo RefreshAndStartNextOrderMethod =
+            AccessTools.Method(typeof(ComplexFabricator), "RefreshAndStartNextOrder");
+
+        private static int _logged;
+
+        private static bool Prefix(ComplexFabricator __instance, float dt)
+        {
+            if (__instance == null) return true;
+
+            // 保持免人力开关与进度条始终开启
+            if (__instance.duplicantOperated)
+            {
+                __instance.duplicantOperated = false;
+            }
+            __instance.showProgressBar = true;
+
+            // 如果有小人正在手动操作（例如旧存档遗留的 worker），放行原版
+            if (__instance.Workable != null && __instance.Workable.worker != null)
+            {
+                return true;
+            }
+
+            // 清除技能需求限制提示（例如寿司台要求"寿司主厨"特权）
+            if (__instance.Workable != null && !string.IsNullOrEmpty(__instance.Workable.requiredSkillPerk))
+            {
+                __instance.Workable.requiredSkillPerk = null;
+            }
+
+            // 取消可能残留的小人操作任务
+            if (ChoreField(__instance) != null)
+            {
+                CancelChoreMethod?.Invoke(__instance, null);
+            }
+
+            Operational op = __instance.GetComponent<Operational>();
+            if (op == null || !op.IsOperational)
+            {
+                return false;
+            }
+
+            int workingOrderIdx = WorkingOrderIdxField(__instance);
+            bool hasWorkingOrder = workingOrderIdx > -1;
+
+            // 若当前未进入生产状态，尝试立即启动下一单（无需等待 1000ms 周期）
+            if (!hasWorkingOrder)
+            {
+                RefreshAndStartNextOrderMethod?.Invoke(__instance, null);
+                workingOrderIdx = WorkingOrderIdxField(__instance);
+                hasWorkingOrder = workingOrderIdx > -1;
+            }
+
+            // 保持工作状态激活
+            op.SetActive(hasWorkingOrder);
+
+            ComplexRecipe[] recipeList = RecipeListField(__instance) ?? __instance.GetRecipes();
+
+            if (hasWorkingOrder && recipeList != null && workingOrderIdx >= 0 && workingOrderIdx < recipeList.Length)
+            {
+                ShowProgressBarMethod?.Invoke(__instance, new object[] { true });
+
+                ComplexRecipe recipe = recipeList[workingOrderIdx];
+                float baseTime = recipe != null && recipe.time > 0f ? recipe.time : 40f;
+                float speedMultiplier = 2.5f; // 2.5倍基准制作速率（约16~20秒完成一份料理）
+                float progress = (dt / baseTime) * speedMultiplier;
+
+                float currentProgress = OrderProgressField(__instance) + progress;
+                OrderProgressField(__instance) = currentProgress;
+
+                // 播放工作动画
+                ResearchCenter_Sim200ms_AutoResearch_Patch.PlayWorkingAnim(__instance.GetComponent<KBatchedAnimController>());
+
+                KSelectable selectable = __instance.GetComponent<KSelectable>();
+                if (selectable != null)
+                {
+                    selectable.RemoveStatusItem(Db.Get().BuildingStatusItems.RequiresSkillPerk);
+                    selectable.RemoveStatusItem(Db.Get().BuildingStatusItems.PendingWork);
+                }
+
+                if (currentProgress >= 1f)
+                {
+                    ShowProgressBarMethod?.Invoke(__instance, new object[] { false });
+                    __instance.CompleteWorkingOrder();
+                }
+
+                if (_logged < 8)
+                {
+                    _logged++;
+                    string prodName = (recipe?.results != null && recipe.results.Length > 0)
+                        ? recipe.results[0].material.Name
+                        : "物品";
+                    Debug.Log($"[OmniMod] 机械自动运行中：{__instance.name} 正在全自动加工 {prodName}");
+                }
+            }
+            else
+            {
+                ShowProgressBarMethod?.Invoke(__instance, new object[] { false });
+                ResearchCenter_Sim200ms_AutoResearch_Patch.StopWorkingAnim(__instance.GetComponent<KBatchedAnimController>(), op);
+            }
+
+            return false; // 跳过原版 Sim200ms
+        }
+    }
+
 
     /// <summary>
     /// 自动研究：研究站 / 超级计算机 / 特殊研究设施——选好研究项目后不需要小人操作。
