@@ -2,7 +2,7 @@ using System;
 using System.Reflection;
 using HarmonyLib;
 using KMod;
-using UnityEngine;
+using OmniMod.Core.Logging;
 
 namespace OmniMod
 {
@@ -17,11 +17,9 @@ namespace OmniMod
     /// </summary>
     public sealed class OmniModUserMod : UserMod2
     {
-        public const string LogTag = "OmniMod";
-
         public override void OnLoad(Harmony harmony)
         {
-            Debug.Log($"[{LogTag}] 正在加载（针对游戏版本 744825 构建）…");
+            ModLog.Info("正在加载（针对游戏版本 744825 构建）…");
 
             int ok = 0;
             int failed = 0;
@@ -40,11 +38,25 @@ namespace OmniMod
                 catch (Exception e)
                 {
                     failed++;
-                    Debug.LogWarning($"[{LogTag}] 补丁类挂载失败（跳过）: {type.FullName} — {e.Message}");
+                    ModLog.Warn($"补丁类挂载失败（跳过）: {type.FullName} — {e.Message}");
                 }
             }
 
-            Debug.Log($"[{LogTag}] Harmony 补丁完成：成功 {ok}，失败 {failed}。");
+            ModLog.Info($"Harmony 补丁完成：成功 {ok}，失败 {failed}。容灾防丢档系统已就绪。");
+
+            // 卡顿诊断器：默认关闭（零性能损耗）；需要专项排查时在 StutterProfiler.Enabled 开启
+            if (Diagnostics.StutterProfiler.Enabled)
+            {
+                try
+                {
+                    Diagnostics.StutterProfiler.Install(harmony);
+                    ModLog.Info("卡顿诊断探针已启动。");
+                }
+                catch (Exception e)
+                {
+                    ModLog.Warn($"[卡顿诊断] 安装失败: {e}");
+                }
+            }
         }
     }
 }

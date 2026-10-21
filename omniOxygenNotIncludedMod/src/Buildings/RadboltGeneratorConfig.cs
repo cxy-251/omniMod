@@ -12,7 +12,7 @@ namespace OmniMod.Buildings
     /// 转换为高功率电网发电机。
     ///
     /// - 额定功率：20kW（20,000W，支持供电调谐提升至 30,000W）。
-    /// - 粒子消耗：20.0 辐射粒子 / 秒（1 粒子 = 1,000 焦耳清洁能源）。
+    /// - 粒子消耗：10.0 辐射粒子 / 秒（1 粒子 = 2,000 焦耳清洁能源）。
     /// - 储量容量：4,000 辐射粒子（支持高负荷吞吐与海量缓冲）。
     /// - 自动化端口：带自动化输入端（可连智能电池）与粒子储量信号输出端。
     /// </summary>
@@ -113,7 +113,7 @@ namespace OmniMod.Buildings
         private KBatchedAnimController _kbac;
 
         [SerializeField]
-        public float particlesPerSecond = 20.0f; // 20 粒子/秒 = 20kW（20,000W）满载发电
+        public float particlesPerSecond = 10.0f; // 10 粒子/秒 = 20kW（20,000W）满载发电
 
         private bool _wasActive;
 
@@ -122,6 +122,8 @@ namespace OmniMod.Buildings
             base.OnSpawn();
             _particleStorage = GetComponent<HighEnergyParticleStorage>();
             _kbac = GetComponent<KBatchedAnimController>();
+
+            particlesPerSecond = 10.0f;
 
             // 强制将现有存档中已建造的旧发电机容量从 10000 覆盖为 4000
             if (_particleStorage != null)
@@ -180,11 +182,11 @@ namespace OmniMod.Buildings
                 operational.SetActive(active);
                 if (active)
                 {
-                    Automation.ResearchCenter_Sim200ms_AutoResearch_Patch.PlayWorkingAnim(_kbac);
+                    Machinery.BuildingAnimHelper.PlayWorkingAnim(_kbac);
                 }
                 else
                 {
-                    Automation.ResearchCenter_Sim200ms_AutoResearch_Patch.StopWorkingAnim(_kbac, operational);
+                    Machinery.BuildingAnimHelper.StopWorkingAnim(_kbac, operational);
                 }
             }
         }

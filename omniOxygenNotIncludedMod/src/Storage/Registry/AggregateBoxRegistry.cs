@@ -213,8 +213,9 @@ namespace OmniMod.Collection
         }
 
         // —— 机械臂"本星球隔空取物"用：主线程每秒刷新每个星球自身聚合箱内物品的快照，
-        //    机械臂的扫描补丁只读这个不可变数组。——
+        //    机械臂的扫描补丁使用基于 Tag 索引的字典进行 O(1) 匹配，杜绝全量线性扫描引起的卡顿。——
         private static readonly Dictionary<int, Pickupable[]> _worldBoxItems = new Dictionary<int, Pickupable[]>();
+        private static readonly Dictionary<int, Dictionary<Tag, List<Pickupable>>> _worldBoxItemsByTag = new Dictionary<int, Dictionary<Tag, List<Pickupable>>>();
         private static readonly Dictionary<int, float> _rocketRefreshTime = new Dictionary<int, float>();
         private static readonly List<Pickupable> _refreshScratch = new List<Pickupable>(128);
 
@@ -287,6 +288,16 @@ namespace OmniMod.Collection
             RefreshWorldBoxItems(worldId);
         }
 
+        private static void AddTagToIndex(Dictionary<Tag, List<Pickupable>> index, Tag tag, Pickupable p)
+        {
+            if (!index.TryGetValue(tag, out List<Pickupable> list))
+            {
+                list = new List<Pickupable>(4);
+                index[tag] = list;
+            }
+            list.Add(p);
+        }
+
         internal static void RefreshWorldBoxItems(int worldId)
         {
             _refreshScratch.Clear();
@@ -314,10 +325,35 @@ namespace OmniMod.Collection
             }
 
             Pickupable[] arr = _refreshScratch.Count > 0 ? _refreshScratch.ToArray() : System.Array.Empty<Pickupable>();
+
+            var tagIndex = new Dictionary<Tag, List<Pickupable>>(_refreshScratch.Count > 32 ? _refreshScratch.Count / 2 : 16);
+            for (int i = 0; i < _refreshScratch.Count; i++)
+            {
+                Pickupable p = _refreshScratch[i];
+                if (p == null || p.KPrefabID == null) continue;
+
+                Tag prefabTag = p.KPrefabID.PrefabTag;
+                AddTagToIndex(tagIndex, prefabTag, p);
+
+                if (p.KPrefabID.Tags != null)
+                {
+                    foreach (Tag t in p.KPrefabID.Tags)
+                    {
+                        if (t != prefabTag)
+                        {
+                            AddTagToIndex(tagIndex, t, p);
+                        }
+                    }
+                }
+            }
+
             lock (_worldBoxItems)
             {
                 _worldBoxItems[worldId] = arr;
+                _worldBoxItemsByTag[worldId] = tagIndex;
             }
+
+            InvalidateRemoteBoxMassCache();
         }
 
         internal static Pickupable[] GetWorldBoxItems(int worldId)
@@ -337,6 +373,92 @@ namespace OmniMod.Collection
             {
                 return _worldBoxItems.TryGetValue(worldId, out Pickupable[] a) ? a : System.Array.Empty<Pickupable>();
             }
+        }
+
+        internal static Pickupable FindMatchInWorldBox(int worldId, FetchChore chore, Storage destination, bool isCrossPlanetDiscrete = false)
+        {
+            Dictionary<Tag, List<Pickupable>> tagIndex;
+            lock (_worldBoxItems)
+            {
+                if (!_worldBoxItemsByTag.TryGetValue(worldId, out tagIndex) || tagIndex == null)
+                {
+                    return null;
+                }
+            }
+
+            if (chore.criteria == FetchChore.MatchCriteria.MatchID)
+            {
+                if (chore.tags == null) return null;
+                foreach (Tag t in chore.tags)
+                {
+                    if (tagIndex.TryGetValue(t, out List<Pickupable> list) && list != null)
+                    {
+                        Pickupable p = CheckCandidateList(list, chore, destination, isCrossPlanetDiscrete, worldId);
+                        if (p != null) return p;
+                    }
+                }
+            }
+            else if (chore.criteria == FetchChore.MatchCriteria.MatchTags)
+            {
+                Tag tag = chore.tagsFirst;
+                if (chore.requiredTag.IsValid)
+                {
+                    List<Pickupable> reqList = null;
+                    List<Pickupable> firstList = null;
+                    tagIndex.TryGetValue(chore.requiredTag, out reqList);
+                    tagIndex.TryGetValue(tag, out firstList);
+
+                    List<Pickupable> chosen = (reqList != null && (firstList == null || reqList.Count < firstList.Count)) ? reqList : firstList;
+                    if (chosen != null)
+                    {
+                        Pickupable p = CheckCandidateList(chosen, chore, destination, isCrossPlanetDiscrete, worldId);
+                        if (p != null) return p;
+                    }
+                }
+                else
+                {
+                    if (tagIndex.TryGetValue(tag, out List<Pickupable> list) && list != null)
+                    {
+                        Pickupable p = CheckCandidateList(list, chore, destination, isCrossPlanetDiscrete, worldId);
+                        if (p != null) return p;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static Pickupable CheckCandidateList(List<Pickupable> list, FetchChore chore, Storage destination, bool isCrossPlanetDiscrete, int targetWorld)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                Pickupable p = list[i];
+                if (p == null || p.KPrefabID == null || p.UnreservedFetchAmount <= 0f)
+                {
+                    continue;
+                }
+                if (p.storage != null && p.storage == destination)
+                {
+                    continue;
+                }
+                if (isCrossPlanetDiscrete)
+                {
+                    if (!GlobalItemCollector.IsDiscreteManaged(p.gameObject))
+                    {
+                        continue;
+                    }
+                    Assignable assignable = p.GetComponent<Assignable>();
+                    if (assignable != null && assignable.IsAssigned() && GetAssigneeWorldId(assignable.assignee) != targetWorld)
+                    {
+                        continue;
+                    }
+                }
+                if (FetchManager.IsFetchablePickup(p, chore, destination))
+                {
+                    return p;
+                }
+            }
+            return null;
         }
 
         /// <summary>统计除 self 以外所有同类型生效聚合箱 Storage 中某 tag 的可用质量（供侧边栏汇总全星系存量）。</summary>
@@ -413,13 +535,22 @@ namespace OmniMod.Collection
             return sum;
         }
 
+        private static int _remoteBoxMassVersion = 0;
+        private static int _cachedRemoteMassVersion = -1;
+        private static readonly Dictionary<long, float> _remoteBoxMassCache = new Dictionary<long, float>();
+
+        internal static void InvalidateRemoteBoxMassCache()
+        {
+            _remoteBoxMassVersion++;
+        }
+
         /// <summary>
         /// 供 WorldInventory.GetTotalAmount 补丁调用：当本星球建有杂物箱/食物箱时，
         /// 将其它星球生效聚合箱 Storage 内对应 tag 的存量计入本星球可用量，使全星系面板与选种/建造界面 100% 共享。
+        /// 使用按版本失效的 O(1) 字典缓存，消除每秒上万次重复遍历几千件物品导致的 130ms 掉帧！
         /// </summary>
         internal static float GetSharedRemoteBoxMass(int worldId, int parentWorldId, Tag tag)
         {
-            float sum = 0f;
             bool hasJunk = WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Debris);
             bool hasFood = WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Edibles);
             if (!hasJunk && !hasFood)
@@ -427,6 +558,13 @@ namespace OmniMod.Collection
                 return 0f;
             }
 
+            long cacheKey = ((long)parentWorldId << 32) ^ (long)(uint)tag.GetHash();
+            if (_cachedRemoteMassVersion == _remoteBoxMassVersion && _remoteBoxMassCache.TryGetValue(cacheKey, out float cached))
+            {
+                return cached;
+            }
+
+            float sum = 0f;
             for (int i = 0; i < Boxes.Count; i++)
             {
                 GlobalItemCollector b = Boxes[i];
@@ -445,6 +583,12 @@ namespace OmniMod.Collection
                 }
             }
 
+            if (_cachedRemoteMassVersion != _remoteBoxMassVersion)
+            {
+                _remoteBoxMassCache.Clear();
+                _cachedRemoteMassVersion = _remoteBoxMassVersion;
+            }
+            _remoteBoxMassCache[cacheKey] = sum;
             return sum;
         }
 

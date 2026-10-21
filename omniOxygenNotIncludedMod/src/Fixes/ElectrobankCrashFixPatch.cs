@@ -32,7 +32,7 @@ namespace OmniMod.Fixes
             if (_logged < 10)
             {
                 _logged++;
-                Debug.LogWarning("[OmniMod] Electrobank.Replace 收到 null 对象，已跳过（原版空引用崩溃的防护，见 Fixes/ElectrobankCrashFixPatch.cs）");
+                OmniMod.Core.Logging.ModLog.Warn("Electrobank.Replace 收到 null 对象，已跳过（原版空引用崩溃的防护，见 Fixes/ElectrobankCrashFixPatch.cs）");
             }
 
             return false;   // 跳过原方法，不再抛 NullReferenceException

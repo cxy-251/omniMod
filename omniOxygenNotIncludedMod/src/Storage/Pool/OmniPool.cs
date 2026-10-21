@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 using KSerialization;
+using OmniMod.Core.Logging;
 using UnityEngine;
 
 namespace OmniMod.Pool
@@ -171,7 +172,7 @@ namespace OmniMod.Pool
                 }
             }
 
-            Debug.Log($"[OmniMod] 杂物池读档重建: {_mass.Count} 种元素, {_seeds.Count} 种种子");
+            ModLog.Info($"杂物池读档重建: {_mass.Count} 种元素, {_seeds.Count} 种种子");
         }
 
         public void AddSeed(Tag tag, int count = 1)
@@ -228,6 +229,7 @@ namespace OmniMod.Pool
             b.TempMass += tempMass;
             _mass.TryGetValue(element, out float total);
             _mass[element] = total + mass;
+            _massVersion++;
         }
 
         public void Sim1000ms(float dt)
@@ -249,7 +251,7 @@ namespace OmniMod.Pool
             {
                 buckets += byTemp.Count;
             }
-            Debug.Log($"[OmniMod] 杂物池: {_mass.Count} 种元素 / {buckets} 个温度档, 合计 {total:0.#} kg");
+            ModLog.Info($"杂物池: {_mass.Count} 种元素 / {buckets} 个温度档, 合计 {total:0.#} kg");
         }
 
         /// <summary>把一份固体元素并入杂物池（按温度分档，不和别的温度混合）。</summary>
@@ -279,13 +281,22 @@ namespace OmniMod.Pool
             return GetMass(e.id);
         }
 
-        /// <summary>按 tag 查池中质量，支持类别 tag（如 "Metal"）——池里所有带该 tag 的元素质量相加。</summary>
+        private int _massVersion = 0;
+        private int _categoryCacheVersion = -1;
+        private readonly Dictionary<Tag, float> _categoryMassCache = new Dictionary<Tag, float>();
+
+        /// <summary>按 tag 查池中质量，支持类别 tag（如 "Metal"）——池里所有带该 tag 的元素质量相加。带按版本失效的 O(1) 字典缓存。</summary>
         public float GetMassMatchingTag(Tag tag)
         {
             float exact = GetMassForTag(tag);
             if (exact > 0f)
             {
                 return exact;
+            }
+
+            if (_categoryCacheVersion == _massVersion && _categoryMassCache.TryGetValue(tag, out float cached))
+            {
+                return cached;
             }
 
             float sum = 0f;
@@ -297,6 +308,13 @@ namespace OmniMod.Pool
                     sum += kv.Value;
                 }
             }
+
+            if (_categoryCacheVersion != _massVersion)
+            {
+                _categoryMassCache.Clear();
+                _categoryCacheVersion = _massVersion;
+            }
+            _categoryMassCache[tag] = sum;
             return sum;
         }
 
@@ -390,6 +408,7 @@ namespace OmniMod.Pool
                 _mass.TryGetValue(element, out float total);
                 _mass[element] = Mathf.Max(0f, total - take);
             }
+            _massVersion++;
             return take;
         }
 

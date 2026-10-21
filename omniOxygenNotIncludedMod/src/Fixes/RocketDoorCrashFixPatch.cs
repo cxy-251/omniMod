@@ -28,8 +28,6 @@ namespace OmniMod.Fixes
         private static readonly AccessTools.FieldRef<ClustercraftExteriorDoor, int> TargetWorldIdField =
             AccessTools.FieldRefAccess<ClustercraftExteriorDoor, int>("targetWorldId");
 
-        private static int _logged;
-
         internal static ClustercraftInteriorDoor GetTargetDoor(ClustercraftExteriorDoor exteriorDoor)
         {
             return exteriorDoor != null ? TargetDoorField(exteriorDoor) : null;
@@ -76,11 +74,7 @@ namespace OmniMod.Fixes
             if (foundDoor != null)
             {
                 exteriorDoor.SetTarget(foundDoor);
-                if (_logged < 5)
-                {
-                    _logged++;
-                    Debug.Log($"[OmniMod] 检测到火箭内部舱门缺失，已自动重生并恢复连通（世界ID: {worldId}）！");
-                }
+                OmniMod.Core.Logging.ModLog.Info($"检测到火箭内部舱门缺失，已自动重生并恢复连通（世界ID: {worldId}）！");
             }
         }
 
@@ -112,7 +106,7 @@ namespace OmniMod.Fixes
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[OmniMod] 生成火箭内部舱门失败: {ex.Message}");
+                OmniMod.Core.Logging.ModLog.Error("生成火箭内部舱门失败", ex);
                 return null;
             }
         }
@@ -183,7 +177,7 @@ namespace OmniMod.Fixes
                     targetWorld.SetParentIdx(targetWorld.id);
                 }
 
-                Debug.LogWarning("[OmniMod] 火箭发射拦截空舱门异常，已安全放行发射！");
+                OmniMod.Core.Logging.ModLog.Warn("火箭发射拦截空舱门异常，已安全放行发射！");
                 return false; // 跳过原方法，不再抛 NRE 崩溃
             }
 
