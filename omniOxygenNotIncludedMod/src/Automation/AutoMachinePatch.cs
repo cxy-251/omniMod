@@ -855,6 +855,28 @@ namespace OmniMod.Automation
                 fabricators = new System.Collections.Generic.List<Tag> { TagManager.Create("RockCrusher") },
                 sortOrder = 9
             };
+
+            // 碎石机新增玉米榨糖配方：100kg 汗甜玉米 -> 100kg 蔗糖
+            ComplexRecipe.RecipeElement[] cornInput = new[]
+            {
+                new ComplexRecipe.RecipeElement(TagManager.Create("GardenFoodPlantFood"), 100f)
+            };
+            ComplexRecipe.RecipeElement[] cornOutput = new[]
+            {
+                new ComplexRecipe.RecipeElement(SimHashes.Sucrose.CreateTag(), 100f, ComplexRecipe.RecipeElement.TemperatureOperation.AverageTemperature)
+            };
+            string cornRecipeId = ComplexRecipeManager.MakeRecipeID("RockCrusher", cornInput, cornOutput);
+            if (ComplexRecipeManager.Get() != null && ComplexRecipeManager.Get().GetRecipe(cornRecipeId) == null)
+            {
+                new ComplexRecipe(cornRecipeId, cornInput, cornOutput)
+                {
+                    time = 20f,
+                    description = "研磨压榨汗甜玉米，提取高纯度结晶蔗糖，用于食品加工或生物乙醇发酵。",
+                    nameDisplay = ComplexRecipe.RecipeNameDisplay.IngredientToResult,
+                    fabricators = new System.Collections.Generic.List<Tag> { TagManager.Create("RockCrusher") },
+                    sortOrder = 10
+                };
+            }
         }
     }
 

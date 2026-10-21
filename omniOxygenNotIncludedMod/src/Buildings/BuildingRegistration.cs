@@ -30,6 +30,46 @@ namespace OmniMod.Buildings
             RegisterGasPurifiers();
             RegisterBackgroundLight();
             RegisterRadboltGenerator();
+            RegisterFluidProcessors();
+        }
+
+        private static void RegisterFluidProcessors()
+        {
+            // 生物发酵反应罐
+            ModStrings.AddBuilding(
+                BioFermenterConfig.ID,
+                name: ModStrings.T("生物发酵反应罐", "Bio-Fermenter"),
+                desc: ModStrings.T(
+                    "利用工业生物发酵工艺，将高通量纯水与蔗糖（或汗甜玉米）高效发酵转化为清洁的液体乙醇，副产二氧化碳废气。专为消纳基地巨量过剩水资源而设计。",
+                    "Uses industrial biological fermentation to convert high-throughput water and sucrose (or sweatcorn) into clean liquid ethanol, producing carbon dioxide gas. Designed to consume massive water surpluses."),
+                effect: ModStrings.T(
+                    "每秒消耗 2kg 纯水与 0.5kg 蔗糖（或 0.5kg 汗甜玉米），通过管道排出 2kg 液体乙醇，并向环境散逸 0.5kg 二氧化碳废气。",
+                    "Consumes 2 kg/s Water and 0.5 kg/s Sucrose (or Sweatcorn) to produce 2 kg/s liquid Ethanol via pipe, releasing 0.5 kg/s Carbon Dioxide gas into the room."));
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Refining"),
+                BioFermenterConfig.ID,
+                "refining",
+                relativeBuildingId: "OilRefinery",
+                ordering: ModUtil.BuildingOrdering.After);
+
+            // 水热合成油反应釜
+            ModStrings.AddBuilding(
+                PetroleumSynthesizerConfig.ID,
+                name: ModStrings.T("水热合成油反应釜", "Petroleum Synthesizer"),
+                desc: ModStrings.T(
+                    "利用高温高压水热裂解与费托合成工艺，将纯水与碳源（煤炭或精炼碳）高压重整为高纯度精炼石油，极大拓展了石油制备渠道。",
+                    "Uses high-temperature and high-pressure hydrothermal reforming and Fischer-Tropsch synthesis to reform water and carbon (coal or refined carbon) into high-purity petroleum."),
+                effect: ModStrings.T(
+                    "每秒消耗 2kg 纯水，搭配 0.5kg 煤炭（或 0.25kg 精炼碳），直接合成 2kg 精炼石油并通过管道排出。",
+                    "Consumes 2 kg/s Water and 0.5 kg/s Coal (or 0.25 kg/s Refined Carbon) to produce 2 kg/s refined Petroleum via pipe."));
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Refining"),
+                PetroleumSynthesizerConfig.ID,
+                "refining",
+                relativeBuildingId: BioFermenterConfig.ID,
+                ordering: ModUtil.BuildingOrdering.After);
         }
 
         private static void RegisterRadboltGenerator()
