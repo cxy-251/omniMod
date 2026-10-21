@@ -218,6 +218,17 @@ namespace OmniMod.Automation
         {
             if (!__result && tag.IsValid)
             {
+                if (tag == GameTags.BagableCreature || tag.Name.Contains("Creature") || tag.Name.Contains("Critter"))
+                {
+                    __result = true;
+                    return;
+                }
+                GameObject prefab = Assets.TryGetPrefab(tag);
+                if (prefab != null && (prefab.GetComponent<Baggable>() != null || prefab.GetComponent<Capturable>() != null))
+                {
+                    __result = true;
+                    return;
+                }
                 Element e = ElementLoader.FindElementByHash(ElementLoader.GetElementID(tag));
                 if (e != null && (e.IsLiquid || e.IsGas))
                 {
@@ -227,8 +238,24 @@ namespace OmniMod.Automation
         }
     }
 
+    [HarmonyPatch(typeof(SolidTransferArm), "OnSpawn")]
+    internal static class SolidTransferArm_OnSpawn_PermitRanching_Patch
+    {
+        private static void Postfix(SolidTransferArm __instance)
+        {
+            if (__instance != null)
+            {
+                var choreConsumer = __instance.GetComponent<ChoreConsumer>();
+                if (choreConsumer != null && Db.Get()?.ChoreGroups?.Ranching != null)
+                {
+                    choreConsumer.SetPermittedByUser(Db.Get().ChoreGroups.Ranching, true);
+                }
+            }
+        }
+    }
+
     // =========================================================================
-    // 3. 仅限机械臂（SolidTransferArm）隔空取物：允许机械臂无视距离抓取【本星球】生效聚合箱与装瓶器内的物品。
+    // 3. 仅限机械臂（SolidTransferArm）隔空取物：允许机械臂无视距离抓取【本星球】生效聚合箱、装瓶器与袋装小动物。
     // =========================================================================
     [HarmonyPatch(typeof(SolidTransferArm), nameof(SolidTransferArm.IsCellReachable))]
     internal static class SolidTransferArm_IsCellReachable_Patch
@@ -266,8 +293,36 @@ namespace OmniMod.Automation
                     BottlerRegistry.IsSameWorldActiveBottlerCell(cell, myCell))
                 {
                     __result = true;
+                    return;
+                }
+
+                // 3. 动物放生点与袋装小动物：同星球下支持机械臂隔空抓取袋装动物并投送至放生点
+                if (CreatureDeliveryRegistry.IsDeliveryCell(cell) || HasBaggedCreatureAtCell(cell))
+                {
+                    __result = true;
                 }
             }
+        }
+
+        private static bool HasBaggedCreatureAtCell(int cell)
+        {
+            if (!Grid.IsValidCell(cell)) return false;
+            if (BaggedCreatureRegistry.HasBaggedCreatureAtCell(cell)) return true;
+            GameObject go = Grid.Objects[cell, (int)ObjectLayer.Pickupables];
+            while (go != null)
+            {
+                Pickupable p = go.GetComponent<Pickupable>();
+                if (p != null && p.KPrefabID != null && (p.KPrefabID.HasTag(GameTags.BagableCreature) || p.GetComponent<Baggable>() != null))
+                {
+                    Baggable bag = p.GetComponent<Baggable>();
+                    if (bag != null && bag.wrangled)
+                    {
+                        return true;
+                    }
+                }
+                go = (p != null && p.objectLayerListItem != null && p.objectLayerListItem.nextItem != null) ? p.objectLayerListItem.nextItem.gameObject : null;
+            }
+            return false;
         }
     }
 
@@ -335,6 +390,54 @@ namespace OmniMod.Automation
                     __result = p;
                     RemoteFetch.LogOnce("隔空取物：机械臂锁定目标: " + p.name);
                     return;
+                }
+            }
+
+            // 1.2 本星球袋装小动物：若目标为动物放生点，机械臂支持无视距离隔空锁定袋装小动物
+            if (destination.GetComponent<CreatureDeliveryPoint>() != null || (Db.Get() != null && chore.choreType == Db.Get().ChoreTypes.CreatureFetch))
+            {
+                foreach (Baggable bag in BaggedCreatureRegistry.GetBaggedCreatures())
+                {
+                    if (bag == null || bag.gameObject == null || !bag.wrangled || bag.GetMyWorldId() != world)
+                    {
+                        continue;
+                    }
+                    Pickupable p = bag.GetComponent<Pickupable>();
+                    if (p != null && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
+                    {
+                        if (FetchManager.IsFetchablePickup(p, chore, destination))
+                        {
+                            __result = p;
+                            RemoteFetch.LogOnce("隔空取物：机械臂锁定袋装小动物: " + p.name);
+                            return;
+                        }
+                    }
+                }
+
+                if (Components.Capturables != null)
+                {
+                    for (int i = 0; i < Components.Capturables.Count; i++)
+                    {
+                        Capturable capturable = Components.Capturables[i];
+                        if (capturable == null || capturable.gameObject == null || capturable.GetMyWorldId() != world)
+                        {
+                            continue;
+                        }
+                        Baggable bag = capturable.GetComponent<Baggable>();
+                        if (bag != null && bag.wrangled)
+                        {
+                            Pickupable p = capturable.GetComponent<Pickupable>();
+                            if (p != null && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
+                            {
+                                if (FetchManager.IsFetchablePickup(p, chore, destination))
+                                {
+                                    __result = p;
+                                    RemoteFetch.LogOnce("隔空取物：机械臂锁定袋装小动物: " + p.name);
+                                    return;
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

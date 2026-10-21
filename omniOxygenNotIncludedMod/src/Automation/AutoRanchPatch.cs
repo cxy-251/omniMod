@@ -386,4 +386,378 @@ namespace OmniMod.Automation
             }
         }
     }
+
+    // =========================================================================
+    // 全自动小动物生命周期与隔空转运系统 (Zero-Dupe Critter Lifecycle System)
+    // 涵盖：
+    // 1. 袋装小动物全局注册表 (BaggedCreatureRegistry)
+    // 2. 动物放生点全局注册表与自动解袋 (CreatureDeliveryRegistry & CreatureDeliveryPoint)
+    // 3. 孵化仓自动弹出并打包幼体 (EggIncubator)
+    // 4. 动物移出点自动呼唤并打包成体 (FixedCapturePoint)
+    // 5. 手动框选捕获自动秒打包 (Capturable)
+    // =========================================================================
+
+    public static class BaggedCreatureRegistry
+    {
+        private static readonly HashSet<Baggable> _bagged = new HashSet<Baggable>();
+        private static readonly HashSet<int> _baggedCells = new HashSet<int>();
+
+        public static void Register(Baggable bag)
+        {
+            if (bag == null || bag.gameObject == null) return;
+            _bagged.Add(bag);
+            int cell = Grid.PosToCell(bag.transform.GetPosition());
+            if (Grid.IsValidCell(cell))
+            {
+                _baggedCells.Add(cell);
+            }
+        }
+
+        public static void Unregister(Baggable bag)
+        {
+            if (bag == null) return;
+            _bagged.Remove(bag);
+            int cell = Grid.PosToCell(bag.transform.GetPosition());
+            if (Grid.IsValidCell(cell))
+            {
+                _baggedCells.Remove(cell);
+            }
+        }
+
+        public static bool HasBaggedCreatureAtCell(int cell)
+        {
+            return _baggedCells.Contains(cell);
+        }
+
+        public static IEnumerable<Baggable> GetBaggedCreatures()
+        {
+            return _bagged;
+        }
+
+        public static void Clear()
+        {
+            _bagged.Clear();
+            _baggedCells.Clear();
+        }
+    }
+
+    public static class CreatureDeliveryRegistry
+    {
+        private static readonly HashSet<int> _deliveryCells = new HashSet<int>();
+
+        public static void Register(CreatureDeliveryPoint point)
+        {
+            if (point == null) return;
+            int baseCell = Grid.PosToCell(point.transform.GetPosition());
+            if (Grid.IsValidCell(baseCell))
+            {
+                _deliveryCells.Add(baseCell);
+            }
+            if (point.deliveryOffsets != null)
+            {
+                for (int i = 0; i < point.deliveryOffsets.Length; i++)
+                {
+                    int offsetCell = Grid.OffsetCell(baseCell, point.deliveryOffsets[i]);
+                    if (Grid.IsValidCell(offsetCell))
+                    {
+                        _deliveryCells.Add(offsetCell);
+                    }
+                }
+            }
+        }
+
+        public static void Unregister(CreatureDeliveryPoint point)
+        {
+            if (point == null) return;
+            int baseCell = Grid.PosToCell(point.transform.GetPosition());
+            _deliveryCells.Remove(baseCell);
+            if (point.deliveryOffsets != null)
+            {
+                for (int i = 0; i < point.deliveryOffsets.Length; i++)
+                {
+                    int offsetCell = Grid.OffsetCell(baseCell, point.deliveryOffsets[i]);
+                    _deliveryCells.Remove(offsetCell);
+                }
+            }
+        }
+
+        public static bool IsDeliveryCell(int cell)
+        {
+            return _deliveryCells.Contains(cell);
+        }
+
+        public static void Clear()
+        {
+            _deliveryCells.Clear();
+        }
+    }
+
+    [HarmonyPatch(typeof(Baggable), nameof(Baggable.SetWrangled))]
+    internal static class Baggable_SetWrangled_Patch
+    {
+        private static void Postfix(Baggable __instance)
+        {
+            if (__instance != null)
+            {
+                __instance.gameObject.AddTag(GameTags.Creatures.Deliverable);
+                BaggedCreatureRegistry.Register(__instance);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(Baggable), nameof(Baggable.Free))]
+    internal static class Baggable_Free_Patch
+    {
+        private static void Postfix(Baggable __instance)
+        {
+            if (__instance != null)
+            {
+                BaggedCreatureRegistry.Unregister(__instance);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(Baggable), "OnCleanUp")]
+    internal static class Baggable_OnCleanUp_Patch
+    {
+        private static void Prefix(Baggable __instance)
+        {
+            if (__instance != null)
+            {
+                BaggedCreatureRegistry.Unregister(__instance);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(CreatureDeliveryPoint), "OnSpawn")]
+    internal static class CreatureDeliveryPoint_OnSpawn_Patch
+    {
+        private static void Postfix(CreatureDeliveryPoint __instance)
+        {
+            if (__instance == null) return;
+            CreatureDeliveryRegistry.Register(__instance);
+
+            __instance.Subscribe((int)GameHashes.OnStorageChange, (data) =>
+            {
+                CreatureDeliveryPointHelper.ReleaseAllInStorage(__instance);
+            });
+            CreatureDeliveryPointHelper.ReleaseAllInStorage(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(CreatureDeliveryPoint), "OnCleanUp")]
+    internal static class CreatureDeliveryPoint_OnCleanUp_Patch
+    {
+        private static void Prefix(CreatureDeliveryPoint __instance)
+        {
+            if (__instance != null)
+            {
+                CreatureDeliveryRegistry.Unregister(__instance);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(CreatureDeliveryPoint.States), nameof(CreatureDeliveryPoint.States.DropAllCreatures))]
+    internal static class CreatureDeliveryPoint_DropAllCreatures_Patch
+    {
+        private static void Postfix(CreatureDeliveryPoint.SMInstance smi)
+        {
+            if (smi?.master != null)
+            {
+                CreatureDeliveryPointHelper.ReleaseAllInStorage(smi.master);
+            }
+        }
+    }
+
+    internal static class CreatureDeliveryPointHelper
+    {
+        internal static void ReleaseAllInStorage(CreatureDeliveryPoint deliveryPoint)
+        {
+            if (deliveryPoint == null) return;
+            Storage storage = deliveryPoint.GetComponent<Storage>();
+            if (storage == null || storage.IsEmpty()) return;
+
+            List<GameObject> items = new List<GameObject>(storage.items);
+            int cell = Grid.OffsetCell(Grid.PosToCell(deliveryPoint.transform.GetPosition()), deliveryPoint.spawnOffset);
+            Vector3 spawnPos = Grid.CellToPosCBC(cell, Grid.SceneLayer.Creatures);
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                GameObject go = items[i];
+                if (go == null) continue;
+
+                storage.Drop(go, true);
+                go.transform.SetPosition(spawnPos);
+
+                Baggable baggable = go.GetComponent<Baggable>();
+                if (baggable != null)
+                {
+                    baggable.Free();
+                }
+
+                KBatchedAnimController anim = go.GetComponent<KBatchedAnimController>();
+                if (anim != null)
+                {
+                    anim.SetSceneLayer(Grid.SceneLayer.Creatures);
+                }
+            }
+
+            if (deliveryPoint.critterCapacity != null)
+            {
+                deliveryPoint.critterCapacity.RefreshCreatureCount();
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(EggIncubator), nameof(EggIncubator.StoreBaby))]
+    internal static class EggIncubator_StoreBaby_Patch
+    {
+        private static void Postfix(EggIncubator __instance, GameObject baby)
+        {
+            if (__instance == null || baby == null) return;
+
+            __instance.OrderRemoveOccupant();
+
+            Baggable baggable = baby.GetComponent<Baggable>();
+            if (baggable != null)
+            {
+                baby.AddTag(GameTags.Creatures.Deliverable);
+                baggable.SetWrangled();
+            }
+
+            __instance.Trigger((int)GameHashes.OccupantChanged, null);
+        }
+    }
+
+    [HarmonyPatch(typeof(EggIncubator), "Sim1000ms")]
+    internal static class EggIncubator_Sim1000ms_Watchdog_Patch
+    {
+        private static void Postfix(EggIncubator __instance)
+        {
+            if (__instance == null) return;
+            GameObject occupant = __instance.Occupant;
+            if (occupant != null && !occupant.HasTag(GameTags.Egg))
+            {
+                __instance.OrderRemoveOccupant();
+
+                Baggable baggable = occupant.GetComponent<Baggable>();
+                if (baggable != null)
+                {
+                    occupant.AddTag(GameTags.Creatures.Deliverable);
+                    baggable.SetWrangled();
+                }
+
+                __instance.Trigger((int)GameHashes.OccupantChanged, null);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(FixedCapturePoint.Instance), nameof(FixedCapturePoint.Instance.FindFixedCapturable))]
+    internal static class FixedCapturePoint_FindFixedCapturable_Patch
+    {
+        private static readonly AccessTools.FieldRef<FixedCapturePoint.Instance, int> CaptureCellRef =
+            AccessTools.FieldRefAccess<FixedCapturePoint.Instance, int>("captureCell");
+
+        private static void Postfix(FixedCapturePoint.Instance __instance)
+        {
+            if (__instance == null || !__instance.IsOperational) return;
+
+            var target = __instance.targetCapturable;
+            if (target != null && !target.IsNullOrStopped() && target.gameObject != null)
+            {
+                __instance.SetRancherIsAvailableForCapturing();
+
+                int creatureCell = Grid.PosToCell(target.transform.GetPosition());
+                int captureCell = CaptureCellRef(__instance);
+
+                if (Grid.IsValidCell(creatureCell) && Grid.IsValidCell(captureCell))
+                {
+                    int dist = Grid.GetCellDistance(creatureCell, captureCell);
+                    if (dist <= 2)
+                    {
+                        AutoWrangleTargetCreature(__instance);
+                    }
+                }
+            }
+        }
+
+        internal static void AutoWrangleTargetCreature(FixedCapturePoint.Instance smi)
+        {
+            if (smi == null || smi.targetCapturable == null || smi.targetCapturable.IsNullOrStopped()) return;
+            GameObject go = smi.targetCapturable.gameObject;
+            if (go == null) return;
+
+            Capturable capturable = go.GetComponent<Capturable>();
+            if (capturable != null)
+            {
+                capturable.MarkForCapture(false);
+            }
+            Baggable baggable = go.GetComponent<Baggable>();
+            if (baggable != null)
+            {
+                go.AddTag(GameTags.Creatures.Deliverable);
+                baggable.SetWrangled();
+            }
+            smi.ResetCapturePoint();
+        }
+    }
+
+    [HarmonyPatch(typeof(FixedCapturePoint.Instance), nameof(FixedCapturePoint.Instance.StartSM))]
+    internal static class FixedCapturePoint_StartSM_Patch
+    {
+        private static void Postfix(FixedCapturePoint.Instance __instance)
+        {
+            if (__instance == null || __instance.gameObject == null) return;
+            __instance.Subscribe((int)GameHashes.CreatureArrivedAtCapturePoint, (data) =>
+            {
+                FixedCapturePoint_FindFixedCapturable_Patch.AutoWrangleTargetCreature(__instance);
+            });
+        }
+    }
+
+    [HarmonyPatch(typeof(FixedCapturePoint.Instance), nameof(FixedCapturePoint.Instance.CreateChore))]
+    internal static class FixedCapturePoint_CreateChore_Patch
+    {
+        private static void Postfix(ref Chore __result)
+        {
+            if (__result != null)
+            {
+                __result.AddPrecondition(new Chore.Precondition
+                {
+                    id = "OmniMod_PreventDuplicantCapture",
+                    description = "OmniMod Automated Capture",
+                    fn = (ref Chore.Precondition.Context context, object data) => false
+                });
+                __result.showAvailabilityInHoverText = false;
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(Capturable), nameof(Capturable.MarkForCapture), typeof(bool), typeof(PrioritySetting), typeof(bool))]
+    internal static class Capturable_MarkForCapture_Patch
+    {
+        private static void Postfix(Capturable __instance, bool mark)
+        {
+            if (mark && __instance != null && __instance.IsMarkedForCapture)
+            {
+                Baggable baggable = __instance.GetComponent<Baggable>();
+                if (baggable != null && !baggable.wrangled)
+                {
+                    __instance.MarkForCapture(false);
+                    __instance.gameObject.AddTag(GameTags.Creatures.Deliverable);
+                    baggable.SetWrangled();
+                }
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(Game), "OnDestroy")]
+    internal static class AutoRanch_Game_OnDestroy_Patch
+    {
+        private static void Postfix()
+        {
+            BaggedCreatureRegistry.Clear();
+            CreatureDeliveryRegistry.Clear();
+        }
+    }
 }
