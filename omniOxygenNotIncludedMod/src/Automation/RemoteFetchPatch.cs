@@ -214,21 +214,43 @@ namespace OmniMod.Automation
     [HarmonyPatch(typeof(Assets), nameof(Assets.IsTagSolidTransferArmConveyable))]
     internal static class Assets_IsTagSolidTransferArmConveyable_Patch
     {
+        private static readonly HashSet<Tag> ConveyableCreatureTags = new HashSet<Tag>();
+        private static bool _initialized = false;
+
+        internal static void EnsureInitialized()
+        {
+            if (_initialized || Assets.Prefabs == null || Assets.Prefabs.Count == 0) return;
+            ConveyableCreatureTags.Add(GameTags.BagableCreature);
+            for (int i = 0; i < Assets.Prefabs.Count; i++)
+            {
+                var prefab = Assets.Prefabs[i];
+                if (prefab != null && (prefab.GetComponent<Baggable>() != null || prefab.GetComponent<Capturable>() != null))
+                {
+                    var kpid = prefab.GetComponent<KPrefabID>();
+                    if (kpid != null)
+                    {
+                        ConveyableCreatureTags.Add(kpid.PrefabTag);
+                    }
+                }
+            }
+            _initialized = true;
+        }
+
         private static void Postfix(Tag tag, ref bool __result)
         {
             if (!__result && tag.IsValid)
             {
-                if (tag == GameTags.BagableCreature || tag.Name.Contains("Creature") || tag.Name.Contains("Critter"))
+                if (!_initialized)
+                {
+                    EnsureInitialized();
+                }
+
+                if (ConveyableCreatureTags.Contains(tag))
                 {
                     __result = true;
                     return;
                 }
-                GameObject prefab = Assets.TryGetPrefab(tag);
-                if (prefab != null && (prefab.GetComponent<Baggable>() != null || prefab.GetComponent<Capturable>() != null))
-                {
-                    __result = true;
-                    return;
-                }
+
                 Element e = ElementLoader.FindElementByHash(ElementLoader.GetElementID(tag));
                 if (e != null && (e.IsLiquid || e.IsGas))
                 {
@@ -296,33 +318,13 @@ namespace OmniMod.Automation
                     return;
                 }
 
-                // 3. 动物放生点与袋装小动物：同星球下支持机械臂隔空抓取袋装动物并投送至放生点
-                if (CreatureDeliveryRegistry.IsDeliveryCell(cell) || HasBaggedCreatureAtCell(cell))
+                // 3. 动物放生点与袋装小动物：同星球下支持机械臂隔空抓取袋装动物并投送至放生点（纯 O(1) 字典查找，零遍历零 GC）
+                if (CreatureDeliveryRegistry.IsDeliveryCell(cell) ||
+                    BaggedCreatureRegistry.HasBaggedCreatureAtCell(cell))
                 {
                     __result = true;
                 }
             }
-        }
-
-        private static bool HasBaggedCreatureAtCell(int cell)
-        {
-            if (!Grid.IsValidCell(cell)) return false;
-            if (BaggedCreatureRegistry.HasBaggedCreatureAtCell(cell)) return true;
-            GameObject go = Grid.Objects[cell, (int)ObjectLayer.Pickupables];
-            while (go != null)
-            {
-                Pickupable p = go.GetComponent<Pickupable>();
-                if (p != null && p.KPrefabID != null && (p.KPrefabID.HasTag(GameTags.BagableCreature) || p.GetComponent<Baggable>() != null))
-                {
-                    Baggable bag = p.GetComponent<Baggable>();
-                    if (bag != null && bag.wrangled)
-                    {
-                        return true;
-                    }
-                }
-                go = (p != null && p.objectLayerListItem != null && p.objectLayerListItem.nextItem != null) ? p.objectLayerListItem.nextItem.gameObject : null;
-            }
-            return false;
         }
     }
 
@@ -393,11 +395,13 @@ namespace OmniMod.Automation
                 }
             }
 
-            // 1.2 本星球袋装小动物：若目标为动物放生点，机械臂支持无视距离隔空锁定袋装小动物
-            if (destination.GetComponent<CreatureDeliveryPoint>() != null || (Db.Get() != null && chore.choreType == Db.Get().ChoreTypes.CreatureFetch))
+            // 1.2 本星球袋装小动物：仅当搬运需求为小动物交付（CreatureFetch）时快速匹配
+            if (Db.Get() != null && chore.choreType == Db.Get().ChoreTypes.CreatureFetch)
             {
-                foreach (Baggable bag in BaggedCreatureRegistry.GetBaggedCreatures())
+                var baggedList = BaggedCreatureRegistry.GetBaggedCreatures();
+                for (int i = 0; i < baggedList.Count; i++)
                 {
+                    Baggable bag = baggedList[i];
                     if (bag == null || bag.gameObject == null || !bag.wrangled || bag.GetMyWorldId() != world)
                     {
                         continue;
@@ -410,32 +414,6 @@ namespace OmniMod.Automation
                             __result = p;
                             RemoteFetch.LogOnce("隔空取物：机械臂锁定袋装小动物: " + p.name);
                             return;
-                        }
-                    }
-                }
-
-                if (Components.Capturables != null)
-                {
-                    for (int i = 0; i < Components.Capturables.Count; i++)
-                    {
-                        Capturable capturable = Components.Capturables[i];
-                        if (capturable == null || capturable.gameObject == null || capturable.GetMyWorldId() != world)
-                        {
-                            continue;
-                        }
-                        Baggable bag = capturable.GetComponent<Baggable>();
-                        if (bag != null && bag.wrangled)
-                        {
-                            Pickupable p = capturable.GetComponent<Pickupable>();
-                            if (p != null && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
-                            {
-                                if (FetchManager.IsFetchablePickup(p, chore, destination))
-                                {
-                                    __result = p;
-                                    RemoteFetch.LogOnce("隔空取物：机械臂锁定袋装小动物: " + p.name);
-                                    return;
-                                }
-                            }
                         }
                     }
                 }

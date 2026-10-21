@@ -399,45 +399,72 @@ namespace OmniMod.Automation
 
     public static class BaggedCreatureRegistry
     {
+        private static readonly object _lock = new object();
         private static readonly HashSet<Baggable> _bagged = new HashSet<Baggable>();
+        private static readonly Dictionary<Baggable, int> _bagToCell = new Dictionary<Baggable, int>();
         private static readonly HashSet<int> _baggedCells = new HashSet<int>();
 
         public static void Register(Baggable bag)
         {
             if (bag == null || bag.gameObject == null) return;
-            _bagged.Add(bag);
-            int cell = Grid.PosToCell(bag.transform.GetPosition());
-            if (Grid.IsValidCell(cell))
+            lock (_lock)
             {
-                _baggedCells.Add(cell);
+                _bagged.Add(bag);
+                int cell = Grid.PosToCell(bag.transform.GetPosition());
+                if (Grid.IsValidCell(cell))
+                {
+                    _bagToCell[bag] = cell;
+                    _baggedCells.Add(cell);
+                }
             }
+
+            bag.Subscribe((int)GameHashes.ObjectDestroyed, (data) =>
+            {
+                Unregister(bag);
+            });
         }
 
         public static void Unregister(Baggable bag)
         {
             if (bag == null) return;
-            _bagged.Remove(bag);
-            int cell = Grid.PosToCell(bag.transform.GetPosition());
-            if (Grid.IsValidCell(cell))
+            lock (_lock)
             {
-                _baggedCells.Remove(cell);
+                _bagged.Remove(bag);
+                if (_bagToCell.TryGetValue(bag, out int oldCell))
+                {
+                    _bagToCell.Remove(bag);
+                    if (!_bagToCell.ContainsValue(oldCell))
+                    {
+                        _baggedCells.Remove(oldCell);
+                    }
+                }
             }
         }
 
         public static bool HasBaggedCreatureAtCell(int cell)
         {
-            return _baggedCells.Contains(cell);
+            lock (_lock)
+            {
+                return _baggedCells.Contains(cell);
+            }
         }
 
-        public static IEnumerable<Baggable> GetBaggedCreatures()
+        public static List<Baggable> GetBaggedCreatures()
         {
-            return _bagged;
+            lock (_lock)
+            {
+                return new List<Baggable>(_bagged);
+            }
         }
 
         public static void Clear()
         {
-            _bagged.Clear();
-            _baggedCells.Clear();
+            lock (_lock)
+            {
+                _bagged.Clear();
+                _bagToCell.Clear();
+                _baggedCells.Clear();
+            }
         }
     }
 
@@ -517,18 +544,6 @@ namespace OmniMod.Automation
         }
     }
 
-    [HarmonyPatch(typeof(Baggable), "OnCleanUp")]
-    internal static class Baggable_OnCleanUp_Patch
-    {
-        private static void Prefix(Baggable __instance)
-        {
-            if (__instance != null)
-            {
-                BaggedCreatureRegistry.Unregister(__instance);
-            }
-        }
-    }
-
     [HarmonyPatch(typeof(CreatureDeliveryPoint), "OnSpawn")]
     internal static class CreatureDeliveryPoint_OnSpawn_Patch
     {
@@ -571,40 +586,51 @@ namespace OmniMod.Automation
 
     internal static class CreatureDeliveryPointHelper
     {
+        private static bool _isReleasing = false;
+
         internal static void ReleaseAllInStorage(CreatureDeliveryPoint deliveryPoint)
         {
-            if (deliveryPoint == null) return;
+            if (_isReleasing || deliveryPoint == null) return;
             Storage storage = deliveryPoint.GetComponent<Storage>();
             if (storage == null || storage.IsEmpty()) return;
 
-            List<GameObject> items = new List<GameObject>(storage.items);
-            int cell = Grid.OffsetCell(Grid.PosToCell(deliveryPoint.transform.GetPosition()), deliveryPoint.spawnOffset);
-            Vector3 spawnPos = Grid.CellToPosCBC(cell, Grid.SceneLayer.Creatures);
-
-            for (int i = 0; i < items.Count; i++)
+            try
             {
-                GameObject go = items[i];
-                if (go == null) continue;
+                _isReleasing = true;
+                List<GameObject> items = new List<GameObject>(storage.items);
+                int cell = Grid.OffsetCell(Grid.PosToCell(deliveryPoint.transform.GetPosition()), deliveryPoint.spawnOffset);
+                Vector3 spawnPos = Grid.CellToPosCBC(cell, Grid.SceneLayer.Creatures);
 
-                storage.Drop(go, true);
-                go.transform.SetPosition(spawnPos);
-
-                Baggable baggable = go.GetComponent<Baggable>();
-                if (baggable != null)
+                for (int i = 0; i < items.Count; i++)
                 {
-                    baggable.Free();
+                    GameObject go = items[i];
+                    if (go == null) continue;
+
+                    storage.Drop(go, true);
+                    go.transform.SetPosition(spawnPos);
+
+                    Baggable baggable = go.GetComponent<Baggable>();
+                    if (baggable != null)
+                    {
+                        BaggedCreatureRegistry.Unregister(baggable);
+                        baggable.Free();
+                    }
+
+                    KBatchedAnimController anim = go.GetComponent<KBatchedAnimController>();
+                    if (anim != null)
+                    {
+                        anim.SetSceneLayer(Grid.SceneLayer.Creatures);
+                    }
                 }
 
-                KBatchedAnimController anim = go.GetComponent<KBatchedAnimController>();
-                if (anim != null)
+                if (deliveryPoint.critterCapacity != null)
                 {
-                    anim.SetSceneLayer(Grid.SceneLayer.Creatures);
+                    deliveryPoint.critterCapacity.RefreshCreatureCount();
                 }
             }
-
-            if (deliveryPoint.critterCapacity != null)
+            finally
             {
-                deliveryPoint.critterCapacity.RefreshCreatureCount();
+                _isReleasing = false;
             }
         }
     }
@@ -629,8 +655,8 @@ namespace OmniMod.Automation
         }
     }
 
-    [HarmonyPatch(typeof(EggIncubator), "Sim1000ms")]
-    internal static class EggIncubator_Sim1000ms_Watchdog_Patch
+    [HarmonyPatch(typeof(EggIncubator), "OnSpawn")]
+    internal static class EggIncubator_OnSpawn_Watchdog_Patch
     {
         private static void Postfix(EggIncubator __instance)
         {
