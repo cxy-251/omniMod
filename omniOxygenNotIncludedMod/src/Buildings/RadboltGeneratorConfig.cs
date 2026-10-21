@@ -80,7 +80,7 @@ namespace OmniMod.Buildings
 
             HighEnergyParticleStorage storage = go.AddOrGet<HighEnergyParticleStorage>();
             storage.autoStore = true;
-            storage.capacity = 4000f;
+            storage.capacity = RadboltGenerator.STORAGE_CAPACITY;
             storage.PORT_ID = PORT_ID;
             storage.showCapacityStatusItem = true;
 
@@ -104,6 +104,8 @@ namespace OmniMod.Buildings
     [SerializationConfig(MemberSerialization.OptIn)]
     public class RadboltGenerator : Generator
     {
+        public const float STORAGE_CAPACITY = 4000f;
+
         [MyCmpReq]
         private HighEnergyParticleStorage _particleStorage;
 
@@ -120,11 +122,22 @@ namespace OmniMod.Buildings
             base.OnSpawn();
             _particleStorage = GetComponent<HighEnergyParticleStorage>();
             _kbac = GetComponent<KBatchedAnimController>();
+
+            // 强制将现有存档中已建造的旧发电机容量从 10000 覆盖为 4000
+            if (_particleStorage != null)
+            {
+                _particleStorage.capacity = STORAGE_CAPACITY;
+            }
         }
 
         public override void EnergySim200ms(float dt)
         {
             base.EnergySim200ms(dt);
+
+            if (_particleStorage != null && _particleStorage.capacity != STORAGE_CAPACITY)
+            {
+                _particleStorage.capacity = STORAGE_CAPACITY;
+            }
 
             operational.SetFlag(Generator.wireConnectedFlag, CircuitID != ushort.MaxValue);
 
