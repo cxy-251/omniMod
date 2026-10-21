@@ -78,7 +78,7 @@ namespace OmniMod.Buildings
             dispenser.alwaysDispense = true;
             dispenser.elementFilter = new[] { SimHashes.Ethanol };
 
-            // 固体进料支持 1：蔗糖（Sucrose）
+            // 固体进料：蔗糖（Sucrose，由农作物研磨机加工汗甜玉米等产出）
             ManualDeliveryKG sucroseDelivery = go.AddComponent<ManualDeliveryKG>();
             sucroseDelivery.SetStorage(storage);
             sucroseDelivery.RequestedItemTag = SimHashes.Sucrose.CreateTag();
@@ -86,15 +86,7 @@ namespace OmniMod.Buildings
             sucroseDelivery.refillMass = 100f;
             sucroseDelivery.choreTypeIDHash = Db.Get().ChoreTypes.FetchCritical.IdHash;
 
-            // 固体进料支持 2：汗甜玉米（GardenFoodPlantFood）
-            ManualDeliveryKG cornDelivery = go.AddComponent<ManualDeliveryKG>();
-            cornDelivery.SetStorage(storage);
-            cornDelivery.RequestedItemTag = TagManager.Create("GardenFoodPlantFood");
-            cornDelivery.capacity = 500f;
-            cornDelivery.refillMass = 100f;
-            cornDelivery.choreTypeIDHash = Db.Get().ChoreTypes.FetchCritical.IdHash;
-
-            // 反应配方 1：水 (2.0kg) + 蔗糖 (0.5kg) -> 乙醇 (2.0kg) + CO2 (0.5kg)
+            // 反应配方：水 (2.0kg) + 蔗糖 (0.5kg) -> 乙醇 (2.0kg) + CO2 (0.5kg)
             ElementConverter sucroseConverter = go.AddComponent<ElementConverter>();
             sucroseConverter.consumedElements = new[]
             {
@@ -102,19 +94,6 @@ namespace OmniMod.Buildings
                 new ElementConverter.ConsumedElement(SimHashes.Sucrose.CreateTag(), 0.5f),
             };
             sucroseConverter.outputElements = new[]
-            {
-                new ElementConverter.OutputElement(2.0f, SimHashes.Ethanol, 313.15f, useEntityTemperature: false, storeOutput: true),
-                new ElementConverter.OutputElement(0.5f, SimHashes.CarbonDioxide, 313.15f, useEntityTemperature: false, storeOutput: false, outputElementOffsety: 1.5f),
-            };
-
-            // 反应配方 2：水 (2.0kg) + 汗甜玉米 (0.5kg) -> 乙醇 (2.0kg) + CO2 (0.5kg)
-            ElementConverter cornConverter = go.AddComponent<ElementConverter>();
-            cornConverter.consumedElements = new[]
-            {
-                new ElementConverter.ConsumedElement(SimHashes.Water.CreateTag(), 2.0f),
-                new ElementConverter.ConsumedElement(TagManager.Create("GardenFoodPlantFood"), 0.5f),
-            };
-            cornConverter.outputElements = new[]
             {
                 new ElementConverter.OutputElement(2.0f, SimHashes.Ethanol, 313.15f, useEntityTemperature: false, storeOutput: true),
                 new ElementConverter.OutputElement(0.5f, SimHashes.CarbonDioxide, 313.15f, useEntityTemperature: false, storeOutput: false, outputElementOffsety: 1.5f),

@@ -70,6 +70,24 @@ namespace OmniMod.Buildings
                 "refining",
                 relativeBuildingId: BioFermenterConfig.ID,
                 ordering: ModUtil.BuildingOrdering.After);
+
+            // 农作物研磨机
+            ModStrings.AddBuilding(
+                CropMillConfig.ID,
+                name: ModStrings.T("农作物研磨机", "Crop Mill"),
+                desc: ModStrings.T(
+                    "专门用于研磨、粉碎和精炼各类农作物的农业加工机械。破坏作物的纤维与细胞结构，高效提取结晶蔗糖等关键农业中间产物。",
+                    "An agricultural processing machine specially designed to mill, crush, and refine various crops. Breaks down plant fibers and cellular structures to efficiently extract crystallized sucrose and other key agricultural byproducts."),
+                effect: ModStrings.T(
+                    "根据选定配方，将农作物（如汗甜玉米）研磨提取为结晶蔗糖等固体产物。全面支持自动化免人工运行。",
+                    "Mills and crushes agricultural crops (such as Sweatcorn) into solid crystallized sucrose and other byproducts based on selected recipes. Fully supports automated unattended operation."));
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Refining"),
+                CropMillConfig.ID,
+                "refining",
+                relativeBuildingId: PetroleumSynthesizerConfig.ID,
+                ordering: ModUtil.BuildingOrdering.After);
         }
 
         private static void RegisterRadboltGenerator()
