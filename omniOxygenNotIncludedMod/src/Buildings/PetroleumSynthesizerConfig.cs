@@ -37,6 +37,7 @@ namespace OmniMod.Buildings
             def.EnergyConsumptionWhenActive = 480f;
             def.ExhaustKilowattsWhenActive = 1f;
             def.SelfHeatKilowattsWhenActive = 2f;
+            def.PowerInputOffset = new CellOffset(1, 0);
 
             def.InputConduitType = ConduitType.Liquid;
             def.UtilityInputOffset = new CellOffset(0, 0);
@@ -80,7 +81,7 @@ namespace OmniMod.Buildings
             // 固体进料支持 1：煤炭（Coal）
             ManualDeliveryKG coalDelivery = go.AddComponent<ManualDeliveryKG>();
             coalDelivery.SetStorage(storage);
-            coalDelivery.RequestedItemTag = SimHashes.Carbon.CreateTag();
+            coalDelivery.RequestedItemTag = PetroleumSynthesizer.CoalTag;
             coalDelivery.capacity = 500f;
             coalDelivery.refillMass = 100f;
             coalDelivery.choreTypeIDHash = Db.Get().ChoreTypes.FetchCritical.IdHash;
@@ -88,34 +89,22 @@ namespace OmniMod.Buildings
             // 固体进料支持 2：精炼碳（Refined Carbon）
             ManualDeliveryKG refinedCarbonDelivery = go.AddComponent<ManualDeliveryKG>();
             refinedCarbonDelivery.SetStorage(storage);
-            refinedCarbonDelivery.RequestedItemTag = SimHashes.RefinedCarbon.CreateTag();
+            refinedCarbonDelivery.RequestedItemTag = PetroleumSynthesizer.RefinedCarbonTag;
             refinedCarbonDelivery.capacity = 250f;
             refinedCarbonDelivery.refillMass = 50f;
             refinedCarbonDelivery.choreTypeIDHash = Db.Get().ChoreTypes.FetchCritical.IdHash;
 
-            // 反应配方 1：水 (2.0kg) + 煤炭 (0.5kg) -> 精炼石油 (2.0kg)
-            ElementConverter coalConverter = go.AddComponent<ElementConverter>();
-            coalConverter.consumedElements = new[]
-            {
-                new ElementConverter.ConsumedElement(SimHashes.Water.CreateTag(), 2.0f),
-                new ElementConverter.ConsumedElement(SimHashes.Carbon.CreateTag(), 0.5f),
-            };
-            coalConverter.outputElements = new[]
+            // 统一单一反应转换器：水 (2.0kg) + 碳源 -> 精炼石油 (2.0kg)
+            // 具体碳源配方由 PetroleumSynthesizer 主控组件根据玩家在侧边栏的选择动态热切换
+            ElementConverter converter = go.AddComponent<ElementConverter>();
+            converter.consumedElements = PetroleumSynthesizer.ConsumedCoal;
+            converter.outputElements = new[]
             {
                 new ElementConverter.OutputElement(2.0f, SimHashes.Petroleum, 333.15f, useEntityTemperature: false, storeOutput: true),
             };
 
-            // 反应配方 2：水 (2.0kg) + 精炼碳 (0.25kg) -> 精炼石油 (2.0kg)
-            ElementConverter refinedCarbonConverter = go.AddComponent<ElementConverter>();
-            refinedCarbonConverter.consumedElements = new[]
-            {
-                new ElementConverter.ConsumedElement(SimHashes.Water.CreateTag(), 2.0f),
-                new ElementConverter.ConsumedElement(SimHashes.RefinedCarbon.CreateTag(), 0.25f),
-            };
-            refinedCarbonConverter.outputElements = new[]
-            {
-                new ElementConverter.OutputElement(2.0f, SimHashes.Petroleum, 333.15f, useEntityTemperature: false, storeOutput: true),
-            };
+            // 挂载主控逻辑组件（侧边栏配方切换、供料调度与智能自适应）
+            go.AddOrGet<PetroleumSynthesizer>();
 
             Prioritizable.AddRef(go);
 
