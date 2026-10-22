@@ -35,7 +35,7 @@ namespace OmniMod.Logistics.RemoteFetch
                     for (int i = 0; i < Assets.Prefabs.Count; i++)
                     {
                         var prefab = Assets.Prefabs[i];
-                        if (prefab != null)
+                        if (prefab != null && (prefab.GetComponent<Baggable>() != null || prefab.GetComponent<Capturable>() != null))
                         {
                             var kpid = prefab.GetComponent<KPrefabID>();
                             if (kpid != null)
@@ -269,19 +269,23 @@ namespace OmniMod.Logistics.RemoteFetch
                 }
             }
 
-            GlobalItemCollector localFood = AggregateBoxRegistry.GetActiveBoxForWorld(world, GlobalItemCollector.CollectMode.Edibles);
-            if (localFood != null && localFood.BoxStorage != null)
+            // 1.6 仅当需求涉及食物或烹饪原料时，且本星聚合箱无匹配时，才跨星检索食物主箱 FoodHome
+            if (IsFoodRelatedChore(chore))
             {
-                GlobalItemCollector foodHome = AggregateBoxRegistry.FoodHome;
-                if (foodHome != null && foodHome != localFood && foodHome.BoxStorage != null)
+                GlobalItemCollector localFood = AggregateBoxRegistry.GetActiveBoxForWorld(world, GlobalItemCollector.CollectMode.Edibles);
+                if (localFood != null && localFood.BoxStorage != null)
                 {
-                    int foodWorld = foodHome.GetMyWorldId();
-                    Pickupable foodMatched = AggregateBoxRegistry.FindMatchInWorldBox(foodWorld, chore, destination, isCrossPlanetDiscrete: true);
-                    if (foodMatched != null)
+                    GlobalItemCollector foodHome = AggregateBoxRegistry.FoodHome;
+                    if (foodHome != null && foodHome != localFood && foodHome.BoxStorage != null)
                     {
-                        localFood.BoxStorage.Store(foodMatched.gameObject, hide_popups: true);
-                        ModLog.DebugLog("隔空取物：跨星调拨食物并锁定: " + foodMatched.name);
-                        return foodMatched;
+                        int foodWorld = foodHome.GetMyWorldId();
+                        Pickupable foodMatched = AggregateBoxRegistry.FindMatchInWorldBox(foodWorld, chore, destination, isCrossPlanetDiscrete: true);
+                        if (foodMatched != null)
+                        {
+                            localFood.BoxStorage.Store(foodMatched.gameObject, hide_popups: true);
+                            ModLog.DebugLog("隔空取物：跨星调拨食物并锁定: " + foodMatched.name);
+                            return foodMatched;
+                        }
                     }
                 }
             }
@@ -348,6 +352,22 @@ namespace OmniMod.Logistics.RemoteFetch
                 if (e != null && (e.IsLiquid || e.IsGas)) return true;
             }
             return false;
+        }
+
+        private static bool IsFoodRelatedChore(FetchChore chore)
+        {
+            if (chore == null) return false;
+            if (Db.Get()?.ChoreTypes?.FoodFetch != null && chore.choreType == Db.Get().ChoreTypes.FoodFetch) return true;
+            if (Db.Get()?.ChoreTypes?.Cook != null && chore.choreType == Db.Get().ChoreTypes.Cook) return true;
+            if (chore.tags != null)
+            {
+                foreach (Tag t in chore.tags)
+                {
+                    if (t == GameTags.Edible || t == GameTags.CookingIngredient) return true;
+                }
+            }
+            return chore.requiredTag == GameTags.Edible || chore.requiredTag == GameTags.CookingIngredient ||
+                   chore.tagsFirst == GameTags.Edible || chore.tagsFirst == GameTags.CookingIngredient;
         }
     }
 }
