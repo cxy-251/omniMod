@@ -60,6 +60,7 @@ namespace OmniMod.Buildings
             Storage storage = go.AddOrGet<Storage>();
             storage.showInUI = true;               // 点击建筑时在侧栏显示内容物
             storage.allowItemRemoval = true;
+            storage.ignoreSourcePriority = true;   // 允许机械手无视优先级从箱中抓取物品供应任意建筑（如轨道装载机、储物箱等）
             storage.showDescriptor = true;
             storage.storageFilters = STORAGEFILTERS.STORAGE_LOCKERS_STANDARD;   // 和普通储物柜一样，接受所有固体
             storage.storageFullMargin = STORAGE.STORAGE_LOCKER_FILLED_MARGIN;

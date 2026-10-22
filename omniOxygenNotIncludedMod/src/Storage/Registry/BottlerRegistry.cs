@@ -55,10 +55,26 @@ namespace OmniMod.Collection
                 {
                     continue;
                 }
-                int cell = Grid.PosToCell(b.transform.GetPosition());
-                if (Grid.IsValidCell(cell))
+                OccupyArea area = b.GetComponent<OccupyArea>();
+                int[] cells = area != null ? area.GetOccupiedGridCells() : null;
+                if (cells != null && cells.Length > 0)
                 {
-                    ActiveBottlerCellToBottler[cell] = b;
+                    for (int c = 0; c < cells.Length; c++)
+                    {
+                        int ac = cells[c];
+                        if (Grid.IsValidCell(ac))
+                        {
+                            ActiveBottlerCellToBottler[ac] = b;
+                        }
+                    }
+                }
+                else
+                {
+                    int cell = Grid.PosToCell(b.transform.GetPosition());
+                    if (Grid.IsValidCell(cell))
+                    {
+                        ActiveBottlerCellToBottler[cell] = b;
+                    }
                 }
                 int worldId = b.GetMyWorldId();
                 if (worldId >= 0 && worldId != 255)

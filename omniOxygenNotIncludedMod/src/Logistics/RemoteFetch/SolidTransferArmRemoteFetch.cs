@@ -35,7 +35,7 @@ namespace OmniMod.Logistics.RemoteFetch
                     for (int i = 0; i < Assets.Prefabs.Count; i++)
                     {
                         var prefab = Assets.Prefabs[i];
-                        if (prefab != null && (prefab.GetComponent<Baggable>() != null || prefab.GetComponent<Capturable>() != null))
+                        if (prefab != null)
                         {
                             var kpid = prefab.GetComponent<KPrefabID>();
                             if (kpid != null)
@@ -95,7 +95,7 @@ namespace OmniMod.Logistics.RemoteFetch
     {
         private static bool Prefix(ReachabilityMonitor.Instance __instance)
         {
-            if (__instance != null && __instance.master is Pickupable p && AggregateBoxRegistry.IsBoxStorage(p.storage))
+            if (__instance != null && __instance.master is Pickupable p && (AggregateBoxRegistry.IsBoxStorage(p.storage) || p.storage?.GetComponent<Bottler>() != null))
             {
                 __instance.sm.isReachable.Set(true, __instance);
                 return false;
@@ -250,8 +250,8 @@ namespace OmniMod.Logistics.RemoteFetch
                 }
             }
 
-            // 1.5 若本星球聚合箱未匹配到目标，检查是否有其它星球聚合箱（如主杂物箱 DiscreteHome）中的闲置离散物品满足该搬运需求，
-            //     若有，立即按需调拨 1 件到本星球的杂物箱，并直接锁定供机械臂抓取！
+            // 1.5 若本星球聚合箱未匹配到目标，检查是否有其它星球聚合箱（主杂物箱 DiscreteHome 或 主食物箱 FoodHome）中的闲置离散物品/食物满足需求，
+            //     若有，立即按需调拨 1 件到本星球的对应箱子，并直接锁定供机械臂抓取！
             GlobalItemCollector localJunk = AggregateBoxRegistry.GetActiveJunkBoxForWorld(world);
             if (localJunk != null && localJunk.BoxStorage != null)
             {
@@ -265,6 +265,23 @@ namespace OmniMod.Logistics.RemoteFetch
                         AggregateBoxRegistry.TransferItemToWorldJunkBox(homeMatched.gameObject, world);
                         ModLog.DebugLog("隔空取物：跨星调拨离散物品并锁定: " + homeMatched.name);
                         return homeMatched;
+                    }
+                }
+            }
+
+            GlobalItemCollector localFood = AggregateBoxRegistry.GetActiveBoxForWorld(world, GlobalItemCollector.CollectMode.Edibles);
+            if (localFood != null && localFood.BoxStorage != null)
+            {
+                GlobalItemCollector foodHome = AggregateBoxRegistry.FoodHome;
+                if (foodHome != null && foodHome != localFood && foodHome.BoxStorage != null)
+                {
+                    int foodWorld = foodHome.GetMyWorldId();
+                    Pickupable foodMatched = AggregateBoxRegistry.FindMatchInWorldBox(foodWorld, chore, destination, isCrossPlanetDiscrete: true);
+                    if (foodMatched != null)
+                    {
+                        localFood.BoxStorage.Store(foodMatched.gameObject, hide_popups: true);
+                        ModLog.DebugLog("隔空取物：跨星调拨食物并锁定: " + foodMatched.name);
+                        return foodMatched;
                     }
                 }
             }
@@ -317,6 +334,7 @@ namespace OmniMod.Logistics.RemoteFetch
                 {
                     foreach (Tag t in chore.tags)
                     {
+                        if (t == GameTags.Liquid || t == GameTags.Gas) return true;
                         Element e = ElementLoader.FindElementByHash(ElementLoader.GetElementID(t));
                         if (e != null && (e.IsLiquid || e.IsGas)) return true;
                     }

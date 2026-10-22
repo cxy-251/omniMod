@@ -32,6 +32,7 @@ namespace OmniMod.Collection
             }
             if (box.BoxStorage != null)
             {
+                box.BoxStorage.ignoreSourcePriority = true;
                 StorageToBox[box.BoxStorage] = box;
             }
             RebuildActiveBoxCells();
@@ -75,10 +76,26 @@ namespace OmniMod.Collection
                 {
                     continue;
                 }
-                int bc = Grid.PosToCell(b.transform.GetPosition());
-                if (Grid.IsValidCell(bc))
+                OccupyArea area = b.GetComponent<OccupyArea>();
+                int[] cells = area != null ? area.GetOccupiedGridCells() : null;
+                if (cells != null && cells.Length > 0)
                 {
-                    ActiveBoxCellToBox[bc] = b;
+                    for (int c = 0; c < cells.Length; c++)
+                    {
+                        int cell = cells[c];
+                        if (Grid.IsValidCell(cell))
+                        {
+                            ActiveBoxCellToBox[cell] = b;
+                        }
+                    }
+                }
+                else
+                {
+                    int bc = Grid.PosToCell(b.transform.GetPosition());
+                    if (Grid.IsValidCell(bc))
+                    {
+                        ActiveBoxCellToBox[bc] = b;
+                    }
                 }
             }
         }
@@ -382,45 +399,75 @@ namespace OmniMod.Collection
             {
                 if (!_worldBoxItemsByTag.TryGetValue(worldId, out tagIndex) || tagIndex == null)
                 {
-                    return null;
+                    RefreshWorldBoxItems(worldId);
+                    _worldBoxItemsByTag.TryGetValue(worldId, out tagIndex);
                 }
             }
 
-            if (chore.criteria == FetchChore.MatchCriteria.MatchID)
+            if (tagIndex != null)
             {
-                if (chore.tags == null) return null;
-                foreach (Tag t in chore.tags)
+                if (chore.criteria == FetchChore.MatchCriteria.MatchID)
                 {
-                    if (tagIndex.TryGetValue(t, out List<Pickupable> list) && list != null)
+                    if (chore.tags != null)
                     {
-                        Pickupable p = CheckCandidateList(list, chore, destination, isCrossPlanetDiscrete, worldId);
-                        if (p != null) return p;
+                        foreach (Tag t in chore.tags)
+                        {
+                            if (tagIndex.TryGetValue(t, out List<Pickupable> list) && list != null)
+                            {
+                                Pickupable p = CheckCandidateList(list, chore, destination, isCrossPlanetDiscrete, worldId);
+                                if (p != null) return p;
+                            }
+                        }
+                    }
+                }
+                else if (chore.criteria == FetchChore.MatchCriteria.MatchTags)
+                {
+                    Tag tag = chore.tagsFirst;
+                    if (chore.requiredTag.IsValid)
+                    {
+                        List<Pickupable> reqList = null;
+                        List<Pickupable> firstList = null;
+                        tagIndex.TryGetValue(chore.requiredTag, out reqList);
+                        tagIndex.TryGetValue(tag, out firstList);
+
+                        List<Pickupable> chosen = (reqList != null && (firstList == null || reqList.Count < firstList.Count)) ? reqList : firstList;
+                        if (chosen != null)
+                        {
+                            Pickupable p = CheckCandidateList(chosen, chore, destination, isCrossPlanetDiscrete, worldId);
+                            if (p != null) return p;
+                        }
+                    }
+                    else
+                    {
+                        if (tagIndex.TryGetValue(tag, out List<Pickupable> list) && list != null)
+                        {
+                            Pickupable p = CheckCandidateList(list, chore, destination, isCrossPlanetDiscrete, worldId);
+                            if (p != null) return p;
+                        }
                     }
                 }
             }
-            else if (chore.criteria == FetchChore.MatchCriteria.MatchTags)
-            {
-                Tag tag = chore.tagsFirst;
-                if (chore.requiredTag.IsValid)
-                {
-                    List<Pickupable> reqList = null;
-                    List<Pickupable> firstList = null;
-                    tagIndex.TryGetValue(chore.requiredTag, out reqList);
-                    tagIndex.TryGetValue(tag, out firstList);
 
-                    List<Pickupable> chosen = (reqList != null && (firstList == null || reqList.Count < firstList.Count)) ? reqList : firstList;
-                    if (chosen != null)
-                    {
-                        Pickupable p = CheckCandidateList(chosen, chore, destination, isCrossPlanetDiscrete, worldId);
-                        if (p != null) return p;
-                    }
-                }
-                else
+            // 兜底全量扫描：如果 Tag 索引因原版复杂多重标签未命中，遍历该星球快照确保 100% 无遗漏
+            lock (_worldBoxItems)
+            {
+                if (_worldBoxItems.TryGetValue(worldId, out Pickupable[] allItems) && allItems != null)
                 {
-                    if (tagIndex.TryGetValue(tag, out List<Pickupable> list) && list != null)
+                    for (int i = 0; i < allItems.Length; i++)
                     {
-                        Pickupable p = CheckCandidateList(list, chore, destination, isCrossPlanetDiscrete, worldId);
-                        if (p != null) return p;
+                        Pickupable p = allItems[i];
+                        if (p == null || p.KPrefabID == null || p.UnreservedFetchAmount <= 0f) continue;
+                        if (p.storage != null && p.storage == destination) continue;
+                        if (isCrossPlanetDiscrete)
+                        {
+                            if (!GlobalItemCollector.IsDiscreteManaged(p.gameObject)) continue;
+                            Assignable assignable = p.GetComponent<Assignable>();
+                            if (assignable != null && assignable.IsAssigned() && GetAssigneeWorldId(assignable.assignee) != worldId) continue;
+                        }
+                        if (FetchManager.IsFetchablePickup(p, chore, destination))
+                        {
+                            return p;
+                        }
                     }
                 }
             }

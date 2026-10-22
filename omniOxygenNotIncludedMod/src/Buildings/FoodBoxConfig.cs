@@ -52,6 +52,7 @@ namespace OmniMod.Buildings
             Storage storage = go.AddOrGet<Storage>();
             storage.showInUI = true;
             storage.allowItemRemoval = true;
+            storage.ignoreSourcePriority = true;   // 允许机械手无视优先级从食物箱中抓取食物
             storage.showDescriptor = true;
             storage.storageFilters = STORAGEFILTERS.FOOD;
             storage.storageFullMargin = STORAGE.STORAGE_LOCKER_FILLED_MARGIN;

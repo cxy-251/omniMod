@@ -287,7 +287,7 @@ namespace OmniMod.Diagnostics
     {
         private static void Postfix(Game __instance)
         {
-            if (__instance != null && __instance.gameObject.GetComponent<StutterMonitor>() == null)
+            if (StutterProfiler.Enabled && __instance != null && __instance.gameObject.GetComponent<StutterMonitor>() == null)
             {
                 __instance.gameObject.AddComponent<StutterMonitor>();
             }

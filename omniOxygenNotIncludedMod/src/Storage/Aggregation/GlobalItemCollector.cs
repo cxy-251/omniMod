@@ -65,6 +65,7 @@ namespace OmniMod.Collection
             }
 
             LivingThingsSafety.EjectLivingThings(this);
+            AggregateBoxRegistry.RefreshWorldBoxItems(this.GetMyWorldId());
         }
 
         private void OnResourceDiscovered(Tag category, Tag resource)
@@ -86,6 +87,9 @@ namespace OmniMod.Collection
         {
             LivingThingsSafety.EjectLivingThings(this);
             if (_isRedundant) return;
+
+            // 每秒刷新本星球聚合箱内物品快照，供本星球机械手隔空取物 O(1) 匹配使用
+            AggregateBoxRegistry.RefreshWorldBoxItems(this.GetMyWorldId());
 
             _timer += dt;
 
