@@ -30,6 +30,8 @@ namespace OmniMod.Logistics.RemoteFetch
                 if (set == null) return;
 
                 set.Add(GameTags.BagableCreature);
+                set.Add(GameTags.Liquid);
+                set.Add(GameTags.Gas);
                 if (Assets.Prefabs != null)
                 {
                     for (int i = 0; i < Assets.Prefabs.Count; i++)
@@ -317,6 +319,11 @@ namespace OmniMod.Logistics.RemoteFetch
                             {
                                 continue;
                             }
+                            if (p.storage != null)
+                            {
+                                p.storage.allowItemRemoval = true;
+                                p.storage.ignoreSourcePriority = true;
+                            }
                             if (FetchManager.IsFetchablePickup(p, chore, destination))
                             {
                                 ModLog.DebugLog("隔空取水：机械臂锁定装瓶器内流体: " + p.name);
@@ -332,25 +339,32 @@ namespace OmniMod.Logistics.RemoteFetch
 
         private static bool ChoreRequestsLiquidOrGas(FetchChore chore)
         {
-            if (chore.criteria == FetchChore.MatchCriteria.MatchID)
+            if (chore == null) return false;
+
+            if (chore.requiredTag.IsValid)
             {
-                if (chore.tags != null)
-                {
-                    foreach (Tag t in chore.tags)
-                    {
-                        if (t == GameTags.Liquid || t == GameTags.Gas) return true;
-                        Element e = ElementLoader.FindElementByHash(ElementLoader.GetElementID(t));
-                        if (e != null && (e.IsLiquid || e.IsGas)) return true;
-                    }
-                }
-            }
-            else
-            {
-                Tag tag = chore.tagsFirst;
-                if (tag == GameTags.Liquid || tag == GameTags.Gas) return true;
-                Element e = ElementLoader.FindElementByHash(ElementLoader.GetElementID(tag));
+                if (chore.requiredTag == GameTags.Liquid || chore.requiredTag == GameTags.Gas) return true;
+                Element e = ElementLoader.FindElementByHash(ElementLoader.GetElementID(chore.requiredTag));
                 if (e != null && (e.IsLiquid || e.IsGas)) return true;
             }
+
+            if (chore.tagsFirst.IsValid)
+            {
+                if (chore.tagsFirst == GameTags.Liquid || chore.tagsFirst == GameTags.Gas) return true;
+                Element e = ElementLoader.FindElementByHash(ElementLoader.GetElementID(chore.tagsFirst));
+                if (e != null && (e.IsLiquid || e.IsGas)) return true;
+            }
+
+            if (chore.tags != null)
+            {
+                foreach (Tag t in chore.tags)
+                {
+                    if (t == GameTags.Liquid || t == GameTags.Gas) return true;
+                    Element e = ElementLoader.FindElementByHash(ElementLoader.GetElementID(t));
+                    if (e != null && (e.IsLiquid || e.IsGas)) return true;
+                }
+            }
+
             return false;
         }
 

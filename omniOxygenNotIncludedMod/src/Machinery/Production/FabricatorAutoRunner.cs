@@ -105,6 +105,9 @@ namespace OmniMod.Machinery.Production
         private static readonly MethodInfo RefreshAndStartNextOrderMethod =
             AccessTools.Method(typeof(ComplexFabricator), "RefreshAndStartNextOrder");
 
+        private static readonly MethodInfo HasIngredientsMethod =
+            AccessTools.Method(typeof(ComplexFabricator), "HasIngredients", new[] { typeof(ComplexRecipe), typeof(Storage) });
+
         private static bool Prefix(ComplexFabricator __instance, float dt)
         {
             if (__instance == null) return true;
@@ -147,9 +150,13 @@ namespace OmniMod.Machinery.Production
 
                 if (!hasWorkingOrder)
                 {
-                    RefreshAndStartNextOrderMethod?.Invoke(__instance, null);
-                    workingOrderIdx = WorkingOrderIdxField(__instance);
-                    hasWorkingOrder = workingOrderIdx > -1;
+                    ComplexRecipe next = __instance.NextOrder;
+                    if (next != null && HasIngredientsMethod != null && (bool)HasIngredientsMethod.Invoke(__instance, new object[] { next, __instance.inStorage }))
+                    {
+                        RefreshAndStartNextOrderMethod?.Invoke(__instance, null);
+                        workingOrderIdx = WorkingOrderIdxField(__instance);
+                        hasWorkingOrder = workingOrderIdx > -1;
+                    }
                 }
 
                 op.SetActive(hasWorkingOrder);
