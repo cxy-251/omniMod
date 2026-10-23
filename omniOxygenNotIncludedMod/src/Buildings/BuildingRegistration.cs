@@ -32,6 +32,7 @@ namespace OmniMod.Buildings
             RegisterRadboltGenerator();
             RegisterFluidProcessors();
             RegisterAutoIceMaker();
+            RegisterLiquidChiller();
         }
 
         private static void RegisterFluidProcessors()
@@ -111,6 +112,29 @@ namespace OmniMod.Buildings
                 AutoIceMakerConfig.ID,
                 "refining",
                 relativeBuildingId: CropMillConfig.ID,
+                ordering: ModUtil.BuildingOrdering.After);
+        }
+
+        private static void RegisterLiquidChiller()
+        {
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_LIQUIDCHILLER.TARGET_TEMP_TITLE", "目标出液温度");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_LIQUIDCHILLER.TARGET_TEMP_TOOLTIP", "调节管道流体冷却后的目标出液温度（-200°C ~ +100°C）");
+
+            ModStrings.AddBuilding(
+                LiquidChillerConfig.ID,
+                name: ModStrings.T("全能恒温流体冷却机", "Auto Liquid Chiller"),
+                desc: ModStrings.T(
+                    "采用先进的分子共振与深冷压缩热吸收技术，直接将管道通入的任意流体一次性恒温冷却至目标温度。通流即冷却，一步直达，无多余废热外泄，内置智能防爆管保护，彻底替代繁复且笨重的传统液温调节器架构。",
+                    "Uses cryogenic absorption technology to instantly cool any liquid in the pipe to a user-defined target temperature in a single pass. Eliminates the need for bulky Thermo Aquatuner setups and dangerous pipe ruptures."),
+                effect: ModStrings.T(
+                    "最高支持 10kg/s 满管液体连续恒温处理，侧边栏自由设定目标出液温度（-200°C ~ +100°C）。内置液体冰点智能防爆管保护，极低能耗且支持复制设置。",
+                    "Cools up to 10 kg/s of any piped liquid directly to a target temperature (-200°C to +100°C). Features automatic freeze-burst protection, minimal heat output, and Copy Settings."));
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Utilities"),
+                LiquidChillerConfig.ID,
+                "temperature",
+                relativeBuildingId: "LiquidConditioner",
                 ordering: ModUtil.BuildingOrdering.After);
         }
 
