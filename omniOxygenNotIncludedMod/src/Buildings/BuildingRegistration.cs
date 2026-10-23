@@ -94,8 +94,8 @@ namespace OmniMod.Buildings
 
         private static void RegisterAutoIceMaker()
         {
-            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_ICEMAKER.TARGET_TEMP_TITLE", "目标结晶出料温度");
-            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_ICEMAKER.TARGET_TEMP_TOOLTIP", "调节全自动急速冷冻出的雪花或冰块的目标结晶温度（-100°C ~ -1°C）");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_ICEMAKER.TARGET_TEMP_TITLE", "出料温度");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_ICEMAKER.TARGET_TEMP_TOOLTIP", "设定急速冷冻出料的绝对恒温（-100°C ~ -1°C，落地不融化）");
 
             ModStrings.AddBuilding(
                 AutoIceMakerConfig.ID,

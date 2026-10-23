@@ -6,7 +6,7 @@ namespace OmniMod.Buildings
     /// <summary>
     /// 全能冷冻造雪制冰机（Auto Cryo Snow & Ice Maker）：
     /// 复用冷柜模型（带冰晶浅蓝纯净微调），直接管道通入纯水（2.0 kg/s），
-    /// 无需人工值守，全自动急速冷冻为低温疏松雪花（Snow）或坚硬冰块（Ice），
+    /// 无需人工值守，全自动急速恒温冷冻为低温疏松雪花（Snow）或坚硬冰块（Ice），
     /// 并在地面直接生成，支持自选结晶温度（-100°C ~ -1°C）与复制设置。
     /// </summary>
     public class AutoIceMakerConfig : IBuildingConfig
@@ -65,21 +65,6 @@ namespace OmniMod.Buildings
             consumer.capacityTag = SimHashes.Water.CreateTag();
             consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
             consumer.forceAlwaysSatisfied = true;
-
-            // 转化器：默认水 2.0 kg/s -> 疏松雪花 2.0 kg/s (-15°C)
-            ElementConverter converter = go.AddComponent<ElementConverter>();
-            converter.consumedElements = AutoIceMaker.ConsumedWater;
-            converter.outputElements = new[]
-            {
-                new ElementConverter.OutputElement(
-                    kgPerSecond: 2.0f,
-                    element: SimHashes.Snow,
-                    minOutputTemperature: 258.15f,
-                    useEntityTemperature: false,
-                    storeOutput: false,
-                    outputElementOffsetx: 1.0f,
-                    outputElementOffsety: 0.5f)
-            };
 
             go.AddOrGet<CopyBuildingSettings>();
             go.AddOrGet<AutoIceMaker>();
