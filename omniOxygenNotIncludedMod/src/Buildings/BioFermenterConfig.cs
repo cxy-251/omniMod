@@ -39,6 +39,8 @@ namespace OmniMod.Buildings
             def.ExhaustKilowattsWhenActive = 0.5f;
             def.SelfHeatKilowattsWhenActive = 1f;
 
+            def.PowerInputOffset = new CellOffset(1, 0);
+
             def.InputConduitType = ConduitType.Liquid;
             def.UtilityInputOffset = new CellOffset(0, 0);
 
@@ -78,26 +80,22 @@ namespace OmniMod.Buildings
             dispenser.alwaysDispense = true;
             dispenser.elementFilter = new[] { SimHashes.Ethanol };
 
-            // 固体进料：蔗糖（Sucrose，由农作物研磨机加工汗甜玉米等产出）
-            ManualDeliveryKG sucroseDelivery = go.AddComponent<ManualDeliveryKG>();
-            sucroseDelivery.SetStorage(storage);
-            sucroseDelivery.RequestedItemTag = SimHashes.Sucrose.CreateTag();
-            sucroseDelivery.capacity = 500f;
-            sucroseDelivery.refillMass = 100f;
-            sucroseDelivery.choreTypeIDHash = Db.Get().ChoreTypes.FetchCritical.IdHash;
+            // 固体进料调度（默认纯水模式下 BioFermenter 会自动 Pause(true) 该组件）
+            ManualDeliveryKG delivery = go.AddComponent<ManualDeliveryKG>();
+            delivery.SetStorage(storage);
+            delivery.RequestedItemTag = BioFermenter.SucroseTag;
+            delivery.capacity = 500f;
+            delivery.refillMass = 100f;
+            delivery.choreTypeIDHash = Db.Get().ChoreTypes.FetchCritical.IdHash;
 
-            // 反应配方：水 (2.0kg) + 蔗糖 (0.5kg) -> 乙醇 (2.0kg) + CO2 (0.5kg)
-            ElementConverter sucroseConverter = go.AddComponent<ElementConverter>();
-            sucroseConverter.consumedElements = new[]
-            {
-                new ElementConverter.ConsumedElement(SimHashes.Water.CreateTag(), 2.0f),
-                new ElementConverter.ConsumedElement(SimHashes.Sucrose.CreateTag(), 0.5f),
-            };
-            sucroseConverter.outputElements = new[]
-            {
-                new ElementConverter.OutputElement(2.0f, SimHashes.Ethanol, 313.15f, useEntityTemperature: false, storeOutput: true),
-                new ElementConverter.OutputElement(0.5f, SimHashes.CarbonDioxide, 313.15f, useEntityTemperature: false, storeOutput: false, outputElementOffsety: 1.5f),
-            };
+            // 统一转换器：默认初始化为纯水直接发酵（水 2.0 kg/s -> 乙醇 2.0 kg/s + CO2 0.5 kg/s），无需任何固体原料
+            // 更多配方（蔗糖催化/汗甜玉米/木材）可通过侧边栏随时热切换
+            ElementConverter converter = go.AddComponent<ElementConverter>();
+            converter.consumedElements = BioFermenter.ConsumedWaterOnly;
+            converter.outputElements = BioFermenter.OutputWaterOnly;
+
+            // 挂载主控逻辑组件（侧边栏配方切换、进料调度管理）
+            go.AddOrGet<BioFermenter>();
 
             Prioritizable.AddRef(go);
 

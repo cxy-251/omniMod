@@ -15,8 +15,8 @@ namespace OmniMod.Buildings
     {
         public const string ID = "OmniMod_BackgroundLight";
 
-        private const int Lux = 1800;
-        private const float RangeCells = 6f;
+        private const int Lux = 12000;
+        private const float RangeCells = 8f;
 
         public override BuildingDef CreateBuildingDef()
         {
@@ -73,6 +73,7 @@ namespace OmniMod.Buildings
             light.Offset = new Vector2(0f, 0f);
 
             go.AddOrGetDef<LightController.Def>();
+            go.AddOrGet<BackgroundLightController>();
         }
     }
 }
