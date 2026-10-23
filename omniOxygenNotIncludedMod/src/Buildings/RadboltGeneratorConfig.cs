@@ -13,10 +13,11 @@ namespace OmniMod.Buildings
     /// 转换为高功率电网发电机。
     ///
     /// - 额定功率：20kW（20,000W，支持供电调谐提升至 30,000W）。
-    /// - 粒子消耗：默认 0.25 辐射粒子 / 秒（1 粒子 = 80,000 焦耳清洁能源），支持侧边栏自由微调（0.01 ~ 1.0 粒子/秒）。
-    /// - 储量容量：100 辐射粒子（在 0.25 粒子/秒下可供发电 400 秒；储量饱和后后续粒子自动无损穿透传导至下游发电机）。
+    /// - 存储控制：侧边栏支持自由设定粒子存储上限（0 ~ 1000 粒子，默认 100 粒子）。
+    ///             存满后后续粒子自动无损穿透传导至下游发电机。
+    /// - 粒子消耗：0.25 辐射粒子 / 秒（1 粒子 = 80,000 焦耳清洁能源），平稳运行。
     /// - 自动化端口：带自动化输入端（可连智能电池）与粒子储量满信号输出端。
-    /// - 设置复制：支持 Copy Settings（快捷键 C），一键同步全厂消耗速率设置。
+    /// - 设置复制：支持 Copy Settings（快捷键 C），一键同步全厂存储上限设置。
     /// </summary>
     public class RadboltGeneratorConfig : IBuildingConfig
     {
@@ -82,7 +83,7 @@ namespace OmniMod.Buildings
 
             HighEnergyParticleStorage storage = go.AddOrGet<HighEnergyParticleStorage>();
             storage.autoStore = true;
-            storage.capacity = RadboltGenerator.STORAGE_CAPACITY;
+            storage.capacity = RadboltGenerator.DEFAULT_STORAGE_CAPACITY;
             storage.PORT_ID = PORT_ID;
             storage.showCapacityStatusItem = true;
 
@@ -108,7 +109,7 @@ namespace OmniMod.Buildings
     [SerializationConfig(MemberSerialization.OptIn)]
     public class RadboltGenerator : Generator, ISingleSliderControl
     {
-        public const float STORAGE_CAPACITY = 100f; // 100 粒子容量（在 0.25 粒子/秒下可供发电 400 秒，饱和后后续粒子自动无损穿透传导）
+        public const float DEFAULT_STORAGE_CAPACITY = 100f; // 默认 100 粒子容量
 
         [MyCmpReq]
         private HighEnergyParticleStorage _particleStorage;
@@ -118,7 +119,11 @@ namespace OmniMod.Buildings
 
         [Serialize]
         [SerializeField]
-        public float particlesPerSecond = 0.25f; // 默认 0.25 粒子/秒 = 20kW（20,000W）满载发电
+        public float targetStorageCapacity = DEFAULT_STORAGE_CAPACITY; // 侧边栏可调粒子存储上限（默认 100 粒子，范围 0 ~ 1000 粒子）
+
+        [Serialize]
+        [SerializeField]
+        public float particlesPerSecond = 0.25f; // 0.25 粒子/秒 = 20kW（20,000W）满载发电
 
         private bool _wasActive;
 
@@ -139,8 +144,12 @@ namespace OmniMod.Buildings
             RadboltGenerator sourceGen = source.GetComponent<RadboltGenerator>();
             if (sourceGen == null) return;
 
-            particlesPerSecond = sourceGen.particlesPerSecond;
-            ModLog.Info($"[辐射粒子发电机] 已从 {source.name} 复制粒子消耗速率设置：{particlesPerSecond:0.00} 粒子/秒");
+            targetStorageCapacity = sourceGen.targetStorageCapacity;
+            if (_particleStorage != null)
+            {
+                _particleStorage.capacity = targetStorageCapacity;
+            }
+            ModLog.Info($"[辐射粒子发电机] 已从 {source.name} 复制粒子存储上限设置：{targetStorageCapacity:0} 粒子");
         }
 
         protected override void OnSpawn()
@@ -149,16 +158,20 @@ namespace OmniMod.Buildings
             _particleStorage = GetComponent<HighEnergyParticleStorage>();
             _kbac = GetComponent<KBatchedAnimController>();
 
-            // 升级旧存档数据：原版本硬编码为 10.0f 或非法值时，平滑升级为 0.25f 最佳平衡默认值
+            // 升级旧存档数据：原旧版本若存量上限异常（如旧版的 4000），平滑升级为默认 100 粒子
+            if (targetStorageCapacity > 1000f)
+            {
+                targetStorageCapacity = DEFAULT_STORAGE_CAPACITY;
+            }
+
             if (particlesPerSecond >= 9.9f || particlesPerSecond <= 0f)
             {
                 particlesPerSecond = 0.25f;
             }
 
-            // 强制将现有存档中已建造的旧发电机容量覆盖为 100
             if (_particleStorage != null)
             {
-                _particleStorage.capacity = STORAGE_CAPACITY;
+                _particleStorage.capacity = targetStorageCapacity;
             }
         }
 
@@ -166,9 +179,9 @@ namespace OmniMod.Buildings
         {
             base.EnergySim200ms(dt);
 
-            if (_particleStorage != null && _particleStorage.capacity != STORAGE_CAPACITY)
+            if (_particleStorage != null && _particleStorage.capacity != targetStorageCapacity)
             {
-                _particleStorage.capacity = STORAGE_CAPACITY;
+                _particleStorage.capacity = targetStorageCapacity;
             }
 
             operational.SetFlag(Generator.wireConnectedFlag, CircuitID != ushort.MaxValue);
@@ -223,28 +236,32 @@ namespace OmniMod.Buildings
 
         // ================= ISingleSliderControl / ISliderControl =================
 
-        public string SliderTitleKey => "STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TITLE";
+        public string SliderTitleKey => "STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CAPACITY_TITLE";
 
-        public string SliderUnits => " 粒子/秒";
+        public string SliderUnits => " 粒子";
 
-        public int SliderDecimalPlaces(int index) => 2;
+        public int SliderDecimalPlaces(int index) => 0;
 
-        public float GetSliderMin(int index) => 0.01f;
+        public float GetSliderMin(int index) => 0f;
 
-        public float GetSliderMax(int index) => 1.0f;
+        public float GetSliderMax(int index) => 1000f;
 
-        public float GetSliderValue(int index) => particlesPerSecond;
+        public float GetSliderValue(int index) => targetStorageCapacity;
 
         public void SetSliderValue(float value, int index)
         {
-            particlesPerSecond = (float)System.Math.Round(Mathf.Clamp(value, 0.01f, 1.0f), 2);
+            targetStorageCapacity = Mathf.Round(Mathf.Clamp(value, 0f, 1000f));
+            if (_particleStorage != null)
+            {
+                _particleStorage.capacity = targetStorageCapacity;
+            }
         }
 
-        public string GetSliderTooltipKey(int index) => "STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TOOLTIP";
+        public string GetSliderTooltipKey(int index) => "STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CAPACITY_TOOLTIP";
 
         public string GetSliderTooltip(int index) =>
-            $"辐射粒子消耗速率：{particlesPerSecond:0.00} 粒子/秒（每周期 {particlesPerSecond * 600f:0} 粒子）。\n" +
-            $"满载持续发电 20,000 W。\n" +
-            $"支持 0.01 ~ 1.00 粒子/秒微调。当单台发生器分给 6 条电路时，设为 0.04 ~ 0.08 粒子/秒即可让全部 12 台机器轻松跑满 240kW 且粒子不溢出。";
+            $"辐射粒子存储上限：{targetStorageCapacity:0} 粒子。\n" +
+            $"当发电机储存的粒子达到此上限后将停止接收，后续射入的辐射粒子将自动无损穿透传导至后方同轴发电机。\n" +
+            $"支持按 C 键复制设置到其他发电机。";
     }
 }
