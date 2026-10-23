@@ -29,6 +29,9 @@ namespace OmniMod.Buildings
         private ElementConverter _converter;
         private ManualDeliveryKG _delivery;
 
+        private static readonly EventSystem.IntraObjectHandler<BioFermenter> OnCopySettingsDelegate =
+            new EventSystem.IntraObjectHandler<BioFermenter>((component, data) => component.OnCopySettings(data));
+
         public static readonly Tag WaterTag = SimHashes.Water.CreateTag();
         public static readonly Tag SucroseTag = SimHashes.Sucrose.CreateTag();
         public static readonly Tag SweatcornTag = TagManager.Create("GardenFoodPlantFood");
@@ -88,6 +91,19 @@ namespace OmniMod.Buildings
             _storage = GetComponent<Storage>();
             _converter = GetComponent<ElementConverter>();
             _delivery = GetComponent<ManualDeliveryKG>();
+            Subscribe((int)GameHashes.CopySettings, OnCopySettingsDelegate);
+        }
+
+        private void OnCopySettings(object data)
+        {
+            GameObject source = data as GameObject;
+            if (source == null) return;
+
+            BioFermenter sourceFermenter = source.GetComponent<BioFermenter>();
+            if (sourceFermenter == null) return;
+
+            SetMode(sourceFermenter.SelectedMode);
+            ModLog.Info($"[生物发酵反应罐] 已从 {source.name} 复制发酵配方设置: {SelectedMode}");
         }
 
         protected override void OnSpawn()

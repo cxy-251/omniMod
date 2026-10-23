@@ -73,6 +73,7 @@ namespace OmniMod.Buildings
             light.Offset = new Vector2(0f, 0f);
 
             go.AddOrGetDef<LightController.Def>();
+            go.AddOrGet<CopyBuildingSettings>();
             go.AddOrGet<BackgroundLightController>();
         }
     }

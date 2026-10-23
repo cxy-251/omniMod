@@ -94,7 +94,8 @@ namespace OmniMod.Buildings
             converter.consumedElements = BioFermenter.ConsumedWaterOnly;
             converter.outputElements = BioFermenter.OutputWaterOnly;
 
-            // 挂载主控逻辑组件（侧边栏配方切换、进料调度管理）
+            // 挂载主控逻辑组件（侧边栏配方切换、进料调度管理）与复制设置支持
+            go.AddOrGet<CopyBuildingSettings>();
             go.AddOrGet<BioFermenter>();
 
             Prioritizable.AddRef(go);

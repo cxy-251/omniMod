@@ -30,6 +30,9 @@ namespace OmniMod.Buildings
         private ManualDeliveryKG _deliveryCoal;
         private ManualDeliveryKG _deliveryRefinedCarbon;
 
+        private static readonly EventSystem.IntraObjectHandler<PetroleumSynthesizer> OnCopySettingsDelegate =
+            new EventSystem.IntraObjectHandler<PetroleumSynthesizer>((component, data) => component.OnCopySettings(data));
+
         public static readonly Tag CoalTag = SimHashes.Carbon.CreateTag();
         public static readonly Tag RefinedCarbonTag = SimHashes.RefinedCarbon.CreateTag();
         public static readonly Tag WaterTag = SimHashes.Water.CreateTag();
@@ -51,6 +54,19 @@ namespace OmniMod.Buildings
             base.OnPrefabInit();
             _storage = GetComponent<Storage>();
             _converter = GetComponent<ElementConverter>();
+            Subscribe((int)GameHashes.CopySettings, OnCopySettingsDelegate);
+        }
+
+        private void OnCopySettings(object data)
+        {
+            GameObject source = data as GameObject;
+            if (source == null) return;
+
+            PetroleumSynthesizer sourceSynth = source.GetComponent<PetroleumSynthesizer>();
+            if (sourceSynth == null) return;
+
+            SetMode(sourceSynth.SelectedMode);
+            ModLog.Info($"[水热合成油反应釜] 已从 {source.name} 复制碳源设置: {SelectedMode}");
         }
 
         protected override void OnSpawn()

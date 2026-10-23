@@ -25,10 +25,14 @@ namespace OmniMod.Buildings
 
         private Light2D _light;
 
+        private static readonly EventSystem.IntraObjectHandler<BackgroundLightController> OnCopySettingsDelegate =
+            new EventSystem.IntraObjectHandler<BackgroundLightController>((component, data) => component.OnCopySettings(data));
+
         protected override void OnPrefabInit()
         {
             base.OnPrefabInit();
             _light = GetComponent<Light2D>();
+            Subscribe((int)GameHashes.CopySettings, OnCopySettingsDelegate);
         }
 
         protected override void OnSpawn()
@@ -36,6 +40,18 @@ namespace OmniMod.Buildings
             base.OnSpawn();
             if (_light == null) _light = GetComponent<Light2D>();
             ApplyMode();
+        }
+
+        private void OnCopySettings(object data)
+        {
+            GameObject source = data as GameObject;
+            if (source == null) return;
+
+            BackgroundLightController sourceController = source.GetComponent<BackgroundLightController>();
+            if (sourceController == null) return;
+
+            SetMode(sourceController.SelectedMode);
+            ModLog.Info($"[全能背景灯] 已从 {source.name} 复制光照设置: {SelectedMode}");
         }
 
         public void SetMode(LightMode mode)

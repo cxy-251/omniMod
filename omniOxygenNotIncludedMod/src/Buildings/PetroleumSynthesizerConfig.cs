@@ -103,7 +103,8 @@ namespace OmniMod.Buildings
                 new ElementConverter.OutputElement(2.0f, SimHashes.Petroleum, 333.15f, useEntityTemperature: false, storeOutput: true),
             };
 
-            // 挂载主控逻辑组件（侧边栏配方切换、供料调度与智能自适应）
+            // 挂载主控逻辑组件（侧边栏配方切换、供料调度与智能自适应）及复制设置
+            go.AddOrGet<CopyBuildingSettings>();
             go.AddOrGet<PetroleumSynthesizer>();
 
             Prioritizable.AddRef(go);
