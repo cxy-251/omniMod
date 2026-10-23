@@ -31,6 +31,7 @@ namespace OmniMod.Buildings
             RegisterBackgroundLight();
             RegisterRadboltGenerator();
             RegisterFluidProcessors();
+            RegisterAutoIceMaker();
         }
 
         private static void RegisterFluidProcessors()
@@ -87,6 +88,29 @@ namespace OmniMod.Buildings
                 CropMillConfig.ID,
                 "refining",
                 relativeBuildingId: PetroleumSynthesizerConfig.ID,
+                ordering: ModUtil.BuildingOrdering.After);
+        }
+
+        private static void RegisterAutoIceMaker()
+        {
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_ICEMAKER.TARGET_TEMP_TITLE", "目标结晶出料温度");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_ICEMAKER.TARGET_TEMP_TOOLTIP", "调节全自动急速冷冻出的雪花或冰块的目标结晶温度（-100°C ~ -1°C）");
+
+            ModStrings.AddBuilding(
+                AutoIceMakerConfig.ID,
+                name: ModStrings.T("全能冷冻造雪机", "Auto Cryo Snow & Ice Maker"),
+                desc: ModStrings.T(
+                    "采用高效压缩制冷与分子结晶技术，直接将管道通入的纯水全自动急速冷冻为低温疏松雪花或坚硬冰块。无需小人值守，不向环境外泄废热，支持自定义出料形态与结晶温度，为深冷农业（如糖心树）与极端工业提供全自动冰雪供给。",
+                    "Uses cryogenic crystallization technology to instantly freeze piped pure water into snow or solid ice at a customizable sub-zero temperature. Fully automated with zero duplicant labor and negligible heat emissions."),
+                effect: ModStrings.T(
+                    "每秒消耗 2kg 纯水，直接在机器脚下生成自选温度（-100°C ~ -1°C）的疏松雪花或致密冰块。支持侧边栏自由切换形态、调节温度与复制设置。",
+                    "Consumes 2 kg/s piped water to produce snow or ice at a chosen temperature (-100°C to -1°C) directly on the floor. Supports mode switching, temperature adjustment, and Copy Settings."));
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Refining"),
+                AutoIceMakerConfig.ID,
+                "refining",
+                relativeBuildingId: CropMillConfig.ID,
                 ordering: ModUtil.BuildingOrdering.After);
         }
 
