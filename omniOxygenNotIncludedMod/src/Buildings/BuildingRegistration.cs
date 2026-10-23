@@ -143,7 +143,7 @@ namespace OmniMod.Buildings
             if (!DlcManager.IsExpansion1Active()) return;
 
             Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TITLE", "粒子消耗速率");
-            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TOOLTIP", "调节发电机满载发电时的辐射粒子消耗速率（0.05 ~ 1.0 粒子/秒）。设为 0.25 时，两台发电机刚好跑满 1 条 40kW 电路，且储量饱和后粒子自动穿透传导，绝不溢出浪费。");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TOOLTIP", "调节发电机满载发电时的辐射粒子消耗速率（0.01 ~ 1.0 粒子/秒）。当单台发生器分给 6 条电路时，设为 0.04 ~ 0.08 粒子/秒即可让 12 台发电机全部跑满 240kW 且绝不溢出浪费。");
 
             ModStrings.AddBuilding(
                 RadboltGeneratorConfig.ID,
@@ -154,8 +154,8 @@ namespace OmniMod.Buildings
                     "Captures high-energy radiation particles in a magnetic containment field, converting them into massive electrical power through controlled annihilation. " +
                     "Can be connected to an automated power grid, supporting inline pass-through to feed downstream generators."),
                 effect: ModStrings.T(
-                    "吸收高能辐射粒子并转化为清洁电能。默认每秒消耗 0.25 辐射粒子满载产生 20kW（20,000W）电能（支持侧边栏自由微调 0.05 ~ 1.0 粒子/秒与复制设置）。内部储量达上限时，后续射入的辐射粒子将自动无损穿透传导至后方同轴发电机，使多台发电机能串联共享射线跑满独立高功率电网。",
-                    "Absorbs high-energy radbolts and converts them into clean power. Consumes 0.25 radbolts/s by default for 20 kW (20,000 W) output (customizable 0.05 - 1.0 radbolts/s with Copy Settings). Excess radbolts pass through cleanly to downstream generators in the beam line."));
+                    "吸收高能辐射粒子并转化为清洁电能。默认每秒消耗 0.25 辐射粒子满载产生 20kW（20,000W）电能（支持侧边栏自由微调 0.01 ~ 1.0 粒子/秒与复制设置）。内部储量达上限时，后续射入的辐射粒子将自动无损穿透传导至后方同轴发电机，使多台发电机能串联共享射线跑满独立高功率电网。",
+                    "Absorbs high-energy radbolts and converts them into clean power. Consumes 0.25 radbolts/s by default for 20 kW (20,000 W) output (customizable 0.01 - 1.0 radbolts/s with Copy Settings). Excess radbolts pass through cleanly to downstream generators in the beam line."));
 
             ModUtil.AddBuildingToPlanScreen(
                 new HashedString("Power"),

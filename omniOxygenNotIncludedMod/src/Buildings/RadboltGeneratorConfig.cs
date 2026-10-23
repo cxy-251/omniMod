@@ -13,7 +13,7 @@ namespace OmniMod.Buildings
     /// 转换为高功率电网发电机。
     ///
     /// - 额定功率：20kW（20,000W，支持供电调谐提升至 30,000W）。
-    /// - 粒子消耗：默认 0.25 辐射粒子 / 秒（1 粒子 = 80,000 焦耳清洁能源），支持侧边栏自由微调（0.05 ~ 1.0 粒子/秒）。
+    /// - 粒子消耗：默认 0.25 辐射粒子 / 秒（1 粒子 = 80,000 焦耳清洁能源），支持侧边栏自由微调（0.01 ~ 1.0 粒子/秒）。
     /// - 储量容量：100 辐射粒子（在 0.25 粒子/秒下可供发电 400 秒；储量饱和后后续粒子自动无损穿透传导至下游发电机）。
     /// - 自动化端口：带自动化输入端（可连智能电池）与粒子储量满信号输出端。
     /// - 设置复制：支持 Copy Settings（快捷键 C），一键同步全厂消耗速率设置。
@@ -229,7 +229,7 @@ namespace OmniMod.Buildings
 
         public int SliderDecimalPlaces(int index) => 2;
 
-        public float GetSliderMin(int index) => 0.05f;
+        public float GetSliderMin(int index) => 0.01f;
 
         public float GetSliderMax(int index) => 1.0f;
 
@@ -237,7 +237,7 @@ namespace OmniMod.Buildings
 
         public void SetSliderValue(float value, int index)
         {
-            particlesPerSecond = (float)System.Math.Round(Mathf.Clamp(value, 0.05f, 1.0f), 2);
+            particlesPerSecond = (float)System.Math.Round(Mathf.Clamp(value, 0.01f, 1.0f), 2);
         }
 
         public string GetSliderTooltipKey(int index) => "STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TOOLTIP";
@@ -245,6 +245,6 @@ namespace OmniMod.Buildings
         public string GetSliderTooltip(int index) =>
             $"辐射粒子消耗速率：{particlesPerSecond:0.00} 粒子/秒（每周期 {particlesPerSecond * 600f:0} 粒子）。\n" +
             $"满载持续发电 20,000 W。\n" +
-            $"设为 0.25 粒子/秒时，2 台发电机串联刚好跑满 1 条 40kW 电路，且两台机器平稳承接粒子、不溢出不浪费。";
+            $"支持 0.01 ~ 1.00 粒子/秒微调。当单台发生器分给 6 条电路时，设为 0.04 ~ 0.08 粒子/秒即可让全部 12 台机器轻松跑满 240kW 且粒子不溢出。";
     }
 }
