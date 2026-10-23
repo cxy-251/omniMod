@@ -142,17 +142,20 @@ namespace OmniMod.Buildings
         {
             if (!DlcManager.IsExpansion1Active()) return;
 
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TITLE", "粒子消耗速率");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TOOLTIP", "调节发电机满载发电时的辐射粒子消耗速率（0.05 ~ 1.0 粒子/秒）。设为 0.25 时，两台发电机刚好跑满 1 条 40kW 电路，且储量饱和后粒子自动穿透传导，绝不溢出浪费。");
+
             ModStrings.AddBuilding(
                 RadboltGeneratorConfig.ID,
                 name: ModStrings.T("辐射粒子发电机", "Radbolt Generator"),
                 desc: ModStrings.T(
                     "通过磁约束场捕获高能辐射粒子并引发受控微湮灭，将其转化为巨额电能。" +
-                    "可无缝接入自动化电网，高效消纳大量过剩的辐射粒子产能。",
+                    "可无缝接入自动化电网，高效消纳辐射粒子产能，支持同轴串联与穿透传导。",
                     "Captures high-energy radiation particles in a magnetic containment field, converting them into massive electrical power through controlled annihilation. " +
-                    "Can be connected to an automated power grid to efficiently consume excess radbolt production."),
+                    "Can be connected to an automated power grid, supporting inline pass-through to feed downstream generators."),
                 effect: ModStrings.T(
-                    "吸收高能辐射粒子，每秒消耗 10 辐射粒子产生 20kW（20,000W）清洁电能。",
-                    "Absorbs high-energy radbolts, consuming 10 radbolts per second to generate 20 kW (20,000 W) of clean electrical power."));
+                    "吸收高能辐射粒子并转化为清洁电能。默认每秒消耗 0.25 辐射粒子满载产生 20kW（20,000W）电能（支持侧边栏自由微调 0.05 ~ 1.0 粒子/秒与复制设置）。内部储量达上限时，后续射入的辐射粒子将自动无损穿透传导至后方同轴发电机，使多台发电机能串联共享射线跑满独立高功率电网。",
+                    "Absorbs high-energy radbolts and converts them into clean power. Consumes 0.25 radbolts/s by default for 20 kW (20,000 W) output (customizable 0.05 - 1.0 radbolts/s with Copy Settings). Excess radbolts pass through cleanly to downstream generators in the beam line."));
 
             ModUtil.AddBuildingToPlanScreen(
                 new HashedString("Power"),

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using KSerialization;
+using OmniMod.Core.Logging;
 using STRINGS;
 using TUNING;
 using UnityEngine;
@@ -12,9 +13,10 @@ namespace OmniMod.Buildings
     /// 转换为高功率电网发电机。
     ///
     /// - 额定功率：20kW（20,000W，支持供电调谐提升至 30,000W）。
-    /// - 粒子消耗：10.0 辐射粒子 / 秒（1 粒子 = 2,000 焦耳清洁能源）。
-    /// - 储量容量：4,000 辐射粒子（支持高负荷吞吐与海量缓冲）。
-    /// - 自动化端口：带自动化输入端（可连智能电池）与粒子储量信号输出端。
+    /// - 粒子消耗：默认 0.25 辐射粒子 / 秒（1 粒子 = 80,000 焦耳清洁能源），支持侧边栏自由微调（0.05 ~ 1.0 粒子/秒）。
+    /// - 储量容量：100 辐射粒子（在 0.25 粒子/秒下可供发电 400 秒；储量饱和后后续粒子自动无损穿透传导至下游发电机）。
+    /// - 自动化端口：带自动化输入端（可连智能电池）与粒子储量满信号输出端。
+    /// - 设置复制：支持 Copy Settings（快捷键 C），一键同步全厂消耗速率设置。
     /// </summary>
     public class RadboltGeneratorConfig : IBuildingConfig
     {
@@ -84,6 +86,8 @@ namespace OmniMod.Buildings
             storage.PORT_ID = PORT_ID;
             storage.showCapacityStatusItem = true;
 
+            go.AddOrGet<CopyBuildingSettings>();
+
             RadboltGenerator generator = go.AddOrGet<RadboltGenerator>();
             generator.powerDistributionOrder = 8;
 
@@ -102,9 +106,9 @@ namespace OmniMod.Buildings
     }
 
     [SerializationConfig(MemberSerialization.OptIn)]
-    public class RadboltGenerator : Generator
+    public class RadboltGenerator : Generator, ISingleSliderControl
     {
-        public const float STORAGE_CAPACITY = 4000f;
+        public const float STORAGE_CAPACITY = 100f; // 100 粒子容量（在 0.25 粒子/秒下可供发电 400 秒，饱和后后续粒子自动无损穿透传导）
 
         [MyCmpReq]
         private HighEnergyParticleStorage _particleStorage;
@@ -112,10 +116,32 @@ namespace OmniMod.Buildings
         [MyCmpReq]
         private KBatchedAnimController _kbac;
 
+        [Serialize]
         [SerializeField]
-        public float particlesPerSecond = 10.0f; // 10 粒子/秒 = 20kW（20,000W）满载发电
+        public float particlesPerSecond = 0.25f; // 默认 0.25 粒子/秒 = 20kW（20,000W）满载发电
 
         private bool _wasActive;
+
+        private static readonly EventSystem.IntraObjectHandler<RadboltGenerator> OnCopySettingsDelegate =
+            new EventSystem.IntraObjectHandler<RadboltGenerator>((component, data) => component.OnCopySettings(data));
+
+        protected override void OnPrefabInit()
+        {
+            base.OnPrefabInit();
+            Subscribe((int)GameHashes.CopySettings, OnCopySettingsDelegate);
+        }
+
+        private void OnCopySettings(object data)
+        {
+            GameObject source = data as GameObject;
+            if (source == null) return;
+
+            RadboltGenerator sourceGen = source.GetComponent<RadboltGenerator>();
+            if (sourceGen == null) return;
+
+            particlesPerSecond = sourceGen.particlesPerSecond;
+            ModLog.Info($"[辐射粒子发电机] 已从 {source.name} 复制粒子消耗速率设置：{particlesPerSecond:0.00} 粒子/秒");
+        }
 
         protected override void OnSpawn()
         {
@@ -123,9 +149,13 @@ namespace OmniMod.Buildings
             _particleStorage = GetComponent<HighEnergyParticleStorage>();
             _kbac = GetComponent<KBatchedAnimController>();
 
-            particlesPerSecond = 10.0f;
+            // 升级旧存档数据：原版本硬编码为 10.0f 或非法值时，平滑升级为 0.25f 最佳平衡默认值
+            if (particlesPerSecond >= 9.9f || particlesPerSecond <= 0f)
+            {
+                particlesPerSecond = 0.25f;
+            }
 
-            // 强制将现有存档中已建造的旧发电机容量从 10000 覆盖为 4000
+            // 强制将现有存档中已建造的旧发电机容量覆盖为 100
             if (_particleStorage != null)
             {
                 _particleStorage.capacity = STORAGE_CAPACITY;
@@ -190,5 +220,31 @@ namespace OmniMod.Buildings
                 }
             }
         }
+
+        // ================= ISingleSliderControl / ISliderControl =================
+
+        public string SliderTitleKey => "STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TITLE";
+
+        public string SliderUnits => " 粒子/秒";
+
+        public int SliderDecimalPlaces(int index) => 2;
+
+        public float GetSliderMin(int index) => 0.05f;
+
+        public float GetSliderMax(int index) => 1.0f;
+
+        public float GetSliderValue(int index) => particlesPerSecond;
+
+        public void SetSliderValue(float value, int index)
+        {
+            particlesPerSecond = (float)System.Math.Round(Mathf.Clamp(value, 0.05f, 1.0f), 2);
+        }
+
+        public string GetSliderTooltipKey(int index) => "STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TOOLTIP";
+
+        public string GetSliderTooltip(int index) =>
+            $"辐射粒子消耗速率：{particlesPerSecond:0.00} 粒子/秒（每周期 {particlesPerSecond * 600f:0} 粒子）。\n" +
+            $"满载持续发电 20,000 W。\n" +
+            $"设为 0.25 粒子/秒时，2 台发电机串联刚好跑满 1 条 40kW 电路，且两台机器平稳承接粒子、不溢出不浪费。";
     }
 }
