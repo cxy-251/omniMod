@@ -1,4 +1,5 @@
 using HarmonyLib;
+using OmniMod.Teleportation;
 
 namespace OmniMod.Buildings
 {
@@ -33,6 +34,7 @@ namespace OmniMod.Buildings
             RegisterFluidProcessors();
             RegisterAutoIceMaker();
             RegisterLiquidChiller();
+            RegisterTeleporters();
         }
 
         private static void RegisterFluidProcessors()
@@ -272,6 +274,45 @@ namespace OmniMod.Buildings
                 FoodBoxConfig.Id,
                 "storage",
                 relativeBuildingId: "MiniFridge",
+                ordering: ModUtil.BuildingOrdering.After);
+        }
+
+        private static void RegisterTeleporters()
+        {
+            // 时空传送发射器
+            ModStrings.AddBuilding(
+                OmniTeleportTransmitterConfig.ID,
+                name: ModStrings.T("时空传送发射器", "Omni Teleport Transmitter"),
+                desc: ModStrings.T(
+                    "采用定向引力共振与量子跃迁技术，可将指定复制人安全跨星传送至全星系任意已建有接收器的星球或火箭内部。支持侧边栏一键切换目标星球/火箭，每星/每火箭限建一台。",
+                    "Uses quantum entanglement and gravitational resonance to safely teleport duplicants across worlds to any planet or rocket equipped with a receiver. Supports destination cycling on the side screen. Limited to one per planet/rocket."),
+                effect: ModStrings.T(
+                    "指定复制人后，复制人将步入发射台并传送至选定的目标接收端。侧边栏一键切换目标星球/火箭，支持一键呼叫就近复制人。每个星球或火箭内部限建一台。",
+                    "Transfers an assigned duplicant to the selected destination receiver. Allows cycling targets on the side screen and calling the nearest duplicant. Limited to one per planet or rocket."));
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Base"),
+                OmniTeleportTransmitterConfig.ID,
+                "storage",
+                relativeBuildingId: JunkBoxConfig.Id,
+                ordering: ModUtil.BuildingOrdering.After);
+
+            // 时空传送接收器
+            ModStrings.AddBuilding(
+                OmniTeleportReceiverConfig.ID,
+                name: ModStrings.T("时空传送接收器", "Omni Teleport Receiver"),
+                desc: ModStrings.T(
+                    "用于接收从全星系任意时空传送发射器传送而来的复制人，建立稳定的量子重组通道。每个星球或火箭内部限造一台。",
+                    "Receives duplicants warped from any teleport transmitter across the galaxy, providing a stable quantum arrival platform. Limited to one per planet/rocket."),
+                effect: ModStrings.T(
+                    "与全星系时空传送网络建立锚定，安全接收并释放传送抵达的复制人。每个星球或火箭内部限建一台。",
+                    "Anchors to the galactic teleportation network to safely materialize arriving duplicants. Limited to one per planet or rocket."));
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Base"),
+                OmniTeleportReceiverConfig.ID,
+                "storage",
+                relativeBuildingId: OmniTeleportTransmitterConfig.ID,
                 ordering: ModUtil.BuildingOrdering.After);
         }
 
