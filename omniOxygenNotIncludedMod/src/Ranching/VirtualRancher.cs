@@ -231,12 +231,71 @@ namespace OmniMod.Ranching
         }
     }
 
+    [HarmonyPatch(typeof(RanchStation.Instance), "CanRanchableBeRanchedAtRanchStation")]
+    internal static class RanchStation_CanRanchableBeRanchedAtRanchStation_Patch
+    {
+        private static void Prefix(RanchStation.Instance __instance, RanchableMonitor.Instance ranchable)
+        {
+            if (ranchable == null || ranchable.IsNullOrStopped() || __instance == null)
+            {
+                return;
+            }
+
+            try
+            {
+                var otherStation = ranchable.TargetRanchStation;
+                if (otherStation != null && otherStation != __instance)
+                {
+                    // 若另一台照料站并未正在照料该小动物，且小动物也不在另一台照料站的呼叫等待队列中，
+                    // 说明残留的目标站引用已失效，予以清理，允许当前照料站（如剪毛站）正常呼叫该小动物！
+                    if (otherStation.ActiveRanchable != ranchable.States && !otherStation.IsCritterInQueue(ranchable))
+                    {
+                        ranchable.TargetRanchStation = null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn($"CanRanchableBeRanchedAtRanchStation Prefix 异常: {ex.Message}");
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(RanchableMonitor.Instance), nameof(RanchableMonitor.Instance.ShouldGoGetRanched))]
+    internal static class RanchableMonitor_ShouldGoGetRanched_Patch
+    {
+        private static void Postfix(RanchableMonitor.Instance __instance, ref bool __result)
+        {
+            if (!__result || __instance == null || __instance.TargetRanchStation == null)
+            {
+                return;
+            }
+
+            var station = __instance.TargetRanchStation;
+            if (!station.IsRunning())
+            {
+                __result = false;
+                __instance.TargetRanchStation = null;
+                return;
+            }
+
+            // 小动物只有确实在照料站呼叫等待队列（IsCritterInQueue）中，
+            // 或者当前正在该照料站操作台上（ActiveRanchable == __instance.States），才产生“想被照料”行为。
+            // 彻底杜绝照料完成后小动物因 IsRancherReady 常驻 true 而持续触发 WantsToGetRanched 兴奋抽搐死循环！
+            bool isInQueue = station.IsCritterInQueue(__instance);
+            bool isActive = (station.ActiveRanchable != null && station.ActiveRanchable == __instance.States);
+
+            if (!isInQueue && !isActive)
+            {
+                __result = false;
+                __instance.TargetRanchStation = null;
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(RanchStation.Instance), "RanchCreature")]
     internal static class RanchStation_RanchCreature_Patch
     {
-        private static readonly AccessTools.FieldRef<RanchedStates, RanchedStates.RanchStates> RanchStatesRef =
-            AccessTools.FieldRefAccess<RanchedStates, RanchedStates.RanchStates>("ranch");
-
         private static RanchedStates.Instance _lastActiveRanched;
 
         private static void Prefix(RanchStation.Instance __instance)
@@ -254,18 +313,22 @@ namespace OmniMod.Ranching
             {
                 try
                 {
-                    if (_lastActiveRanched.sm != null)
+                    int critterId = _lastActiveRanched.gameObject != null ? _lastActiveRanched.gameObject.GetInstanceID() : 0;
+                    if (critterId != 0)
                     {
-                        var ranch = RanchStatesRef(_lastActiveRanched.sm);
-                        if (ranch?.Runaway != null)
-                        {
-                            _lastActiveRanched.GoTo(ranch.Runaway);
-                        }
+                        AutoRanchTracker.Clear(critterId);
                     }
+
+                    if (_lastActiveRanched.Monitor != null)
+                    {
+                        _lastActiveRanched.Monitor.TargetRanchStation = null;
+                    }
+
+                    _lastActiveRanched.StopSM("OmniMod virtual ranch completed");
                 }
                 catch (Exception ex)
                 {
-                    ModLog.Warn($"照料离场跳转异常: {ex.Message}");
+                    ModLog.Warn($"照料完成退出异常: {ex.Message}");
                 }
             }
             _lastActiveRanched = null;
@@ -309,26 +372,23 @@ namespace OmniMod.Ranching
     [HarmonyPatch(typeof(RanchedStates), "InitializeStates")]
     internal static class RanchedStates_InitializeStates_Patch
     {
-        private static readonly AccessTools.FieldRef<RanchedStates, RanchedStates.RanchStates> RanchStatesRef =
-            AccessTools.FieldRefAccess<RanchedStates, RanchedStates.RanchStates>("ranch");
-
         private static void Postfix(RanchedStates __instance)
         {
-            var ranch = RanchStatesRef(__instance);
-            if (ranch?.Wavegoodbye != null && ranch?.Runaway != null)
+            __instance.root.Exit("OmniMod_ClearTrackerOnExit", smi =>
             {
-                ranch.Wavegoodbye.Enter(smi =>
+                if (smi?.gameObject != null)
                 {
-                    if (smi != null && !smi.IsNullOrStopped())
+                    AutoRanchTracker.Clear(smi.gameObject.GetInstanceID());
+                }
+                if (smi?.Monitor != null && smi.Monitor.TargetRanchStation != null)
+                {
+                    if (!smi.Monitor.TargetRanchStation.IsCritterInQueue(smi.Monitor) &&
+                        smi.Monitor.TargetRanchStation.ActiveRanchable != smi)
                     {
-                        var rs = RanchStatesRef(smi.sm);
-                        if (rs?.Runaway != null)
-                        {
-                            smi.GoTo(rs.Runaway);
-                        }
+                        smi.Monitor.TargetRanchStation = null;
                     }
-                });
-            }
+                }
+            });
         }
     }
 }

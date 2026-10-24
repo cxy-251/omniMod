@@ -41,7 +41,7 @@ namespace OmniMod.Collection
                         }
                     }
 
-                    foreach (Tag category in new[] { GameTags.Egg, GameTags.Clothes })
+                    foreach (Tag category in new[] { GameTags.Clothes })
                     {
                         accepted.Remove(category);
                         foreach (Tag resource in DiscoveredResources.Instance.GetDiscoveredResourcesFromTag(category))
@@ -65,7 +65,7 @@ namespace OmniMod.Collection
 
             if (collector.mode == GlobalItemCollector.CollectMode.Debris)
             {
-                if (category == GameTags.Egg || category == GameTags.Clothes)
+                if (category == GameTags.Clothes)
                 {
                     return false;
                 }

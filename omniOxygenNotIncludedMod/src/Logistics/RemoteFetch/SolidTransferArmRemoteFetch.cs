@@ -32,6 +32,8 @@ namespace OmniMod.Logistics.RemoteFetch
                 set.Add(GameTags.BagableCreature);
                 set.Add(GameTags.Liquid);
                 set.Add(GameTags.Gas);
+                set.Add(GameTags.Egg);
+                set.Add(GameTags.IncubatableEgg);
                 if (Assets.Prefabs != null)
                 {
                     for (int i = 0; i < Assets.Prefabs.Count; i++)
