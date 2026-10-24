@@ -14,10 +14,10 @@ namespace OmniMod.Buildings
     ///
     /// - 额定功率：20kW（20,000W，支持供电调谐提升至 30,000W）。
     /// - 存储可调：存储容量默认 4000 粒子，侧边栏自由调节（0 ~ 4000 粒子）。
-    /// - 穿透可调：内置粒子穿透传导机制，侧边栏自由设定穿透放行阈值（0 ~ 4000 粒子，默认 100 粒子）与穿透模式切换按钮。
-    /// - 消耗可调：侧边栏自由微调满载粒子消耗速率（0.01 ~ 10.00 粒子/秒，默认 0.25 粒子/秒）。
+    /// - 穿透平分：每次射入粒子光球时按比例分流（默认 50% 穿透，如 50 粒子射入则留 25 穿透 25 给后方机器，两台完美平分）。
+    /// - 大档位消耗速率：侧边栏大档位步进调节（5 ~ 100 粒子/秒，步进 5，默认 10 粒子/秒）。
     /// - 设置复制：全面支持 Copy Settings（快捷键 C），一键同步所有参数。
-    /// - 自动化端口：带自动化输入端（可连智能电池，充满自动停机并直通穿透放行）与粒子储量满信号输出端。
+    /// - 自动化端口：带自动化输入端（可连智能电池，充满自动停机并全额穿透放行）与粒子储量满信号输出端。
     /// </summary>
     public class RadboltGeneratorConfig : IBuildingConfig
     {
@@ -110,15 +110,8 @@ namespace OmniMod.Buildings
     public class RadboltGenerator : Generator, IMultiSliderControl, ISidescreenButtonControl
     {
         public const float DEFAULT_STORAGE_CAPACITY = 4000f; // 默认存储上限 4000 粒子
-        public const float DEFAULT_PASSTHROUGH_THRESHOLD = 100f; // 默认穿透阈值 100 粒子
-        public const float DEFAULT_CONSUMPTION_RATE = 0.25f; // 默认消耗速率 0.25 粒子/秒
-
-        public enum PassThroughMode
-        {
-            SmartThreshold = 0, // 智能阈值穿透：存量 >= 穿透阈值时自动穿透放行给后方机器（默认）
-            AlwaysPass = 1,     // 全额直通穿透：本机不截留，100% 粒子全部放行给后方机器
-            NeverPass = 2       // 完全拦截：关闭提前穿透，优先充饱本机（直到上限 4000）后才放行
-        }
+        public const float DEFAULT_PASSTHROUGH_PERCENT = 50f; // 默认穿透放行比例 50%（两台平分）
+        public const float DEFAULT_CONSUMPTION_RATE = 10f; // 默认消耗速率 10 粒子/秒（大档位 5 10 15 20...）
 
         [MyCmpReq]
         private HighEnergyParticleStorage _particleStorage;
@@ -132,15 +125,11 @@ namespace OmniMod.Buildings
 
         [Serialize]
         [SerializeField]
-        public float passThroughThreshold = DEFAULT_PASSTHROUGH_THRESHOLD; // 穿透阈值（默认 100 粒子，可调 0 ~ 4000）
+        public float passThroughPercent = DEFAULT_PASSTHROUGH_PERCENT; // 穿透比例（默认 50%，可调 0% ~ 100%）
 
         [Serialize]
         [SerializeField]
-        public float particlesPerSecond = DEFAULT_CONSUMPTION_RATE; // 消耗速率（默认 0.25 粒子/秒，可调 0.01 ~ 10.00）
-
-        [Serialize]
-        [SerializeField]
-        public PassThroughMode passThroughMode = PassThroughMode.SmartThreshold; // 穿透模式
+        public float particlesPerSecond = DEFAULT_CONSUMPTION_RATE; // 消耗速率（默认 10 粒子/秒，大档位 5 ~ 100）
 
         private bool _wasActive;
         private ISliderControl[] _sliderControls;
@@ -156,7 +145,7 @@ namespace OmniMod.Buildings
             _sliderControls = new ISliderControl[3]
             {
                 new CapacityController(this),
-                new PassThroughThresholdController(this),
+                new PassThroughPercentController(this),
                 new ConsumptionRateController(this)
             };
 
@@ -182,16 +171,15 @@ namespace OmniMod.Buildings
             if (sourceGen == null) return;
 
             targetStorageCapacity = sourceGen.targetStorageCapacity;
-            passThroughThreshold = sourceGen.passThroughThreshold;
+            passThroughPercent = sourceGen.passThroughPercent;
             particlesPerSecond = sourceGen.particlesPerSecond;
-            passThroughMode = sourceGen.passThroughMode;
 
             if (_particleStorage != null)
             {
                 _particleStorage.capacity = targetStorageCapacity;
             }
 
-            ModLog.Info($"[辐射粒子发电机] 已从 {source.name} 复制全部设置：存储上限={targetStorageCapacity:0}, 穿透阈值={passThroughThreshold:0}, 消耗速率={particlesPerSecond:0.00}/s, 穿透模式={passThroughMode}");
+            ModLog.Info($"[辐射粒子发电机] 已从 {source.name} 复制全部设置：存储上限={targetStorageCapacity:0}, 穿透比例={passThroughPercent:0}%, 消耗速率={particlesPerSecond:0}/s");
         }
 
         protected override void OnSpawn()
@@ -206,9 +194,14 @@ namespace OmniMod.Buildings
                 targetStorageCapacity = DEFAULT_STORAGE_CAPACITY;
             }
 
-            if (particlesPerSecond <= 0f)
+            if (particlesPerSecond < 5f)
             {
                 particlesPerSecond = DEFAULT_CONSUMPTION_RATE;
+            }
+
+            if (passThroughPercent < 0f || passThroughPercent > 100f)
+            {
+                passThroughPercent = DEFAULT_PASSTHROUGH_PERCENT;
             }
 
             if (_particleStorage != null)
@@ -278,70 +271,79 @@ namespace OmniMod.Buildings
             }
         }
 
-        // ================= 粒子穿透与捕获逻辑 =================
+        // ================= 粒子穿透平分与捕获逻辑 =================
 
         private bool OnCustomParticleCaptureAllowed(HighEnergyParticle particle)
         {
-            if (_particleStorage == null) return false;
+            // 始终允许接收，并在 OnCustomParticleCapture 内部精确计算留存与穿透传导
+            return true;
+        }
 
-            // 自动化红信号停机时，自动穿透放行给后方机器
-            if (operational != null && !operational.IsOperational)
+        private static readonly System.Reflection.FieldInfo DirectionField =
+            typeof(HighEnergyParticle).GetField("direction", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        private static EightDirection GetParticleDirection(HighEnergyParticle particle)
+        {
+            if (particle != null && DirectionField != null)
             {
-                return false;
+                return (EightDirection)DirectionField.GetValue(particle);
             }
-
-            // 全额直通穿透：本机绝不拦截，100% 穿透放行
-            if (passThroughMode == PassThroughMode.AlwaysPass)
-            {
-                return false;
-            }
-
-            // 智能阈值穿透：存量达到设定阈值后，后续粒子穿透放行
-            if (passThroughMode == PassThroughMode.SmartThreshold)
-            {
-                float limit = Mathf.Min(passThroughThreshold, targetStorageCapacity);
-                return _particleStorage.Particles < limit;
-            }
-
-            // 完全拦截模式：存满目标存储上限之前全部吸收
-            return _particleStorage.Particles < targetStorageCapacity;
+            return EightDirection.Right;
         }
 
         private void OnCustomParticleCapture(HighEnergyParticle particle)
         {
-            if (_particleStorage == null) return;
+            if (_particleStorage == null || particle == null) return;
 
-            float effectiveLimit;
-            if (passThroughMode == PassThroughMode.SmartThreshold)
-            {
-                effectiveLimit = Mathf.Min(passThroughThreshold, targetStorageCapacity);
-            }
-            else if (passThroughMode == PassThroughMode.AlwaysPass)
-            {
-                effectiveLimit = 0f;
-            }
-            else
-            {
-                effectiveLimit = targetStorageCapacity;
-            }
+            float incoming = particle.payload;
+            if (incoming <= 0f) return;
 
-            float needed = Mathf.Max(effectiveLimit - _particleStorage.Particles, 0f);
-            float toStore = Mathf.Min(particle.payload, needed);
+            // 自动化红信号停机时，本机不储存，全额放行
+            bool canStore = (operational == null || operational.IsOperational);
+            float currentStored = _particleStorage.Particles;
+            float capacity = targetStorageCapacity;
+            float availableSpace = canStore ? Mathf.Max(capacity - currentStored, 0f) : 0f;
+
+            // 计算本机计划截留量（根据穿透比例：如 50% 穿透则留 50%）
+            float keepFraction = Mathf.Clamp01(1f - (passThroughPercent / 100f));
+            float desiredKeep = incoming * keepFraction;
+
+            // 实际可存量受可用存储空间限制
+            float toStore = Mathf.Min(desiredKeep, availableSpace);
+            // 穿透放行给后方的粒子数
+            float toPass = incoming - toStore;
 
             if (toStore > 0f)
             {
                 _particleStorage.Store(toStore);
-                particle.payload -= toStore;
             }
 
-            // 如果光球有剩余粒子，触发 Uncapture 实现无损穿透传导至后方同轴发电机
-            if (particle.payload > 0f)
+            if (toPass > 0.01f)
             {
-                HighEnergyParticlePort port = GetComponent<HighEnergyParticlePort>();
-                if (port != null)
-                {
-                    port.Uncapture(particle);
-                }
+                EightDirection dir = GetParticleDirection(particle);
+                LaunchPassThroughParticle(toPass, dir, particle.transform.position);
+            }
+        }
+
+        private void LaunchPassThroughParticle(float payload, EightDirection direction, Vector3 incomingPos)
+        {
+            GameObject prefab = Assets.GetPrefab((Tag)"HighEnergyParticle");
+            if (prefab == null) return;
+
+            Vector2 norm = EightDirectionUtil.GetNormal(direction);
+            // 向飞行方向前移 1 格，脱离当前接收端口的检测格，沿原方向无缝穿透飞行
+            Vector3 spawnPos = incomingPos + new Vector3(norm.x, norm.y, 0f) * 1.0f;
+
+            GameObject go = GameUtil.KInstantiate(prefab, spawnPos, Grid.SceneLayer.FXFront2);
+            if (go == null) return;
+
+            go.SetActive(true);
+            HighEnergyParticle newParticle = go.GetComponent<HighEnergyParticle>();
+            if (newParticle != null)
+            {
+                newParticle.payload = payload;
+                newParticle.capturedBy = GetComponent<HighEnergyParticlePort>();
+                newParticle.SetDirection(direction);
             }
         }
 
@@ -368,7 +370,7 @@ namespace OmniMod.Buildings
             public float GetSliderValue(int index) => _target.targetStorageCapacity;
             public void SetSliderValue(float val, int index)
             {
-                _target.targetStorageCapacity = Mathf.Round(Mathf.Clamp(val, 0f, 4000f));
+                _target.targetStorageCapacity = Mathf.Round(Mathf.Clamp(val, 0f, 4000f) / 100f) * 100f;
                 if (_target._particleStorage != null)
                 {
                     _target._particleStorage.capacity = _target.targetStorageCapacity;
@@ -380,31 +382,34 @@ namespace OmniMod.Buildings
                 $"发电机允许储存的最大辐射粒子总量。可随时按需自由调节。";
         }
 
-        // 2. 穿透放行阈值控制器（0 ~ 4000 粒子，默认 100）
-        protected class PassThroughThresholdController : ISingleSliderControl, ISliderControl
+        // 2. 穿透放行比例控制器（0% ~ 100%，步进 5%，默认 50% 两台平分）
+        protected class PassThroughPercentController : ISingleSliderControl, ISliderControl
         {
             private readonly RadboltGenerator _target;
 
-            public PassThroughThresholdController(RadboltGenerator target) => _target = target;
+            public PassThroughPercentController(RadboltGenerator target) => _target = target;
 
             public string SliderTitleKey => "STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.PASSTHROUGH_TITLE";
-            public string SliderUnits => " 粒子";
+            public string SliderUnits => " %";
             public int SliderDecimalPlaces(int index) => 0;
             public float GetSliderMin(int index) => 0f;
-            public float GetSliderMax(int index) => 4000f;
-            public float GetSliderValue(int index) => _target.passThroughThreshold;
+            public float GetSliderMax(int index) => 100f;
+            public float GetSliderValue(int index) => _target.passThroughPercent;
             public void SetSliderValue(float val, int index)
             {
-                _target.passThroughThreshold = Mathf.Round(Mathf.Clamp(val, 0f, 4000f));
+                _target.passThroughPercent = Mathf.Round(Mathf.Clamp(val, 0f, 100f) / 5f) * 5f;
             }
             public string GetSliderTooltipKey(int index) => "STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.PASSTHROUGH_TOOLTIP";
             public string GetSliderTooltip(int index) =>
-                $"穿透放行阈值：{_target.passThroughThreshold:0} 粒子（默认 100 粒子）。\n" +
-                $"在智能穿透模式下，发电机存量达到此数值后，后续射入的辐射粒子将自动无损穿透传导至后方发电机。\n" +
-                $"两台发电机串联时，设为 100 即可让第一台存够 100 粒子后将后续粒子全部放行给第二台！";
+                $"穿透放行比例：{_target.passThroughPercent:0}%（默认 50% 两台平分）。\n" +
+                $"每次射入粒子光球时，按此比例将部分粒子穿透放行给后方的发电机。\n" +
+                $" • 设为 50%：射来 50 粒子，本机留 25 粒子，穿透 25 粒子给下一台发电机，两台完美平分！\n" +
+                $" • 设为 100%：全额直通穿透，全部让给后方机器。\n" +
+                $" • 设为 0%：全部自身拦截，尽量充满本机。\n" +
+                $"（若本机存量已满或自动化红信号停机，多余粒子将自动全额放行，绝不浪费）。";
         }
 
-        // 3. 消耗速率控制器（0.01 ~ 10.00 粒子/秒，默认 0.25）
+        // 3. 消耗速率控制器（5 ~ 100 粒子/秒，大档位步进 5，默认 10 粒子/秒）
         protected class ConsumptionRateController : ISingleSliderControl, ISliderControl
         {
             private readonly RadboltGenerator _target;
@@ -413,23 +418,24 @@ namespace OmniMod.Buildings
 
             public string SliderTitleKey => "STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TITLE";
             public string SliderUnits => " 粒子/秒";
-            public int SliderDecimalPlaces(int index) => 2;
-            public float GetSliderMin(int index) => 0.01f;
-            public float GetSliderMax(int index) => 10.0f;
+            public int SliderDecimalPlaces(int index) => 0;
+            public float GetSliderMin(int index) => 5f;
+            public float GetSliderMax(int index) => 100f;
             public float GetSliderValue(int index) => _target.particlesPerSecond;
             public void SetSliderValue(float val, int index)
             {
-                _target.particlesPerSecond = (float)System.Math.Round(Mathf.Clamp(val, 0.01f, 10.0f), 2);
+                _target.particlesPerSecond = Mathf.Round(Mathf.Clamp(val, 5f, 100f) / 5f) * 5f;
             }
             public string GetSliderTooltipKey(int index) => "STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TOOLTIP";
             public string GetSliderTooltip(int index) =>
-                $"辐射粒子消耗速率：{_target.particlesPerSecond:0.00} 粒子/秒（每周期 {_target.particlesPerSecond * 600f:0} 粒子）。\n" +
-                $"满载发电 20,000 W。可在 0.01 ~ 10.00 粒子/秒之间自由微调。";
+                $"辐射粒子消耗速率：{_target.particlesPerSecond:0} 粒子/秒（每周期 {_target.particlesPerSecond * 600f:0} 粒子）。\n" +
+                $"满载发电功率：20,000 W。\n" +
+                $"大档位步进调节（5、10、15、20、25... 粒子/秒），便于根据辐射粒子发生器的产出节奏精准匹配。";
         }
 
-        // ================= ISidescreenButtonControl (穿透模式切换按钮) =================
+        // ================= ISidescreenButtonControl (穿透模式预设快捷切换按钮) =================
 
-        public string SidescreenTitle => "穿透模式控制";
+        public string SidescreenTitle => "穿透模式预设";
 
         public int HorizontalGroupID() => -1;
 
@@ -437,17 +443,13 @@ namespace OmniMod.Buildings
         {
             get
             {
-                switch (passThroughMode)
-                {
-                    case PassThroughMode.SmartThreshold:
-                        return "穿透模式：智能阈值放行 [点击切换]";
-                    case PassThroughMode.AlwaysPass:
-                        return "穿透模式：全额直通穿透 [点击切换]";
-                    case PassThroughMode.NeverPass:
-                        return "穿透模式：完全自身拦截 [点击切换]";
-                    default:
-                        return "穿透模式 [点击切换]";
-                }
+                if (Mathf.Approximately(passThroughPercent, 50f))
+                    return "穿透模式：两台平分 (50%) [点击切换]";
+                if (Mathf.Approximately(passThroughPercent, 100f))
+                    return "穿透模式：全额直通 (100%) [点击切换]";
+                if (Mathf.Approximately(passThroughPercent, 0f))
+                    return "穿透模式：完全拦截 (0%) [点击切换]";
+                return $"穿透模式：自定义 ({passThroughPercent:0}%) [点击切换]";
             }
         }
 
@@ -455,17 +457,12 @@ namespace OmniMod.Buildings
         {
             get
             {
-                switch (passThroughMode)
-                {
-                    case PassThroughMode.SmartThreshold:
-                        return $"【当前：智能阈值放行】\n机器存量达到设定阈值（{passThroughThreshold:0} 粒子）后，后续射入的粒子光球将自动 100% 穿透射给后方发电机。\n点击切换模式。";
-                    case PassThroughMode.AlwaysPass:
-                        return "【当前：全额直通穿透】\n本机不拦截任何粒子，所有射入的光球 100% 直通放行给下游建筑。\n点击切换模式。";
-                    case PassThroughMode.NeverPass:
-                        return $"【当前：完全自身拦截】\n关闭提前穿透，优先填满本机自身存储上限（最高 {targetStorageCapacity:0} 粒子）后才放行。\n点击切换模式。";
-                    default:
-                        return "点击切换穿透模式。";
-                }
+                return $"【当前穿透比例：{passThroughPercent:0}%】\n" +
+                       "点击在常用预设档位之间快速轮换：\n" +
+                       " ▶ 两台平分 (50%)：射来 50 留 25 穿 25，两台发电机平分\n" +
+                       " ▶ 全额直通 (100%)：本机不存，全额让给下游机器\n" +
+                       " ▶ 完全拦截 (0%)：全部拦截并充饱本机\n" +
+                       "亦可直接拖动上方滑块自定义任意比例。";
             }
         }
 
@@ -479,22 +476,21 @@ namespace OmniMod.Buildings
 
         public void OnSidescreenButtonPressed()
         {
-            switch (passThroughMode)
+            if (Mathf.Approximately(passThroughPercent, 50f))
             {
-                case PassThroughMode.SmartThreshold:
-                    passThroughMode = PassThroughMode.AlwaysPass;
-                    break;
-                case PassThroughMode.AlwaysPass:
-                    passThroughMode = PassThroughMode.NeverPass;
-                    break;
-                case PassThroughMode.NeverPass:
-                    passThroughMode = PassThroughMode.SmartThreshold;
-                    break;
-                default:
-                    passThroughMode = PassThroughMode.SmartThreshold;
-                    break;
+                passThroughPercent = 100f;
             }
-            ModLog.Info($"[辐射粒子发电机] 穿透模式已切换为: {passThroughMode}");
+            else if (Mathf.Approximately(passThroughPercent, 100f))
+            {
+                passThroughPercent = 0f;
+            }
+            else
+            {
+                passThroughPercent = 50f;
+            }
+
+            KFMOD.PlayUISound(GlobalAssets.GetSound("HUD_Click"));
+            ModLog.Info($"[辐射粒子发电机] 穿透比例快捷切换为: {passThroughPercent:0}%");
         }
     }
 }

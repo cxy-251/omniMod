@@ -147,22 +147,22 @@ namespace OmniMod.Buildings
             Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.PANEL_TITLE", "辐射发电机配置");
             Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CAPACITY_TITLE", "粒子存储上限");
             Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CAPACITY_TOOLTIP", "发电机实际允许储存的最大辐射粒子总量（0 ~ 4000 粒子，默认 4000 粒子）。");
-            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.PASSTHROUGH_TITLE", "穿透放行阈值");
-            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.PASSTHROUGH_TOOLTIP", "在智能穿透模式下，发电机存量达到此数值后，后续射入的辐射粒子将自动无损穿透传导至后方同轴发电机（0 ~ 4000 粒子，默认 100 粒子）。");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.PASSTHROUGH_TITLE", "穿透放行比例");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.PASSTHROUGH_TOOLTIP", "每次射入粒子光球时，按此比例将部分粒子穿透放行给后方的发电机（0% ~ 100%，默认 50% 两台平分）。若本机已满则自动全额放行。");
             Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TITLE", "粒子消耗速率");
-            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TOOLTIP", "发电机满载发电时的辐射粒子消耗速率（0.01 ~ 10.00 粒子/秒，默认 0.25 粒子/秒）。满载持续发电 20,000 W。");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_RADBOLTGENERATOR.CONSUMPTION_RATE_TOOLTIP", "发电机满载发电时的辐射粒子消耗速率（5 ~ 100 粒子/秒，大档位步进 5）。满载持续发电 20,000 W。");
 
             ModStrings.AddBuilding(
                 RadboltGeneratorConfig.ID,
                 name: ModStrings.T("辐射粒子发电机", "Radbolt Generator"),
                 desc: ModStrings.T(
                     "通过磁约束场捕获高能辐射粒子并引发受控微湮灭，将其转化为巨额电能。" +
-                    "可无缝接入自动化电网，高效消纳辐射粒子产能。内置 4000 粒子海量储仓，侧边栏全面支持存储上限可调、穿透阈值可调、消耗速率可调与穿透模式切换，支持同轴串联与无损穿透传导。",
+                    "可无缝接入自动化电网，高效消纳辐射粒子产能。内置 4000 粒子海量储仓，侧边栏全面支持存储上限可调、穿透放行比例可调、消耗速率大档位可调与穿透模式切换，支持同轴串联与真实光球无损穿透传导。",
                     "Captures high-energy radiation particles in a magnetic containment field, converting them into massive electrical power through controlled annihilation. " +
-                    "Features a 4000-particle buffer, customizable storage capacity, pass-through threshold, and consumption rate, with inline beam transmission to feed downstream generators."),
+                    "Features a 4000-particle buffer, customizable storage capacity, pass-through ratio, and consumption rate, with inline beam transmission to feed downstream generators."),
                 effect: ModStrings.T(
-                    "吸收高能辐射粒子并转化为清洁电能（满载 20kW / 20,000W）。侧边栏全面支持存储上限可调（0 ~ 4000 粒子，默认 4000）、穿透阈值可调（0 ~ 4000 粒子，默认 100）、消耗速率可调（0.01 ~ 10.00 粒子/秒，默认 0.25）以及穿透模式按钮切换与复制设置（C 键）。多台机器串联共享射线平稳跑满独立电网。",
-                    "Converts radbolts into clean power (up to 20 kW). Features full side screen controls for storage capacity (0 - 4000 particles, default 4000), pass-through threshold (0 - 4000 particles, default 100), consumption rate (0.01 - 10.00 radbolts/s, default 0.25), and pass-through mode switching with Copy Settings (C key)."));
+                    "吸收高能辐射粒子并转化为清洁电能（满载 20kW / 20,000W）。侧边栏全面支持存储上限可调（0 ~ 4000 粒子，默认 4000）、穿透放行比例可调（0% ~ 100%，默认 50% 两台平分）、消耗速率大档位可调（5 ~ 100 粒子/秒，默认 10）以及常用模式一键切换与复制设置（C 键）。两台串联平分光球平稳跑满 40kW 电路。",
+                    "Converts radbolts into clean power (up to 20 kW). Features full side screen controls for storage capacity (0 - 4000 particles, default 4000), pass-through ratio (0% - 100%, default 50% for 2-way split), consumption rate in large steps (5 - 100 radbolts/s, default 10), and quick preset toggling with Copy Settings (C key)."));
 
             ModUtil.AddBuildingToPlanScreen(
                 new HashedString("Power"),
