@@ -78,6 +78,12 @@ namespace OmniMod.Machinery.Farming
             _updateStateCount = 0;
         }
 
+        private static void Finalizer(System.Exception __exception)
+        {
+            _inToggleClicked = false;
+            _updateStateCount = 0;
+        }
+
         [HarmonyPatch(typeof(PlanterSideScreen), "UpdateState")]
         private static class PlanterSideScreen_UpdateState_Patch
         {
@@ -96,6 +102,26 @@ namespace OmniMod.Machinery.Farming
                 }
                 return true;
             }
+        }
+    }
+
+    /// <summary>
+    /// 针对 PlanterSideScreen.RefreshSubspeciesToggles 的安全容灾补丁：
+    /// 原版游戏在遍历 worldInventory.GetPickupables 时若遇到已被消耗或销毁但残留的种子引用，
+    /// 其 KPrefabIDExtensions.HasTag 会因底层 null 抛出 NullReferenceException 导致游戏崩溃闪退。
+    /// 此处添加 Finalizer 彻底拦截并抑制潜在空指针异常，绝不弹窗闪退。
+    /// </summary>
+    [HarmonyPatch(typeof(PlanterSideScreen), "RefreshSubspeciesToggles")]
+    internal static class PlanterSideScreen_RefreshSubspeciesToggles_Safe_Patch
+    {
+        private static System.Exception Finalizer(System.Exception __exception)
+        {
+            if (__exception != null)
+            {
+                Debug.LogWarning("[OmniMod] 成功拦截 PlanterSideScreen.RefreshSubspeciesToggles 潜在空指针异常，已阻断闪退: " + __exception.Message);
+                return null;
+            }
+            return null;
         }
     }
 }

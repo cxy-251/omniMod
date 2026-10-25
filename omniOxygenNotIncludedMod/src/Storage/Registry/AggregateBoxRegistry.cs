@@ -823,30 +823,71 @@ namespace OmniMod.Collection
                     int boxWorld = b.GetMyWorldId();
                     if (TryGetWorldBoxPickupables(boxWorld, tag, out List<Pickupable> list) && list != null && list.Count > 0)
                     {
-                        if (extra == null)
+                        for (int k = 0; k < list.Count; k++)
                         {
-                            extra = new List<Pickupable>(list.Count);
+                            Pickupable p = list[k];
+                            // 严密校验存活状态与组件完整性，彻底杜绝已销毁 Unity 对象的虚假指针传入下游界面导致 NullReferenceException
+                            if (p != null && p.gameObject != null && p.KPrefabID != null && !p.KPrefabID.HasTag(GameTags.StoredPrivate))
+                            {
+                                if (extra == null)
+                                {
+                                    extra = new List<Pickupable>(list.Count);
+                                }
+                                extra.Add(p);
+                            }
                         }
-                        extra.AddRange(list);
                     }
                 }
             }
 
             if (extra == null || extra.Count == 0)
             {
+                // 即便没有额外追加物品，也安全过滤原始集合中的死引用/已销毁对象
+                if (result != null)
+                {
+                    bool hasDead = false;
+                    foreach (Pickupable p in result)
+                    {
+                        if (p == null || p.gameObject == null || p.KPrefabID == null)
+                        {
+                            hasDead = true;
+                            break;
+                        }
+                    }
+                    if (hasDead)
+                    {
+                        HashSet<Pickupable> clean = new HashSet<Pickupable>();
+                        foreach (Pickupable p in result)
+                        {
+                            if (p != null && p.gameObject != null && p.KPrefabID != null)
+                            {
+                                clean.Add(p);
+                            }
+                        }
+                        result = clean;
+                    }
+                }
                 return;
             }
 
-            if (result == null || result.Count == 0)
+            HashSet<Pickupable> combined = new HashSet<Pickupable>();
+            if (result != null)
             {
-                result = extra;
-                return;
+                foreach (Pickupable p in result)
+                {
+                    if (p != null && p.gameObject != null && p.KPrefabID != null)
+                    {
+                        combined.Add(p);
+                    }
+                }
             }
-
-            HashSet<Pickupable> combined = new HashSet<Pickupable>(result);
             for (int i = 0; i < extra.Count; i++)
             {
-                combined.Add(extra[i]);
+                Pickupable p = extra[i];
+                if (p != null && p.gameObject != null && p.KPrefabID != null)
+                {
+                    combined.Add(p);
+                }
             }
             result = combined;
         }
