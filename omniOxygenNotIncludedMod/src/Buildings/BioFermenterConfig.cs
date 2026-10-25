@@ -8,9 +8,9 @@ namespace OmniMod.Buildings
     /// 生物发酵反应罐（Bio-Fermenter）：
     /// 复用乙醇蒸馏器模型（附带生化浅绿/琥珀发酵色微调），专门用于高通量消耗多余的纯水。
     ///
-    /// - 液体输入：纯水（Water）2.0 kg/s（进水缓存 200 kg）
+    /// - 液体输入：纯水（Water）2.0 kg/s（匀速连续输入）
     /// - 固体进料：蔗糖（Sucrose）0.5 kg/s，汗甜玉米（Sweatcorn）0.5 kg/s，或木材（Wood）0.5 kg/s
-    /// - 液体输出：液体乙醇（Ethanol）2.0~2.5 kg/s（接排液管直出）
+    /// - 液体输出：液体乙醇（Ethanol）2.0 kg/s（接排液管直出）
     /// - 气体副产：二氧化碳（CO2）0.5 kg/s（散逸到环境中）
     /// - 额定功率：240W
     /// </summary>
@@ -66,11 +66,11 @@ namespace OmniMod.Buildings
             storage.allowItemRemoval = true;
             storage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
 
-            // 进水管道接口：吞吐纯水 2 kg/s，配备 200 kg 储水缓存
+            // 进水管道接口：严格按 2 kg/s 匀速连续吸水，与每秒发酵消耗率精确一致，杜绝断续抽水
             ConduitConsumer consumer = go.AddOrGet<ConduitConsumer>();
             consumer.conduitType = ConduitType.Liquid;
-            consumer.consumptionRate = 10f;
-            consumer.capacityKG = 200f;
+            consumer.consumptionRate = 2f;
+            consumer.capacityKG = 20f;
             consumer.capacityTag = SimHashes.Water.CreateTag();
             consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
             consumer.forceAlwaysSatisfied = true;

@@ -7,20 +7,20 @@ namespace OmniMod.Buildings
 {
     /// <summary>
     /// 生物发酵反应罐主控逻辑：
-    /// - 默认开启【蔗糖催化发酵】（高产配方）：水 2.0 kg/s + 蔗糖 0.5 kg/s → 乙醇 2.5 kg/s + CO2 0.5 kg/s；
+    /// - 默认开启【蔗糖催化发酵】：水 2.0 kg/s + 蔗糖 0.5 kg/s → 乙醇 2.0 kg/s + CO2 0.5 kg/s；
     /// - 支持侧边栏一键切换【蔗糖催化发酵】、【纯水直接发酵】、【汗甜玉米发酵】、【木材水解发酵】四种模式；
     /// - 实现 ISim200ms 动态状态机控制：原料齐全且储罐未满时自动 SetActive(true) 驱动全套动画、功耗与转化，原料不足或储罐满时自动休眠 SetActive(false)；
     /// - 自动管理进料调度（ManualDeliveryKG）与 ElementConverter 转换器状态/Accumulators 刷新；
-    /// - 智能自适应容错：若在纯水模式下检测到储罐内备有蔗糖，自动切换为高产蔗糖配方消化。
+    /// - 智能自适应容错：若在纯水模式下检测到储罐内备有蔗糖，自动切换为蔗糖催化配方消化。
     /// </summary>
     [SerializationConfig(MemberSerialization.OptIn)]
     public class BioFermenter : KMonoBehaviour, ISim200ms, ISaveLoadable, ISidescreenButtonControl
     {
         public enum FermentMode
         {
-            Sucrose = 0,   // 蔗糖催化发酵（默认高产：水 2.0 kg/s + 蔗糖 0.5 kg/s → 乙醇 2.5 kg/s + CO2 0.5 kg/s）
+            Sucrose = 0,   // 蔗糖催化发酵（默认：水 2.0 kg/s + 蔗糖 0.5 kg/s → 乙醇 2.0 kg/s + CO2 0.5 kg/s）
             WaterOnly = 1, // 纯水直接发酵（免固体料：水 2.0 kg/s → 乙醇 2.0 kg/s + CO2 0.5 kg/s）
-            Sweatcorn = 2, // 汗甜玉米发酵（水 2.0 kg/s + 汗甜玉米 0.5 kg/s → 乙醇 2.2 kg/s + CO2 0.5 kg/s）
+            Sweatcorn = 2, // 汗甜玉米发酵（水 2.0 kg/s + 汗甜玉米 0.5 kg/s → 乙醇 2.0 kg/s + CO2 0.5 kg/s）
             Wood = 3       // 木材生物水解（水 2.0 kg/s + 木材 0.5 kg/s → 乙醇 2.0 kg/s + 泥土 0.2 kg/s + CO2 0.5 kg/s）
         }
 
@@ -48,7 +48,7 @@ namespace OmniMod.Buildings
 
         public static readonly ElementConverter.OutputElement[] OutputSucrose = new[]
         {
-            new ElementConverter.OutputElement(2.5f, SimHashes.Ethanol, 313.15f, useEntityTemperature: false, storeOutput: true),
+            new ElementConverter.OutputElement(2.0f, SimHashes.Ethanol, 313.15f, useEntityTemperature: false, storeOutput: true),
             new ElementConverter.OutputElement(0.5f, SimHashes.CarbonDioxide, 313.15f, useEntityTemperature: false, storeOutput: false, outputElementOffsety: 1.5f),
         };
 
@@ -71,7 +71,7 @@ namespace OmniMod.Buildings
 
         public static readonly ElementConverter.OutputElement[] OutputSweatcorn = new[]
         {
-            new ElementConverter.OutputElement(2.2f, SimHashes.Ethanol, 313.15f, useEntityTemperature: false, storeOutput: true),
+            new ElementConverter.OutputElement(2.0f, SimHashes.Ethanol, 313.15f, useEntityTemperature: false, storeOutput: true),
             new ElementConverter.OutputElement(0.5f, SimHashes.CarbonDioxide, 313.15f, useEntityTemperature: false, storeOutput: false, outputElementOffsety: 1.5f),
         };
 
@@ -344,7 +344,7 @@ namespace OmniMod.Buildings
                 switch (SelectedMode)
                 {
                     case FermentMode.Sucrose:
-                        return "发酵配方：蔗糖催化发酵 (高产) [点击切换]";
+                        return "发酵配方：蔗糖催化发酵 [点击切换]";
                     case FermentMode.WaterOnly:
                         return "发酵配方：纯水直接发酵 (免固态料) [点击切换]";
                     case FermentMode.Sweatcorn:
@@ -364,11 +364,11 @@ namespace OmniMod.Buildings
                 switch (SelectedMode)
                 {
                     case FermentMode.Sucrose:
-                        return "【当前模式：蔗糖催化发酵（高产模式）】\n配方：纯水 2.0 kg/s + 蔗糖 0.5 kg/s → 乙醇 2.5 kg/s + 二氧化碳 0.5 kg/s。\n小人/自动运载器会自动补充蔗糖。\n点击切换为【纯水直接发酵】。";
+                        return "【当前模式：蔗糖催化发酵】\n配方：纯水 2.0 kg/s + 蔗糖 0.5 kg/s → 乙醇 2.0 kg/s + 二氧化碳 0.5 kg/s。\n小人/自动运载器会自动补充蔗糖。\n点击切换为【纯水直接发酵】。";
                     case FermentMode.WaterOnly:
                         return "【当前模式：纯水直接发酵（免固体料）】\n配方：纯水 2.0 kg/s → 乙醇 2.0 kg/s + 二氧化碳 0.5 kg/s。\n通水通电即全自动开工，无需任何固体物料！\n点击切换为【汗甜玉米发酵】。";
                     case FermentMode.Sweatcorn:
-                        return "【当前模式：汗甜玉米直接发酵】\n配方：纯水 2.0 kg/s + 汗甜玉米 0.5 kg/s → 乙醇 2.2 kg/s + 二氧化碳 0.5 kg/s。\n点击切换为【木材生物水解】。";
+                        return "【当前模式：汗甜玉米直接发酵】\n配方：纯水 2.0 kg/s + 汗甜玉米 0.5 kg/s → 乙醇 2.0 kg/s + 二氧化碳 0.5 kg/s。\n点击切换为【木材生物水解】。";
                     case FermentMode.Wood:
                         return "【当前模式：木材生物水解】\n配方：纯水 2.0 kg/s + 木材 0.5 kg/s → 乙醇 2.0 kg/s + 泥土 0.2 kg/s + 二氧化碳 0.5 kg/s。\n点击切换为【蔗糖催化发酵】。";
                     default:
