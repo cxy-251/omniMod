@@ -30,6 +30,8 @@ namespace OmniMod.Logistics.RemoteFetch
                 if (set == null) return;
 
                 set.Add(GameTags.BagableCreature);
+                set.Add(GameTags.Creatures.Deliverable);
+                set.Add(GameTags.Creature);
                 set.Add(GameTags.Liquid);
                 set.Add(GameTags.Gas);
                 set.Add(GameTags.Egg);
