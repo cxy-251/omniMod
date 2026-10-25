@@ -57,7 +57,7 @@ namespace OmniMod.Logistics.RemoteFetch
                     for (int i = 0; i < ElementLoader.elements.Count; i++)
                     {
                         Element e = ElementLoader.elements[i];
-                        if (e != null && (e.IsLiquid || e.IsGas))
+                        if (e != null)
                         {
                             set.Add(e.tag);
                         }

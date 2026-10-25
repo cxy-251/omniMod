@@ -58,6 +58,7 @@ namespace OmniMod.Collection
 
             FilterAutoManager.InitFilterIfNeeded(this, _treeFilterable, _storage, ref _filterInitialized);
             FilterAutoManager.BackfillDiscoveredOnce(this, _treeFilterable, _storage, ref _backfillDiscoveredV3);
+            FilterAutoManager.SyncDiscoveredResources(this, _treeFilterable, _storage);
 
             if (DiscoveredResources.Instance != null)
             {

@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Generic;
+using OmniMod.Core.Logging;
+using OmniMod.Pool;
 using UnityEngine;
 
 namespace OmniMod.Collection
@@ -445,6 +448,160 @@ namespace OmniMod.Collection
                         {
                             Pickupable p = CheckCandidateList(list, chore, destination, isCrossPlanetDiscrete, worldId);
                             if (p != null) return p;
+                        }
+                    }
+                }
+            }
+
+            // 容错按需即时物化：如果箱内尚无该固体元素实体（如新炼成的浓缩铀尚未缓冲），直接从 OmniPool 即时物化
+            if (!isCrossPlanetDiscrete)
+            {
+                Pickupable onDemand = TryMaterializeSolidFromPoolForChore(worldId, chore, destination);
+                if (onDemand != null)
+                {
+                    return onDemand;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool ElementMatchesTag(Element e, Tag searchTag)
+        {
+            if (e == null || !searchTag.IsValid) return false;
+            return e.HasTag(searchTag) || e.materialCategory == searchTag;
+        }
+
+        private static Pickupable TryMaterializeSolidFromPoolForChore(int worldId, FetchChore chore, Storage destination)
+        {
+            if (worldId < 0 || chore == null || destination == null) return null;
+            if (OmniPool.Instance == null) return null;
+
+            GlobalItemCollector localJunk = GetActiveBoxForWorld(worldId, GlobalItemCollector.CollectMode.Debris);
+            if (localJunk == null || localJunk.BoxStorage == null) return null;
+
+            float needed = chore.originalAmount > 0f ? chore.originalAmount : chore.amount;
+
+            if (chore.criteria == FetchChore.MatchCriteria.MatchID)
+            {
+                if (chore.tags != null)
+                {
+                    foreach (Tag t in chore.tags)
+                    {
+                        Element e = ElementLoader.GetElement(t);
+                        if (e != null && e.IsSolid && OmniPool.Instance.GetMass(e.id) > 0.001f)
+                        {
+                            Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
+                            if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
+                            {
+                                RefreshWorldBoxItems(worldId);
+                                ModLog.Info($"隔空取物即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)");
+                                return p;
+                            }
+                        }
+                    }
+                }
+            }
+            else if (chore.criteria == FetchChore.MatchCriteria.MatchTags)
+            {
+                // 先尝试具体的 requiredTag 或 tagsFirst
+                if (chore.requiredTag.IsValid)
+                {
+                    Element e = ElementLoader.GetElement(chore.requiredTag);
+                    if (e != null && e.IsSolid && OmniPool.Instance.GetMass(e.id) > 0.001f)
+                    {
+                        Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
+                        if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
+                        {
+                            RefreshWorldBoxItems(worldId);
+                            return p;
+                        }
+                    }
+                }
+
+                if (chore.tagsFirst.IsValid)
+                {
+                    Element e = ElementLoader.GetElement(chore.tagsFirst);
+                    if (e != null && e.IsSolid && OmniPool.Instance.GetMass(e.id) > 0.001f)
+                    {
+                        Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
+                        if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
+                        {
+                            RefreshWorldBoxItems(worldId);
+                            return p;
+                        }
+                    }
+                }
+
+                if (chore.tags != null)
+                {
+                    foreach (Tag t in chore.tags)
+                    {
+                        Element e = ElementLoader.GetElement(t);
+                        if (e != null && e.IsSolid && OmniPool.Instance.GetMass(e.id) > 0.001f)
+                        {
+                            Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
+                            if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
+                            {
+                                RefreshWorldBoxItems(worldId);
+                                return p;
+                            }
+                        }
+                    }
+                }
+
+                // 若 tags 属于大类（如 GameTags.RefinedMetal / GameTags.BuildableRaw 等），遍历池中可用固体
+                foreach (OmniPool.PoolLine line in OmniPool.Instance.EnumerateJunk())
+                {
+                    if (line.MassKg <= 0.001f) continue;
+                    Element e = ElementLoader.FindElementByHash(line.Element);
+                    if (e == null || !e.IsSolid) continue;
+
+                    if (chore.requiredTag.IsValid && !ElementMatchesTag(e, chore.requiredTag))
+                    {
+                        continue;
+                    }
+
+                    if (chore.forbiddenTags != null)
+                    {
+                        bool forbidden = false;
+                        for (int f = 0; f < chore.forbiddenTags.Length; f++)
+                        {
+                            Tag forbid = chore.forbiddenTags[f];
+                            if (ElementMatchesTag(e, forbid))
+                            {
+                                forbidden = true;
+                                break;
+                            }
+                        }
+                        if (forbidden) continue;
+                    }
+
+                    bool matches = false;
+                    if (chore.tagsFirst.IsValid && ElementMatchesTag(e, chore.tagsFirst))
+                    {
+                        matches = true;
+                    }
+                    else if (chore.tags != null)
+                    {
+                        foreach (Tag t in chore.tags)
+                        {
+                            if (ElementMatchesTag(e, t))
+                            {
+                                matches = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (matches)
+                    {
+                        Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
+                        if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
+                        {
+                            RefreshWorldBoxItems(worldId);
+                            ModLog.Info($"隔空取物按标签即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)");
+                            return p;
                         }
                     }
                 }

@@ -117,16 +117,24 @@ namespace OmniMod.Collection
 
                 if (!treeFilterable.ContainsTag(tag))
                 {
-                    if (have > 0f)
+                    // 若属于合法散装固体且在储物柜白名单内，自动补勾进筛选器并正常缓冲，避免误当成"玩家手动取消勾选"
+                    if (storage.storageFilters != null && storage.storageFilters.Contains(e.materialCategory))
                     {
-                        MoveBufferElementToPool(collector, storage, element, have);
-                        _localBulkMass[element] = 0f;
+                        treeFilterable.AddTagToFilter(tag);
                     }
-                    if (isHome)
+                    else
                     {
-                        FilterAutoManager.DrainUncheckedElementToFloor(collector, element, e);
+                        if (have > 0f)
+                        {
+                            MoveBufferElementToPool(collector, storage, element, have);
+                            _localBulkMass[element] = 0f;
+                        }
+                        if (isHome)
+                        {
+                            FilterAutoManager.DrainUncheckedElementToFloor(collector, element, e);
+                        }
+                        continue;
                     }
-                    continue;
                 }
 
                 float inPool = pool.GetMass(element);
@@ -220,6 +228,86 @@ namespace OmniMod.Collection
                     storage.OnStorageChange?.Invoke(go);
                 }
             }
+        }
+
+        /// <summary>
+        /// 从 OmniPool 按需即时物化指定固体元素至聚合箱中，供机械臂或搬运任务即时取用。
+        /// </summary>
+        public static Pickupable MaterializeSolidFromPool(GlobalItemCollector collector, SimHashes element, float neededMass = 1000f)
+        {
+            if (collector == null || collector.BoxStorage == null) return null;
+            OmniPool pool = OmniPool.Instance;
+            if (pool == null) return null;
+
+            Element e = ElementLoader.FindElementByHash(element);
+            if (e == null || !e.IsSolid) return null;
+
+            float inPool = pool.GetMass(element);
+            if (inPool <= 0.001f) return null;
+
+            // 确保元素已被发现与筛选器已勾选
+            if (DiscoveredResources.Instance != null && !DiscoveredResources.Instance.IsDiscovered(e.tag))
+            {
+                DiscoveredResources.Instance.Discover(e.tag, e.materialCategory);
+            }
+            TreeFilterable tf = collector.GetComponent<TreeFilterable>();
+            if (tf != null && !tf.ContainsTag(e.tag))
+            {
+                tf.AddTagToFilter(e.tag);
+            }
+
+            Storage storage = collector.BoxStorage;
+            float targetTake = Mathf.Min(inPool, Mathf.Max(neededMass, LocalBufferTargetPerElementKg));
+
+            PrimaryElement chunk = null;
+            if (storage.items != null)
+            {
+                for (int i = 0; i < storage.items.Count; i++)
+                {
+                    GameObject go = storage.items[i];
+                    if (go == null) continue;
+                    Pickupable pItem = go.GetComponent<Pickupable>();
+                    if (pItem != null && IsBulkSolidElementChunk(pItem) && pItem.PrimaryElement != null && pItem.PrimaryElement.ElementID == element)
+                    {
+                        chunk = pItem.PrimaryElement;
+                        break;
+                    }
+                }
+            }
+
+            float taken;
+            float tempK;
+            if (chunk != null && chunk.Mass > 0.001f)
+            {
+                taken = pool.RemoveSolidNear(element, chunk.Temperature, targetTake, out tempK);
+                if (taken > 0f)
+                {
+                    float finalTemp = GameUtil.GetFinalTemperature(chunk.Temperature, chunk.Mass, tempK, taken);
+                    chunk.Mass += taken;
+                    chunk.Temperature = finalTemp;
+                    storage.Trigger(-1697596308, chunk.gameObject);
+                    storage.OnStorageChange?.Invoke(chunk.gameObject);
+                }
+                return chunk.GetComponent<Pickupable>();
+            }
+            else if (e.substance != null)
+            {
+                taken = pool.RemoveSolid(element, targetTake, out tempK);
+                if (taken > 0f)
+                {
+                    GameObject go = e.substance.SpawnResource(collector.transform.GetPosition(), taken, tempK, NoDisease, 0, prevent_merge: true, forceTemperature: false, manual_activation: true);
+                    Pickupable p = go != null ? go.GetComponent<Pickupable>() : null;
+                    if (p != null)
+                    {
+                        p.prevent_absorb_until_stored = true;
+                    }
+                    e.substance.ActivateSubstanceGameObject(go, NoDisease, 0);
+                    storage.Store(go, hide_popups: true, block_events: false, do_disease_transfer: false);
+                    return p;
+                }
+            }
+
+            return null;
         }
     }
 }

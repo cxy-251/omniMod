@@ -74,6 +74,12 @@ namespace OmniMod.Collection
                     DiscoveredResources.Instance?.Discover(resource, GameTags.BionicUpgrade);
                     return true;
                 }
+                // 如果是元素，检查分类是否属于 storageFilters（如后期发现的浓缩铀、异构树脂等）
+                Element e = ElementLoader.GetElement(resource);
+                if (e != null && e.IsSolid && storage.storageFilters.Contains(e.materialCategory))
+                {
+                    return true;
+                }
                 return storage.storageFilters.Contains(category) || (isSeed && !category.IsValid);
             }
             return storage.storageFilters.Contains(category);
@@ -87,13 +93,12 @@ namespace OmniMod.Collection
             }
         }
 
-        public static void BackfillDiscoveredOnce(GlobalItemCollector collector, TreeFilterable treeFilterable, Storage storage, ref bool backfilled)
+        public static void SyncDiscoveredResources(GlobalItemCollector collector, TreeFilterable treeFilterable, Storage storage)
         {
-            if (backfilled || treeFilterable == null || DiscoveredResources.Instance == null || storage == null || storage.storageFilters == null)
+            if (treeFilterable == null || DiscoveredResources.Instance == null || storage == null || storage.storageFilters == null)
             {
                 return;
             }
-            backfilled = true;
 
             var accepted = new HashSet<Tag>(treeFilterable.GetTags());
             var categories = new List<Tag>(storage.storageFilters);
@@ -114,11 +119,36 @@ namespace OmniMod.Collection
                     }
                 }
             }
+
+            // 对杂物箱：池中已有的散装固体资源（包括中后期生产的浓缩铀、异构树脂等），确保自动发现并勾选
+            if (collector.mode == GlobalItemCollector.CollectMode.Debris && OmniPool.Instance != null)
+            {
+                foreach (OmniPool.PoolLine line in OmniPool.Instance.EnumerateJunk())
+                {
+                    Element e = ElementLoader.FindElementByHash(line.Element);
+                    if (e != null && e.IsSolid && !accepted.Contains(e.tag))
+                    {
+                        if (!DiscoveredResources.Instance.IsDiscovered(e.tag))
+                        {
+                            DiscoveredResources.Instance.Discover(e.tag, e.materialCategory);
+                        }
+                        accepted.Add(e.tag);
+                        added++;
+                    }
+                }
+            }
+
             if (added > 0)
             {
                 treeFilterable.UpdateFilters(accepted);
-                ModLog.Info($"聚合箱补勾了 {added} 种后来发现的资源");
+                ModLog.Info($"聚合箱自动同步并补勾了 {added} 种已发现/池中存在的资源");
             }
+        }
+
+        public static void BackfillDiscoveredOnce(GlobalItemCollector collector, TreeFilterable treeFilterable, Storage storage, ref bool backfilled)
+        {
+            SyncDiscoveredResources(collector, treeFilterable, storage);
+            backfilled = true;
         }
 
         public static bool IsSeedItem(KPrefabID id)
@@ -128,7 +158,20 @@ namespace OmniMod.Collection
 
         public static bool PassesFilter(TreeFilterable treeFilterable, Tag prefabTag)
         {
-            return treeFilterable == null || treeFilterable.ContainsTag(prefabTag);
+            if (treeFilterable == null || treeFilterable.ContainsTag(prefabTag)) return true;
+
+            // 容错兜底：若该标签属于合法的散装固体元素且分类在储物柜白名单内，自动补全筛选器
+            Element e = ElementLoader.GetElement(prefabTag);
+            if (e != null && e.IsSolid)
+            {
+                Storage storage = treeFilterable.GetFilterStorage();
+                if (storage != null && storage.storageFilters != null && storage.storageFilters.Contains(e.materialCategory))
+                {
+                    treeFilterable.AddTagToFilter(prefabTag);
+                    return true;
+                }
+            }
+            return false;
         }
 
         public static bool IsAcceptedByFilter(GlobalItemCollector collector, TreeFilterable treeFilterable, KPrefabID id)
@@ -137,15 +180,35 @@ namespace OmniMod.Collection
 
             if (treeFilterable.ContainsTag(id.PrefabTag)) return true;
 
-            if (collector.mode == GlobalItemCollector.CollectMode.Debris && id.HasTag(GameTags.BionicUpgrade))
+            if (collector.mode == GlobalItemCollector.CollectMode.Debris)
             {
-                if (DiscoveredResources.Instance != null && !DiscoveredResources.Instance.GetDiscoveredResourcesFromTag(GameTags.BionicUpgrade).Contains(id.PrefabTag))
+                if (id.HasTag(GameTags.BionicUpgrade))
                 {
-                    DiscoveredResources.Instance.Discover(id.PrefabTag, GameTags.BionicUpgrade);
-                    treeFilterable.AddTagToFilter(id.PrefabTag);
-                    return true;
+                    if (DiscoveredResources.Instance != null && !DiscoveredResources.Instance.GetDiscoveredResourcesFromTag(GameTags.BionicUpgrade).Contains(id.PrefabTag))
+                    {
+                        DiscoveredResources.Instance.Discover(id.PrefabTag, GameTags.BionicUpgrade);
+                        treeFilterable.AddTagToFilter(id.PrefabTag);
+                        return true;
+                    }
+                    return treeFilterable.ContainsTag(GameTags.BionicUpgrade);
                 }
-                return treeFilterable.ContainsTag(GameTags.BionicUpgrade);
+
+                // 散装固体元素检查
+                ElementChunk chunk = id.GetComponent<ElementChunk>();
+                if (chunk != null)
+                {
+                    PrimaryElement pe = chunk.GetComponent<PrimaryElement>();
+                    Element e = pe != null ? pe.Element : null;
+                    if (e != null && e.IsSolid)
+                    {
+                        Storage storage = treeFilterable.GetFilterStorage();
+                        if (storage != null && storage.storageFilters != null && storage.storageFilters.Contains(e.materialCategory))
+                        {
+                            treeFilterable.AddTagToFilter(id.PrefabTag);
+                            return true;
+                        }
+                    }
+                }
             }
 
             Tag category = DiscoveredResources.GetCategoryForEntity(id);
