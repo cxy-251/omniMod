@@ -51,7 +51,7 @@ namespace OmniMod.Buildings
             if (sourceController == null) return;
 
             SetMode(sourceController.SelectedMode);
-            ModLog.Info($"[全能背景灯] 已从 {source.name} 复制光照设置: {SelectedMode}");
+            ModLog.Info($"[全能灯光] 已从 {source.name} 复制光照设置: {SelectedMode}");
         }
 
         public void SetMode(LightMode mode)
@@ -64,6 +64,16 @@ namespace OmniMod.Buildings
         {
             if (_light == null) _light = GetComponent<Light2D>();
             if (_light == null) return;
+
+            // 统一改为 360° 全向圆形光照
+            _light.shape = LightShape.Circle;
+            _light.Direction = Vector2.zero;
+
+            // 对 CeilingLight 和 BackgroundLight 将光照中心归零居中；对 FloorLamp 保留其灯罩高度偏移
+            if (name.Contains("CeilingLight") || name.Contains("BackgroundLight") || GetComponent<CeilingLightConfig>() != null)
+            {
+                _light.Offset = Vector2.zero;
+            }
 
             switch (SelectedMode)
             {
@@ -86,7 +96,7 @@ namespace OmniMod.Buildings
 
         // ================= ISidescreenButtonControl =================
 
-        public string SidescreenTitle => "背景灯光照模式";
+        public string SidescreenTitle => "灯光模式";
 
         public int HorizontalGroupID() => -1;
 
@@ -115,13 +125,13 @@ namespace OmniMod.Buildings
                 switch (SelectedMode)
                 {
                     case LightMode.Sunlight:
-                        return "【当前：糖心树强光模式】\n亮度：12,000 Lux，照射范围：8格。\n完美满足《冰封星球》糖心树 ≥10,000 Lux 的生长照度需求！\n点击切换为【超日照耀斑模式】。";
+                        return "【当前：糖心树强光模式】\n亮度：12,000 Lux，照射范围：8格。\n全向圆形光照，完美满足《冰封星球》糖心树 ≥10,000 Lux 的生长照度需求！\n点击切换为【超日照耀斑模式】。";
                     case LightMode.HyperSolar:
-                        return "【当前：超日照耀斑模式】\n亮度：40,000 Lux，照射范围：10格。\n极强光照，即使距离较远也能提供超万照度，适合大范围糖心树林！\n点击切换为【柔和补光模式】。";
+                        return "【当前：超日照耀斑模式】\n亮度：40,000 Lux，照射范围：10格。\n极强全向光照，即使距离较远也能提供超万照度，适合大范围糖心树林！\n点击切换为【柔和补光模式】。";
                     case LightMode.Soft:
-                        return "【当前：柔和补光模式】\n亮度：1,800 Lux，照射范围：6格。\n节能温和，适合毛刺花、夜幕花等常规作物的精准补光。\n点击切换为【糖心树强光模式】。";
+                        return "【当前：柔和补光模式】\n亮度：1,800 Lux，照射范围：6格。\n温和节能，适合毛刺花、夜幕花等常规作物的精准补光。\n点击切换为【糖心树强光模式】。";
                     default:
-                        return "点击切换背景灯光照模式。";
+                        return "点击切换灯具光照模式。";
                 }
             }
         }
@@ -149,7 +159,7 @@ namespace OmniMod.Buildings
                     break;
             }
 
-            ModLog.Info($"[全能背景灯] 光照模式已切换为: {SelectedMode}");
+            ModLog.Info($"[全能灯光] 光照模式已切换为: {SelectedMode}");
         }
     }
 }

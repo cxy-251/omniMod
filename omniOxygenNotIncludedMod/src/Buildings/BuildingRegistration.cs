@@ -30,6 +30,7 @@ namespace OmniMod.Buildings
             RegisterFoodBox();
             RegisterGasPurifiers();
             RegisterBackgroundLight();
+            RegisterLightEnhancements();
             RegisterRadboltGenerator();
             RegisterFluidProcessors();
             RegisterAutoIceMaker();
@@ -192,6 +193,19 @@ namespace OmniMod.Buildings
                 "uncategorized",
                 relativeBuildingId: "CeilingLight",
                 ordering: ModUtil.BuildingOrdering.After);
+        }
+
+        private static void RegisterLightEnhancements()
+        {
+            STRINGS.BUILDINGS.PREFABS.CEILINGLIGHT.EFFECT = new LocString(ModStrings.T(
+                "【全能模组增强】为四周提供全向圆形光照。默认 12,000 Lux 糖心树强光，可在侧边栏自由切换强光/耀斑/柔和三种模式，支持随处建造。",
+                "[OmniMod] Provides 360° circular illumination. Defaults to 12,000 Lux sunlight (ideal for SpaceTree); can switch modes on sidescreen. Can be built anywhere."
+            ).Resolve());
+
+            STRINGS.BUILDINGS.PREFABS.FLOORLAMP.EFFECT = new LocString(ModStrings.T(
+                "【全能模组增强】为四周提供全向圆形光照。默认 12,000 Lux 糖心树强光，可在侧边栏自由切换强光/耀斑/柔和三种模式。",
+                "[OmniMod] Provides 360° circular illumination. Defaults to 12,000 Lux sunlight (ideal for SpaceTree); can switch modes on sidescreen."
+            ).Resolve());
         }
 
         private static void RegisterGasPurifiers()
