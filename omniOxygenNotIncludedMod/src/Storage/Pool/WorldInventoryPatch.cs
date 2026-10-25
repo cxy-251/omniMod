@@ -35,6 +35,12 @@ namespace OmniMod.Pool
                 {
                     __result += poolMass;
                 }
+
+                int seedCount = OmniPool.Instance.GetSeedCount(tag);
+                if (seedCount > 0)
+                {
+                    __result += seedCount;
+                }
             }
 
             float sharedBoxMass = AggregateBoxRegistry.GetSharedRemoteBoxMass(world.id, world.ParentWorldId, tag);

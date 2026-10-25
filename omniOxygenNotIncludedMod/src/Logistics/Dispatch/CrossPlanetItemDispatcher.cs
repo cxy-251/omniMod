@@ -144,6 +144,7 @@ namespace OmniMod.Logistics.Dispatch
     {
         private static void Postfix(SingleEntityReceptacle __instance, Tag entityTag, Tag additionalFilterTag)
         {
+            OmniMod.Machinery.Farming.ReceptacleSideScreen_GetAvailableAmount_Patch.ClearCache();
             ExceptionShield.Execute("SingleEntityReceptacle.CreateOrder", () =>
             {
                 if (__instance == null || !entityTag.IsValid || entityTag == GameTags.Empty)

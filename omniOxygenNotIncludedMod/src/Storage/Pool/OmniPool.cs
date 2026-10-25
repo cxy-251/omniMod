@@ -284,14 +284,21 @@ namespace OmniMod.Pool
         private int _massVersion = 0;
         private int _categoryCacheVersion = -1;
         private readonly Dictionary<Tag, float> _categoryMassCache = new Dictionary<Tag, float>();
+        private static readonly HashSet<Tag> _knownNonElementTags = new HashSet<Tag>();
 
-        /// <summary>按 tag 查池中质量，支持类别 tag（如 "Metal"）——池里所有带该 tag 的元素质量相加。带按版本失效的 O(1) 字典缓存。</summary>
+        /// <summary>按 tag 查池中质量，支持类别 tag（如 "Metal"）——池里所有带该 tag 的元素质量相加。带按版本失效的 O(1) 字典缓存与非元素 Tag 快速跳过。</summary>
         public float GetMassMatchingTag(Tag tag)
         {
             float exact = GetMassForTag(tag);
             if (exact > 0f)
             {
                 return exact;
+            }
+
+            // 离散物品（种子、蛋、装备、神器等）绝非 SimHashes 元素，快速跳过，避免无效遍历元素列表
+            if (_knownNonElementTags.Contains(tag))
+            {
+                return 0f;
             }
 
             if (_categoryCacheVersion == _massVersion && _categoryMassCache.TryGetValue(tag, out float cached))
@@ -306,6 +313,25 @@ namespace OmniMod.Pool
                 if (e != null && (e.tag == tag || e.HasTag(tag)))
                 {
                     sum += kv.Value;
+                }
+            }
+
+            // 若整个游戏的元素库都不包含该 Tag，标记为已知非元素 Tag，后续直接 O(1) 返回 0
+            if (sum == 0f && ElementLoader.elements != null)
+            {
+                bool isAnyElementTag = false;
+                for (int i = 0; i < ElementLoader.elements.Count; i++)
+                {
+                    Element el = ElementLoader.elements[i];
+                    if (el != null && (el.tag == tag || el.HasTag(tag)))
+                    {
+                        isAnyElementTag = true;
+                        break;
+                    }
+                }
+                if (!isAnyElementTag)
+                {
+                    _knownNonElementTags.Add(tag);
                 }
             }
 

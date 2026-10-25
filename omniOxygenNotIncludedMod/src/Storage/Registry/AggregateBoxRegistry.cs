@@ -236,6 +236,7 @@ namespace OmniMod.Collection
         //    机械臂的扫描补丁使用基于 Tag 索引的字典进行 O(1) 匹配，杜绝全量线性扫描引起的卡顿。——
         private static readonly Dictionary<int, Pickupable[]> _worldBoxItems = new Dictionary<int, Pickupable[]>();
         private static readonly Dictionary<int, Dictionary<Tag, List<Pickupable>>> _worldBoxItemsByTag = new Dictionary<int, Dictionary<Tag, List<Pickupable>>>();
+        private static readonly Dictionary<int, Dictionary<Tag, float>> _worldBoxMassByTag = new Dictionary<int, Dictionary<Tag, float>>();
         private static readonly Dictionary<int, float> _rocketRefreshTime = new Dictionary<int, float>();
         private static readonly List<Pickupable> _refreshScratch = new List<Pickupable>(128);
 
@@ -308,7 +309,7 @@ namespace OmniMod.Collection
             RefreshWorldBoxItems(worldId);
         }
 
-        private static void AddTagToIndex(Dictionary<Tag, List<Pickupable>> index, Tag tag, Pickupable p)
+        private static void AddTagToIndex(Dictionary<Tag, List<Pickupable>> index, Dictionary<Tag, float> massIndex, Tag tag, Pickupable p, float mass)
         {
             if (!index.TryGetValue(tag, out List<Pickupable> list))
             {
@@ -316,6 +317,15 @@ namespace OmniMod.Collection
                 index[tag] = list;
             }
             list.Add(p);
+
+            if (massIndex.TryGetValue(tag, out float currentMass))
+            {
+                massIndex[tag] = currentMass + mass;
+            }
+            else
+            {
+                massIndex[tag] = mass;
+            }
         }
 
         internal static void RefreshWorldBoxItems(int worldId)
@@ -347,13 +357,16 @@ namespace OmniMod.Collection
             Pickupable[] arr = _refreshScratch.Count > 0 ? _refreshScratch.ToArray() : System.Array.Empty<Pickupable>();
 
             var tagIndex = new Dictionary<Tag, List<Pickupable>>(_refreshScratch.Count > 32 ? _refreshScratch.Count / 2 : 16);
+            var tagMass = new Dictionary<Tag, float>(_refreshScratch.Count > 32 ? _refreshScratch.Count / 2 : 16);
             for (int i = 0; i < _refreshScratch.Count; i++)
             {
                 Pickupable p = _refreshScratch[i];
                 if (p == null || p.KPrefabID == null) continue;
+                if (p.KPrefabID.HasTag(GameTags.StoredPrivate)) continue;
 
+                float mass = p.TotalAmount;
                 Tag prefabTag = p.KPrefabID.PrefabTag;
-                AddTagToIndex(tagIndex, prefabTag, p);
+                AddTagToIndex(tagIndex, tagMass, prefabTag, p, mass);
 
                 if (p.KPrefabID.Tags != null)
                 {
@@ -361,7 +374,7 @@ namespace OmniMod.Collection
                     {
                         if (t != prefabTag)
                         {
-                            AddTagToIndex(tagIndex, t, p);
+                            AddTagToIndex(tagIndex, tagMass, t, p, mass);
                         }
                     }
                 }
@@ -371,9 +384,54 @@ namespace OmniMod.Collection
             {
                 _worldBoxItems[worldId] = arr;
                 _worldBoxItemsByTag[worldId] = tagIndex;
+                _worldBoxMassByTag[worldId] = tagMass;
             }
+        }
 
-            InvalidateRemoteBoxMassCache();
+        internal static bool TryGetWorldBoxMass(int worldId, Tag tag, out float mass)
+        {
+            Dictionary<Tag, float> massDict = null;
+            lock (_worldBoxItems)
+            {
+                _worldBoxMassByTag.TryGetValue(worldId, out massDict);
+            }
+            if (massDict == null)
+            {
+                RefreshWorldBoxItems(worldId);
+                lock (_worldBoxItems)
+                {
+                    _worldBoxMassByTag.TryGetValue(worldId, out massDict);
+                }
+            }
+            if (massDict != null && massDict.TryGetValue(tag, out mass))
+            {
+                return true;
+            }
+            mass = 0f;
+            return false;
+        }
+
+        internal static bool TryGetWorldBoxPickupables(int worldId, Tag tag, out List<Pickupable> list)
+        {
+            Dictionary<Tag, List<Pickupable>> tagDict = null;
+            lock (_worldBoxItems)
+            {
+                _worldBoxItemsByTag.TryGetValue(worldId, out tagDict);
+            }
+            if (tagDict == null)
+            {
+                RefreshWorldBoxItems(worldId);
+                lock (_worldBoxItems)
+                {
+                    _worldBoxItemsByTag.TryGetValue(worldId, out tagDict);
+                }
+            }
+            if (tagDict != null && tagDict.TryGetValue(tag, out list))
+            {
+                return true;
+            }
+            list = null;
+            return false;
         }
 
         internal static Pickupable[] GetWorldBoxItems(int worldId)
@@ -693,43 +751,10 @@ namespace OmniMod.Collection
             return total;
         }
 
-        private static float SumStorageAmountForTag(Storage storage, Tag tag)
-        {
-            if (storage == null || storage.items == null)
-            {
-                return 0f;
-            }
-            float sum = 0f;
-            for (int i = 0; i < storage.items.Count; i++)
-            {
-                GameObject go = storage.items[i];
-                if (go == null)
-                {
-                    continue;
-                }
-                KPrefabID id = go.GetComponent<KPrefabID>();
-                Pickupable p = go.GetComponent<Pickupable>();
-                if (id != null && p != null && id.HasTag(tag) && !id.HasTag(GameTags.StoredPrivate))
-                {
-                    sum += p.TotalAmount;
-                }
-            }
-            return sum;
-        }
-
-        private static int _remoteBoxMassVersion = 0;
-        private static int _cachedRemoteMassVersion = -1;
-        private static readonly Dictionary<long, float> _remoteBoxMassCache = new Dictionary<long, float>();
-
-        internal static void InvalidateRemoteBoxMassCache()
-        {
-            _remoteBoxMassVersion++;
-        }
-
         /// <summary>
         /// 供 WorldInventory.GetTotalAmount 补丁调用：当本星球建有杂物箱/食物箱时，
         /// 将其它星球生效聚合箱 Storage 内对应 tag 的存量计入本星球可用量，使全星系面板与选种/建造界面 100% 共享。
-        /// 使用按版本失效的 O(1) 字典缓存，消除每秒上万次重复遍历几千件物品导致的 130ms 掉帧！
+        /// 基于按星球 Tag 索引字典进行 O(1) 查询，彻底杜绝线性扫描成千上万件物品引起的严重卡顿！
         /// </summary>
         internal static float GetSharedRemoteBoxMass(int worldId, int parentWorldId, Tag tag)
         {
@@ -738,12 +763,6 @@ namespace OmniMod.Collection
             if (!hasJunk && !hasFood)
             {
                 return 0f;
-            }
-
-            long cacheKey = ((long)parentWorldId << 32) ^ (long)(uint)tag.GetHash();
-            if (_cachedRemoteMassVersion == _remoteBoxMassVersion && _remoteBoxMassCache.TryGetValue(cacheKey, out float cached))
-            {
-                return cached;
             }
 
             float sum = 0f;
@@ -761,49 +780,21 @@ namespace OmniMod.Collection
                 if ((b.mode == GlobalItemCollector.CollectMode.Debris && hasJunk) ||
                     (b.mode == GlobalItemCollector.CollectMode.Edibles && hasFood))
                 {
-                    sum += SumStorageAmountForTag(b.BoxStorage, tag);
-                }
-            }
-
-            if (_cachedRemoteMassVersion != _remoteBoxMassVersion)
-            {
-                _remoteBoxMassCache.Clear();
-                _cachedRemoteMassVersion = _remoteBoxMassVersion;
-            }
-            _remoteBoxMassCache[cacheKey] = sum;
-            return sum;
-        }
-
-        private static void CollectMatchingFromStorage(Storage storage, Tag tag, ref List<Pickupable> added)
-        {
-            if (storage == null || storage.items == null)
-            {
-                return;
-            }
-            for (int i = 0; i < storage.items.Count; i++)
-            {
-                GameObject go = storage.items[i];
-                if (go == null)
-                {
-                    continue;
-                }
-                KPrefabID id = go.GetComponent<KPrefabID>();
-                Pickupable p = go.GetComponent<Pickupable>();
-                if (id != null && p != null && id.HasTag(tag) && !id.HasTag(GameTags.StoredPrivate))
-                {
-                    if (added == null)
+                    int boxWorld = b.GetMyWorldId();
+                    if (TryGetWorldBoxMass(boxWorld, tag, out float m))
                     {
-                        added = new List<Pickupable>();
+                        sum += m;
                     }
-                    added.Add(p);
                 }
             }
+            return sum;
         }
 
         /// <summary>
         /// 供 WorldInventory.GetPickupables 补丁调用：当本星球建有杂物箱/食物箱时，
         /// 将其它星球生效聚合箱 Storage 内匹配 tag 的 Pickupable 列表追加给本星球，使种植砖选种、孵化器选蛋、展台选神器、
         /// 卡路里统计等界面在所有星球 100% 共享全部物品。
+        /// 使用 O(1) Tag 索引字典以及 HashSet 去重合并，杜绝线性扫描与 O(N^2) 集合去重造成的界面冻结。
         /// </summary>
         internal static void AppendSharedRemoteBoxPickupables(int worldId, int parentWorldId, Tag tag, ref ICollection<Pickupable> result)
         {
@@ -829,7 +820,15 @@ namespace OmniMod.Collection
                 if ((b.mode == GlobalItemCollector.CollectMode.Debris && hasJunk) ||
                     (b.mode == GlobalItemCollector.CollectMode.Edibles && hasFood))
                 {
-                    CollectMatchingFromStorage(b.BoxStorage, tag, ref extra);
+                    int boxWorld = b.GetMyWorldId();
+                    if (TryGetWorldBoxPickupables(boxWorld, tag, out List<Pickupable> list) && list != null && list.Count > 0)
+                    {
+                        if (extra == null)
+                        {
+                            extra = new List<Pickupable>(list.Count);
+                        }
+                        extra.AddRange(list);
+                    }
                 }
             }
 
@@ -838,24 +837,16 @@ namespace OmniMod.Collection
                 return;
             }
 
-            List<Pickupable> combined = new List<Pickupable>((result != null ? result.Count : 0) + extra.Count);
-            if (result != null)
+            if (result == null || result.Count == 0)
             {
-                foreach (Pickupable item in result)
-                {
-                    if (item != null)
-                    {
-                        combined.Add(item);
-                    }
-                }
+                result = extra;
+                return;
             }
+
+            HashSet<Pickupable> combined = new HashSet<Pickupable>(result);
             for (int i = 0; i < extra.Count; i++)
             {
-                Pickupable p = extra[i];
-                if (!combined.Contains(p))
-                {
-                    combined.Add(p);
-                }
+                combined.Add(extra[i]);
             }
             result = combined;
         }
