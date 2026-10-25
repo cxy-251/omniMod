@@ -10,21 +10,8 @@ namespace OmniMod.Buildings
     /// 2. 默认提供 12,000 Lux 糖心树强光（完美满足《冰封星球》糖心树 ≥ 10,000 Lux 的生长与产蜜照度需求）；
     /// 3. 挂载 BackgroundLightController，支持侧边栏一键切换【12,000 Lux 糖心树强光】、【40,000 Lux 超日照耀斑】、【1,800 Lux 柔和补光】；
     /// 4. 挂载 CopyBuildingSettings，支持批量拖选复制灯光模式；
-    /// 5. 挂顶灯建造规则改为 Anywhere，不再强制要求顶部必须有实心天花板，在室内、旷野农场、树间均可作为前景建筑自由建造。
+    /// 5. 挂顶灯保持原版 OnCeiling 吸顶吸附建造规则，确保正确检测顶部天花板地基，彻底消除“缺少砖块”虚假报错。
     /// </summary>
-    [HarmonyPatch(typeof(CeilingLightConfig), nameof(CeilingLightConfig.CreateBuildingDef))]
-    internal static class CeilingLightConfig_CreateBuildingDef_Patch
-    {
-        private static void Postfix(BuildingDef __result)
-        {
-            if (__result != null)
-            {
-                // 允许挂顶灯随处建造，不再强制依赖顶部必须有实心砖天花板
-                __result.BuildLocationRule = BuildLocationRule.Anywhere;
-            }
-        }
-    }
-
     [HarmonyPatch(typeof(CeilingLightConfig), nameof(CeilingLightConfig.DoPostConfigurePreview))]
     internal static class CeilingLightConfig_DoPostConfigurePreview_Patch
     {
