@@ -35,6 +35,7 @@ namespace OmniMod.Buildings
             RegisterAutoIceMaker();
             RegisterLiquidChiller();
             RegisterTeleporters();
+            RegisterNuclearReprocessor();
         }
 
         private static void RegisterFluidProcessors()
@@ -313,6 +314,30 @@ namespace OmniMod.Buildings
                 OmniTeleportReceiverConfig.ID,
                 "storage",
                 relativeBuildingId: OmniTeleportTransmitterConfig.ID,
+                ordering: ModUtil.BuildingOrdering.After);
+        }
+
+        private static void RegisterNuclearReprocessor()
+        {
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_REPROCESSOR.TITLE", "浓缩铀出料配置");
+
+            ModStrings.AddBuilding(
+                NuclearReprocessorConfig.ID,
+                name: ModStrings.T("核废料再处理机", "Nuclear Waste Reprocessor"),
+                desc: ModStrings.T(
+                    "利用先进的乏燃料化学分离与放射性同位素重富集工艺，将反应堆排放的高放射性核废料（液态或固态核废料）高效提纯还原为高纯度浓缩铀。实现核能燃料的完全闭式循环。",
+                    "Uses advanced spent fuel chemical separation and radioisotope re-enrichment to extract and reduce high-level nuclear waste back into pure Enriched Uranium, achieving a closed nuclear fuel cycle."),
+                effect: ModStrings.T(
+                    "每秒消耗 5kg 液态核废料（或 5kg 固态核废料块），高效提纯出 0.5kg 浓缩铀。支持满 20kg 自动落料入库（供聚合箱全图瞬时调配）或留存机内供机械手直取。",
+                    "Consumes 5 kg/s Liquid Nuclear Waste (or 5 kg/s Solid Nuclear Waste) to produce 0.5 kg/s high-purity Enriched Uranium. Supports automatic 20kg floor-drop for global aggregate storage or internal storage retention."));
+
+            string relativeId = DlcManager.IsExpansion1Active() ? "UraniumCentrifuge" : "OilRefinery";
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Refining"),
+                NuclearReprocessorConfig.ID,
+                "refining",
+                relativeBuildingId: relativeId,
                 ordering: ModUtil.BuildingOrdering.After);
         }
 
