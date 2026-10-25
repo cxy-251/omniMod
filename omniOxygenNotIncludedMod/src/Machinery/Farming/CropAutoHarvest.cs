@@ -36,6 +36,18 @@ namespace OmniMod.Machinery.Farming
                 return;
             }
 
+            // 糖心树枝（SpaceTreeBranch）：树枝是光合作用器官，必须保留在树上吸收光照产出花蜜/糖水。
+            // 若被自动收获当成木材秒砍，会导致树枝刚长成就消失，且因无成熟树枝而彻底无法产蜜。
+            // 因此糖心树枝默认不自动收割（除非玩家手动点击单次标记收割木材）。
+            if (h.PrefabID() == "SpaceTreeBranch")
+            {
+                HarvestDesignatable hd = h.GetComponent<HarvestDesignatable>();
+                if (hd == null || !hd.MarkedForHarvest)
+                {
+                    return;
+                }
+            }
+
             ExceptionShield.Execute("CropAutoHarvest.DoHarvest", () =>
             {
                 h.Harvest();
