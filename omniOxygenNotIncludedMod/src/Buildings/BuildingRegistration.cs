@@ -49,8 +49,8 @@ namespace OmniMod.Buildings
                     "利用工业生物发酵工艺，将高通量纯水与蔗糖（或汗甜玉米）高效发酵转化为清洁的液体乙醇，副产二氧化碳废气。专为消纳基地巨量过剩水资源而设计。",
                     "Uses industrial biological fermentation to convert high-throughput water and sucrose (or sweatcorn) into clean liquid ethanol, producing carbon dioxide gas. Designed to consume massive water surpluses."),
                 effect: ModStrings.T(
-                    "每秒消耗 2kg 纯水与 0.5kg 蔗糖（或 0.5kg 汗甜玉米），通过管道排出 2kg 液体乙醇，并向环境散逸 0.5kg 二氧化碳废气。",
-                    "Consumes 2 kg/s Water and 0.5 kg/s Sucrose (or Sweatcorn) to produce 2 kg/s liquid Ethanol via pipe, releasing 0.5 kg/s Carbon Dioxide gas into the room."));
+                    "高通量工业生物发酵转化：默认【蔗糖催化发酵】消耗纯水 2kg/s 与蔗糖 0.5kg/s，高产排出 2.5kg/s 液体乙醇与 0.5kg/s 二氧化碳废气。可在侧边栏随时一键切换为【纯水直接发酵】（无需固体料）、【汗甜玉米】或【木材水解】模式。",
+                    "High-throughput biological fermentation: Defaults to [Sucrose Catalysis] consuming 2 kg/s Water and 0.5 kg/s Sucrose to yield 2.5 kg/s Ethanol and 0.5 kg/s CO2. Can be toggled on the sidescreen to [Water Only] (no solids required), [Sweatcorn], or [Wood Hydrolysis]."));
 
             ModUtil.AddBuildingToPlanScreen(
                 new HashedString("Refining"),

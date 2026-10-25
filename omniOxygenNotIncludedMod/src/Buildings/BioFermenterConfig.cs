@@ -8,9 +8,9 @@ namespace OmniMod.Buildings
     /// 生物发酵反应罐（Bio-Fermenter）：
     /// 复用乙醇蒸馏器模型（附带生化浅绿/琥珀发酵色微调），专门用于高通量消耗多余的纯水。
     ///
-    /// - 液体输入：纯水（Water）2.0 kg/s
-    /// - 固体进料：蔗糖（Sucrose）0.5 kg/s，或汗甜玉米（Sweatcorn）0.5 kg/s
-    /// - 液体输出：液体乙醇（Ethanol）2.0 kg/s（接排液管直出）
+    /// - 液体输入：纯水（Water）2.0 kg/s（进水缓存 200 kg）
+    /// - 固体进料：蔗糖（Sucrose）0.5 kg/s，汗甜玉米（Sweatcorn）0.5 kg/s，或木材（Wood）0.5 kg/s
+    /// - 液体输出：液体乙醇（Ethanol）2.0~2.5 kg/s（接排液管直出）
     /// - 气体副产：二氧化碳（CO2）0.5 kg/s（散逸到环境中）
     /// - 额定功率：240W
     /// </summary>
@@ -63,13 +63,14 @@ namespace OmniMod.Buildings
             Storage storage = BuildingTemplates.CreateDefaultStorage(go);
             storage.capacityKg = 2000f;
             storage.showInUI = true;
+            storage.allowItemRemoval = true;
             storage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
 
-            // 进水管道接口：吞吐纯水 2 kg/s
+            // 进水管道接口：吞吐纯水 2 kg/s，配备 200 kg 储水缓存
             ConduitConsumer consumer = go.AddOrGet<ConduitConsumer>();
             consumer.conduitType = ConduitType.Liquid;
             consumer.consumptionRate = 10f;
-            consumer.capacityKG = 20f;
+            consumer.capacityKG = 200f;
             consumer.capacityTag = SimHashes.Water.CreateTag();
             consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
             consumer.forceAlwaysSatisfied = true;
@@ -80,7 +81,7 @@ namespace OmniMod.Buildings
             dispenser.alwaysDispense = true;
             dispenser.elementFilter = new[] { SimHashes.Ethanol };
 
-            // 固体进料调度（默认纯水模式下 BioFermenter 会自动 Pause(true) 该组件）
+            // 固体进料调度（默认蔗糖模式）
             ManualDeliveryKG delivery = go.AddComponent<ManualDeliveryKG>();
             delivery.SetStorage(storage);
             delivery.RequestedItemTag = BioFermenter.SucroseTag;
@@ -88,13 +89,12 @@ namespace OmniMod.Buildings
             delivery.refillMass = 100f;
             delivery.choreTypeIDHash = Db.Get().ChoreTypes.FetchCritical.IdHash;
 
-            // 统一转换器：默认初始化为纯水直接发酵（水 2.0 kg/s -> 乙醇 2.0 kg/s + CO2 0.5 kg/s），无需任何固体原料
-            // 更多配方（蔗糖催化/汗甜玉米/木材）可通过侧边栏随时热切换
+            // 统一转换器：默认初始化为蔗糖催化发酵配方
             ElementConverter converter = go.AddComponent<ElementConverter>();
-            converter.consumedElements = BioFermenter.ConsumedWaterOnly;
-            converter.outputElements = BioFermenter.OutputWaterOnly;
+            converter.consumedElements = BioFermenter.ConsumedSucrose;
+            converter.outputElements = BioFermenter.OutputSucrose;
 
-            // 挂载主控逻辑组件（侧边栏配方切换、进料调度管理）与复制设置支持
+            // 挂载主控逻辑组件（侧边栏配方切换、进料调度管理、ISim200ms Active 状态机）与复制设置支持
             go.AddOrGet<CopyBuildingSettings>();
             go.AddOrGet<BioFermenter>();
 
