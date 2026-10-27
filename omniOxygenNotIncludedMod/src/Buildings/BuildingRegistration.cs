@@ -37,6 +37,7 @@ namespace OmniMod.Buildings
             RegisterLiquidChiller();
             RegisterTeleporters();
             RegisterNuclearReprocessor();
+            RegisterPocketHabitat();
         }
 
         private static void RegisterFluidProcessors()
@@ -352,6 +353,26 @@ namespace OmniMod.Buildings
                 NuclearReprocessorConfig.ID,
                 "refining",
                 relativeBuildingId: relativeId,
+                ordering: ModUtil.BuildingOrdering.After);
+        }
+
+        private static void RegisterPocketHabitat()
+        {
+            ModStrings.AddBuilding(
+                OmniPocketHabitatConfig.ID,
+                name: ModStrings.T("折叠空间生态巨舱", "Omni Pocket Hyper-Habitat"),
+                desc: ModStrings.T(
+                    "采用高维拓扑空间折叠技术建造的微型异次元口袋巨舱。外部仅占 3x3 地块，完全防水防淹，可深置于水底深渊。内部拓展出 32x32 极限尺寸的纯净开阔平层，预铺背景护墙板，适合自由隔断为大型生态厩舍、水产养殖、自动化或独立工业区。",
+                    "A pocket dimensional hyper-habitat constructed via topological space folding. Occupies only a 3x3 footprint externally, fully waterproof and submergeable. Expands internally into an immense 32x32 clean slate (28x28 usable space) with pre-sealed drywall, ideal for multi-room ranches, deep-water aquaculture, or isolated industry."),
+                effect: ModStrings.T(
+                    "建造后自动在底层世界开辟 28x28 纯净绝热生态空间。复制人可通过双向导航门自由进出，侧边栏支持一键切换视角。完全防水防淹，无数量限制，可建造于基地任何地板或水底。",
+                    "Creates an immense 28x28 pocket world interior upon construction. Duplicants can enter and exit seamlessly via the two-way portal door, with a one-click view button on the side screen. Fully waterproof, can be placed anywhere on floors or underwater without build count limits."));
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Base"),
+                OmniPocketHabitatConfig.ID,
+                "doors",
+                relativeBuildingId: "Door",
                 ordering: ModUtil.BuildingOrdering.After);
         }
 
