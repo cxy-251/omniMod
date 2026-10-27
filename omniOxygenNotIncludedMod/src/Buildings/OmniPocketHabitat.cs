@@ -1,9 +1,12 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Delaunay.Geo;
 using HarmonyLib;
+using Klei;
 using KSerialization;
 using OmniMod.Core.Logging;
+using ProcGen;
 using STRINGS;
 using UnityEngine;
 
@@ -11,10 +14,10 @@ namespace OmniMod.Buildings
 {
     /// <summary>
     /// 【折叠空间生态巨舱】核心控制器：
-    /// 1. 建造完成后自动开辟 32x32（内部 28x27 净空，外框为标准钢制火箭壁板）的独立空间。
-    /// 2. 自动将舱外门与舱内门（ClustercraftInteriorDoor）进行双向导航（NavTeleporter）与通行权限（AssignmentGroupController）配对。
-    /// 3. 舱外底部电源接口与舱内原版【电源插座】（RocketInteriorPowerPlug）通过虚拟电路键直连，实现舱内外电网无缝互通。
-    /// 4. 舱外与舱内门均提供侧边栏一键切换视角按钮（【进入舱内】/【返回舱外】）。
+    /// 1. 建造完成后自动开辟 32x32（内部 30x30 全真空净空，仅放置 1 个舱内门）的独立空间，供玩家自由铺设玻璃砖与顶部光伏板。
+    /// 2. 自动配置内部区域为 RocketInterior（防太空暴露吞噬气液）并赋予高强度顶部阳光（80,000 Lux），支持舱内顶部光伏发电。
+    /// 3. 自动将舱外门与舱内门（ClustercraftInteriorDoor）进行双向导航（NavTeleporter）、隐形落脚点（FakeFloorAdder）与通行权限（AssignmentGroupController）配对。
+    /// 4. 舱外底部电源接口与舱内玩家建造的任意原版【电源插座】（RocketInteriorPowerPlug）通过虚拟电路键直连，实现舱内外电网无缝互通。
     /// </summary>
     [SerializationConfig(MemberSerialization.OptIn)]
     public class OmniPocketHabitat : KMonoBehaviour, ISaveLoadable, ISidescreenButtonControl
@@ -32,6 +35,8 @@ namespace OmniMod.Buildings
 
         private ClustercraftInteriorDoor pairedInteriorDoor;
         private bool isInitializingWorld;
+        private bool hasInitializedWorld;
+        private bool isStampingTemplate;
 
         public string SidescreenTitle => ModStrings.T("折叠空间生态巨舱", "Omni Pocket Hyper-Habitat").Resolve();
         public string SidescreenButtonText => ModStrings.T("进入舱内 (View Interior)", "View Interior").Resolve();
@@ -88,11 +93,11 @@ namespace OmniMod.Buildings
         }
 
         /// <summary>
-        /// 幂等初始化内部世界（确保无论 OnSpawn 顺序如何，WireUtilitySemiVirtualNetworkLink 都能立即拿到目标 WorldContainer）。
+        /// 幂等初始化内部世界（确保无论 OnSpawn 顺序如何，WireUtilitySemiVirtualNetworkLink 与本体只执行一次初始化，绝不重复印章）。
         /// </summary>
         public void EnsurePocketWorldInitialized()
         {
-            if (isInitializingWorld)
+            if (hasInitializedWorld || isInitializingWorld)
             {
                 return;
             }
@@ -100,6 +105,8 @@ namespace OmniMod.Buildings
             isInitializingWorld = true;
             try
             {
+                EnsureExteriorAssignmentGroupReady();
+
                 // 清理旧版残留的 OrbitalMechanics 组件（防止读档时内部空引用崩溃）
                 OrbitalMechanics orbital = GetComponent<OrbitalMechanics>();
                 if (!Util.IsNullOrDestroyed(orbital))
@@ -112,7 +119,7 @@ namespace OmniMod.Buildings
                 {
                     if (existingWorld != null && existingWorld.id >= 0)
                     {
-                        // 容灾恢复：存档中已存在挂载于本建筑的 WorldContainer，接管并重铺标准模板
+                        // 容灾恢复：存档中已存在挂载于本建筑的 WorldContainer，直接接管
                         targetWorldId = existingWorld.id;
                         int parentWorldId = ClusterUtil.GetMyWorldId(this);
                         if (parentWorldId != -1)
@@ -121,8 +128,15 @@ namespace OmniMod.Buildings
                         }
 
                         OmniPocketHabitatPatches.EnsureWorldDiagnosticsRegistered(targetWorldId);
-                        existingWorld.DestroyWorldBuildings(out _);
-                        existingWorld.PlaceInteriorTemplate(OmniPocketTemplate.TemplateName, PairWithInteriorDoor);
+                        ConfigurePocketWorldZoneAndSunlight(existingWorld);
+                        CleanupLegacyWallsAndDuplicateDoors(existingWorld);
+                        PairWithInteriorDoor();
+
+                        if (pairedInteriorDoor == null)
+                        {
+                            StampPocketTemplate(existingWorld);
+                        }
+
                         ModLog.Info($"[折叠生态舱] 已接管并修复存档中的内部空间 (World ID: {targetWorldId})。");
                     }
                     else
@@ -141,9 +155,13 @@ namespace OmniMod.Buildings
                             world.SetParentIdx(myWorldId);
                         }
                         OmniPocketHabitatPatches.EnsureWorldDiagnosticsRegistered(world.id);
+                        ConfigurePocketWorldZoneAndSunlight(world);
+                        CleanupLegacyWallsAndDuplicateDoors(world);
                     }
                     StartCoroutine(DelayedPairDoor());
                 }
+
+                hasInitializedWorld = true;
             }
             finally
             {
@@ -194,13 +212,12 @@ namespace OmniMod.Buildings
                     world.SetParentIdx(parentWorldId);
                 }
 
-                // 直接传入 PairWithInteriorDoor 回调，绕过原版 CreateRocketInteriorWorld 对 CraftModuleInterface 与 OrbitalMechanics 的强依赖
-                world.PlaceInteriorTemplate(OmniPocketTemplate.TemplateName, PairWithInteriorDoor);
+                StampPocketTemplate(world);
 
                 ClusterManager.Instance.BoxingTrigger((int)GameHashes.WorldAdded, world.id);
                 OmniPocketHabitatPatches.EnsureWorldDiagnosticsRegistered(world.id);
 
-                ModLog.Info($"[折叠生态舱] 成功创建内部空间 (World ID: {targetWorldId}, Offset: {offset}, Size: {size})。");
+                ModLog.Info($"[折叠生态舱] 成功创建内部纯净空间 (World ID: {targetWorldId}, Offset: {offset}, Size: {size})。");
             }
             catch (Exception ex)
             {
@@ -208,19 +225,206 @@ namespace OmniMod.Buildings
             }
         }
 
+        private void StampPocketTemplate(WorldContainer world)
+        {
+            if (world == null || isStampingTemplate)
+            {
+                return;
+            }
+
+            isStampingTemplate = true;
+            world.PlaceInteriorTemplate(OmniPocketTemplate.TemplateName, OnTemplateStamped);
+            ConfigurePocketWorldZoneAndSunlight(world);
+        }
+
+        private void OnTemplateStamped()
+        {
+            isStampingTemplate = false;
+            WorldContainer world = GetTargetWorld();
+            if (world != null)
+            {
+                ConfigurePocketWorldZoneAndSunlight(world);
+                CleanupLegacyWallsAndDuplicateDoors(world);
+            }
+            PairWithInteriorDoor();
+        }
+
+        /// <summary>
+        /// 将内部 30x30 净空区域注册为 SubWorld.ZoneType.RocketInterior（防止无背板时气液因太空暴露消失），
+        /// 同时开启顶部高强度阳光（80,000 Lux），支持玩家在顶部铺设玻璃砖与光伏发电板。
+        /// </summary>
+        public static void ConfigurePocketWorldZoneAndSunlight(WorldContainer world)
+        {
+            if (world == null)
+            {
+                return;
+            }
+
+            // 1. 赋予顶部充足阳光（80,000 Lux，满足原版光伏板满功率发电需求）
+            world.sunlight = TUNING.FIXEDTRAITS.SUNLIGHT.VERY_HIGH;
+            world.sunlightFixedTrait = TUNING.FIXEDTRAITS.SUNLIGHT.NAME.VERY_HIGH;
+            OmniPocketHabitatPatches.RefreshTimeOfDaySunlight();
+
+            // 2. 构建覆盖内部 30x30 可建造区域的 OverworldCell 多边形（避免因去除 RocketWallTile 导致全图变成太空暴露）
+            Vector2I offset = world.WorldOffset;
+            Vector2I size = world.WorldSize;
+            var corners = new List<Vector2>(4)
+            {
+                new Vector2(offset.x + 1f, offset.y + 1f),
+                new Vector2(offset.x + size.x - 1f, offset.y + 1f),
+                new Vector2(offset.x + size.x - 1f, offset.y + size.y - 1f),
+                new Vector2(offset.x + 1f, offset.y + size.y - 1f)
+            };
+            var poly = new Polygon(corners);
+
+            ref WorldDetailSave.OverworldCell overworldCell = ref OmniPocketHabitatPatches.OverworldCellRef(world);
+            if (overworldCell == null)
+            {
+                overworldCell = new WorldDetailSave.OverworldCell();
+            }
+
+            overworldCell.poly = poly;
+            overworldCell.zoneType = SubWorld.ZoneType.RocketInterior;
+            if (overworldCell.tags == null)
+            {
+                overworldCell.tags = new TagSet { WorldGenTags.RocketInterior };
+            }
+            else if (!overworldCell.tags.Contains(WorldGenTags.RocketInterior))
+            {
+                overworldCell.tags.Add(WorldGenTags.RocketInterior);
+            }
+
+            var overworldCells = SaveLoader.Instance?.clusterDetailSave?.overworldCells;
+            if (overworldCells != null && !overworldCells.Contains(overworldCell))
+            {
+                overworldCells.Add(overworldCell);
+            }
+
+            // 3. 将内部 30x30 格设为 RocketInterior，外圈 1 格边界保持 Space
+            for (int y = 0; y < size.y; y++)
+            {
+                for (int x = 0; x < size.x; x++)
+                {
+                    int cell = Grid.XYToCell(offset.x + x, offset.y + y);
+                    if (!Grid.IsValidCell(cell))
+                    {
+                        continue;
+                    }
+
+                    bool isInterior = x >= 1 && x < size.x - 1 && y >= 1 && y < size.y - 1;
+                    byte simZone = isInterior ? (byte)SubWorld.ZoneType.RocketInterior : byte.MaxValue;
+                    SubWorld.ZoneType renderZone = isInterior ? SubWorld.ZoneType.RocketInterior : SubWorld.ZoneType.Space;
+
+                    SimMessages.ModifyCellWorldZone(cell, simZone);
+                    if (World.Instance?.zoneRenderData?.worldZoneTypes != null && cell < World.Instance.zoneRenderData.worldZoneTypes.Length)
+                    {
+                        World.Instance.zoneRenderData.worldZoneTypes[cell] = renderZone;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 清理旧版残留的火箭壁板（RocketWallTile）与重复印章产生的多余舱内门，确保舱内只有 1 个门且无预置壁板。
+        /// </summary>
+        private void CleanupLegacyWallsAndDuplicateDoors(WorldContainer world)
+        {
+            if (world == null)
+            {
+                return;
+            }
+
+            int worldId = world.id;
+
+            // 1. 移除旧版模板遗留的 RocketWallTile，将空间完全归还给玩家铺设玻璃砖
+            var wallsToDestroy = new List<BuildingComplete>();
+            foreach (BuildingComplete building in Components.BuildingCompletes.Items)
+            {
+                if (building != null && ClusterUtil.GetMyWorldId(building) == worldId && building.PrefabID() == "RocketWallTile")
+                {
+                    wallsToDestroy.Add(building);
+                }
+            }
+
+            foreach (BuildingComplete wall in wallsToDestroy)
+            {
+                int cell = Grid.PosToCell(wall);
+                Util.KDestroyGameObject(wall.gameObject);
+                if (Grid.IsValidCell(cell))
+                {
+                    SimMessages.ReplaceElement(cell, SimHashes.Vacuum, CellEventLogger.Instance.Scenario, 0f);
+                }
+            }
+
+            // 2. 移除因旧版重复印章产生的多余 ClustercraftInteriorDoor（只保留第 1 个）
+            ClustercraftInteriorDoor primaryDoor = null;
+            var extraDoors = new List<ClustercraftInteriorDoor>();
+            foreach (ClustercraftInteriorDoor door in Components.ClusterCraftInteriorDoors.Items)
+            {
+                if (door != null && !Util.IsNullOrDestroyed(door) && ClusterUtil.GetMyWorldId(door) == worldId)
+                {
+                    if (primaryDoor == null)
+                    {
+                        primaryDoor = door;
+                    }
+                    else
+                    {
+                        extraDoors.Add(door);
+                    }
+                }
+            }
+
+            foreach (ClustercraftInteriorDoor extra in extraDoors)
+            {
+                Components.ClusterCraftInteriorDoors.Remove(extra);
+                Util.KDestroyGameObject(extra.gameObject);
+            }
+        }
+
         private IEnumerator DelayedPairDoor()
         {
             yield return null;
+            if (isStampingTemplate)
+            {
+                yield break;
+            }
+
             PairWithInteriorDoor();
-            if (pairedInteriorDoor == null)
+            if (pairedInteriorDoor == null && !isStampingTemplate)
             {
                 WorldContainer world = GetTargetWorld();
                 if (world != null)
                 {
                     ModLog.Info($"[折叠生态舱] 检测到内部空间 (World {targetWorldId}) 缺少舱内门，正在自动补齐标准模板...");
-                    world.PlaceInteriorTemplate(OmniPocketTemplate.TemplateName, PairWithInteriorDoor);
+                    StampPocketTemplate(world);
                 }
             }
+        }
+
+        public void EnsureExteriorAssignmentGroupReady()
+        {
+            if (assignmentGroupController == null)
+            {
+                assignmentGroupController = GetComponent<AssignmentGroupController>();
+            }
+
+            if (assignmentGroupController == null || Game.Instance?.assignmentManager == null)
+            {
+                return;
+            }
+
+            assignmentGroupController.generateGroupOnStart = true;
+            if (string.IsNullOrEmpty(assignmentGroupController.AssignmentGroupID))
+            {
+                KPrefabID kpid = GetComponent<KPrefabID>();
+                string groupId = $"{kpid.PrefabID()}_{kpid.InstanceID}_assignmentGroup";
+                assignmentGroupController.SetGroupID(groupId);
+            }
+
+            Game.Instance.assignmentManager.TryCreateAssignmentGroup(
+                assignmentGroupController.AssignmentGroupID,
+                Array.Empty<IAssignableIdentity>(),
+                gameObject.GetProperName());
         }
 
         public void PairWithInteriorDoor()
@@ -230,9 +434,16 @@ namespace OmniMod.Buildings
                 return;
             }
 
+            WorldContainer targetWorld = GetTargetWorld();
+            if (targetWorld != null)
+            {
+                CleanupLegacyWallsAndDuplicateDoors(targetWorld);
+            }
+
+            pairedInteriorDoor = null;
             foreach (ClustercraftInteriorDoor door in Components.ClusterCraftInteriorDoors.Items)
             {
-                if (door != null && ClusterUtil.GetMyWorldId(door) == targetWorldId)
+                if (door != null && !Util.IsNullOrDestroyed(door) && ClusterUtil.GetMyWorldId(door) == targetWorldId)
                 {
                     pairedInteriorDoor = door;
                     break;
@@ -244,28 +455,46 @@ namespace OmniMod.Buildings
                 return;
             }
 
-            // 同步内外门的通行权限组（与原版 ClustercraftExteriorDoor.SetTarget 保持一致）
-            if (assignmentGroupController != null)
+            // 1. 同步内外门的通行权限组（确保 AssignmentGroupID 绝不为空且已在 AssignmentManager 中注册）
+            EnsureExteriorAssignmentGroupReady();
+            var interiorAgc = pairedInteriorDoor.GetComponent<AssignmentGroupController>();
+            if (interiorAgc != null && assignmentGroupController != null && !string.IsNullOrEmpty(assignmentGroupController.AssignmentGroupID))
             {
-                var interiorAgc = pairedInteriorDoor.GetComponent<AssignmentGroupController>();
-                if (interiorAgc != null && !string.IsNullOrEmpty(assignmentGroupController.AssignmentGroupID))
+                interiorAgc.SetGroupID(assignmentGroupController.AssignmentGroupID);
+            }
+
+            // 2. 为悬空舱内门底部挂载隐形落脚点（FakeFloorAdder），使复制人在玩家未铺玻璃砖前也能直接进出站立，同时不阻碍在门下建造砖块
+            FakeFloorAdder fakeFloor = pairedInteriorDoor.gameObject.AddOrGet<FakeFloorAdder>();
+            fakeFloor.floorOffsets = new[]
+            {
+                new CellOffset(0, -1),
+                new CellOffset(1, -1)
+            };
+            fakeFloor.initiallyActive = true;
+            fakeFloor.SetFloor(true);
+
+            int doorCell = Grid.PosToCell(pairedInteriorDoor);
+            if (Grid.IsValidCell(doorCell))
+            {
+                Pathfinding.Instance?.AddDirtyNavGridCell(doorCell);
+                int exitCell = Grid.OffsetCell(doorCell, new CellOffset(1, 0));
+                if (Grid.IsValidCell(exitCell))
                 {
-                    interiorAgc.SetGroupID(assignmentGroupController.AssignmentGroupID);
+                    Pathfinding.Instance?.AddDirtyNavGridCell(exitCell);
                 }
             }
 
-            // 建立双向导航传送连接
+            // 3. 建立双向导航传送连接
             NavTeleporter interiorNav = pairedInteriorDoor.GetComponent<NavTeleporter>();
             if (navTeleporter != null && interiorNav != null)
             {
                 navTeleporter.TwoWayTarget(interiorNav);
             }
 
-            // 在舱内门上挂载【返回舱外】快捷视角切换按钮
+            // 4. 在舱内门上挂载【返回舱外】快捷视角切换按钮
             var exitBtn = pairedInteriorDoor.gameObject.AddOrGet<OmniPocketInteriorExitButton>();
             exitBtn.exteriorHabitat = this;
 
-            WorldContainer targetWorld = GetTargetWorld();
             int parentWorldId = ClusterUtil.GetMyWorldId(this);
             if (targetWorld != null && parentWorldId != -1)
             {
@@ -312,6 +541,7 @@ namespace OmniMod.Buildings
                 world.EjectAllDupes(ejectPos);
                 world.CancelChores();
                 world.DestroyWorldBuildings(out HashSet<int> noRefundTiles);
+                world.ClearWorldZones();
                 world.TransferResourcesToParentWorld(ejectPos + new Vector3(0f, 0.5f, 0f), noRefundTiles);
 
                 ClusterManager.Instance.UnregisterWorldContainer(world);
@@ -370,6 +600,7 @@ namespace OmniMod.Buildings
     /// 生态巨舱底层兼容与跨维电网桥接补丁集：
     /// 1. 将舱外建筑电口与舱内【电源插座】（RocketInteriorPowerPlug）绑定至同一 VirtualCircuitKey（WorldContainer），实现舱内外电力直通。
     /// 2. 屏蔽原版针对真火箭（Clustercraft）的专属音效、背景星图飞行渲染、火箭燃料诊断及舱内门侧边栏，彻底消除空引用异常。
+    /// 3. 对 AssignmentGroupController.OnSerialize 做防御性群组注册保底，防止任何未配对舱门导致存档崩溃。
     /// </summary>
     public static class OmniPocketHabitatPatches
     {
@@ -420,7 +651,54 @@ namespace OmniMod.Buildings
         }
 
         // ==========================================
-        // 2. 屏蔽非火箭生态舱的 Clustercraft 强依赖逻辑
+        // 2. 存档序列化权限组保底防护（防止 AssignmentGroupID 为空导致保存失败）
+        // ==========================================
+        [HarmonyPatch(typeof(AssignmentGroupController), "OnSerialize")]
+        public static class AssignmentGroupController_OnSerialize_Patch
+        {
+            public static void Prefix(AssignmentGroupController __instance)
+            {
+                if (__instance == null || Game.Instance?.assignmentManager == null)
+                {
+                    return;
+                }
+
+                if (string.IsNullOrEmpty(__instance.AssignmentGroupID))
+                {
+                    WorldContainer myWorld = ClusterUtil.GetMyWorld(__instance);
+                    OmniPocketHabitat habitat = myWorld != null ? myWorld.GetComponent<OmniPocketHabitat>() : __instance.GetComponent<OmniPocketHabitat>();
+                    if (habitat != null)
+                    {
+                        habitat.EnsureExteriorAssignmentGroupReady();
+                        var extAgc = habitat.GetComponent<AssignmentGroupController>();
+                        if (extAgc != null && !string.IsNullOrEmpty(extAgc.AssignmentGroupID))
+                        {
+                            __instance.SetGroupID(extAgc.AssignmentGroupID);
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(__instance.AssignmentGroupID))
+                    {
+                        KPrefabID kpid = __instance.GetComponent<KPrefabID>();
+                        string fallbackId = kpid != null
+                            ? $"{kpid.PrefabID()}_{kpid.InstanceID}_assignmentGroup"
+                            : $"OmniFallback_{__instance.GetInstanceID()}_assignmentGroup";
+                        __instance.SetGroupID(fallbackId);
+                    }
+                }
+
+                if (!Game.Instance.assignmentManager.assignment_groups.ContainsKey(__instance.AssignmentGroupID))
+                {
+                    Game.Instance.assignmentManager.TryCreateAssignmentGroup(
+                        __instance.AssignmentGroupID,
+                        Array.Empty<IAssignableIdentity>(),
+                        __instance.gameObject.GetProperName());
+                }
+            }
+        }
+
+        // ==========================================
+        // 3. 屏蔽非火箭生态舱的 Clustercraft 强依赖逻辑
         // ==========================================
         [HarmonyPatch(typeof(WorldContainer), nameof(WorldContainer.IsModuleInterior), MethodType.Getter)]
         public static class WorldContainer_IsModuleInterior_Patch
@@ -432,6 +710,20 @@ namespace OmniMod.Buildings
                     __result = false;
                 }
             }
+        }
+
+        [HarmonyPatch(typeof(PassengerRocketModule), "RefreshClusterStateForAudio")]
+        public static class PassengerRocketModule_RefreshClusterStateForAudio_Patch
+        {
+            public static void Prefix() => suppressModuleInteriorDepth++;
+            public static void Finalizer() => suppressModuleInteriorDepth--;
+        }
+
+        [HarmonyPatch(typeof(AmbienceManager.Quadrant), nameof(AmbienceManager.Quadrant.Update))]
+        public static class AmbienceManager_Quadrant_Update_Patch
+        {
+            public static void Prefix() => suppressModuleInteriorDepth++;
+            public static void Finalizer() => suppressModuleInteriorDepth--;
         }
 
         [HarmonyPatch(typeof(TerrainBG), "LateUpdate")]
@@ -455,16 +747,51 @@ namespace OmniMod.Buildings
             public static void Finalizer() => suppressModuleInteriorDepth--;
         }
 
+        [HarmonyPatch(typeof(ColonyAchievementTracker), "OnNewDay")]
+        public static class ColonyAchievementTracker_OnNewDay_Patch
+        {
+            public static void Prefix() => suppressModuleInteriorDepth++;
+            public static void Finalizer() => suppressModuleInteriorDepth--;
+        }
+
+        [HarmonyPatch(typeof(RocketConduitReceiver), "FindPartner")]
+        public static class RocketConduitReceiver_FindPartner_Patch
+        {
+            public static void Prefix() => suppressModuleInteriorDepth++;
+            public static void Finalizer() => suppressModuleInteriorDepth--;
+        }
+
+        [HarmonyPatch(typeof(RocketConduitSender), "FindPartner")]
+        public static class RocketConduitSender_FindPartner_Patch
+        {
+            public static void Prefix() => suppressModuleInteriorDepth++;
+            public static void Finalizer() => suppressModuleInteriorDepth--;
+        }
+
         private static readonly Func<ClusterManager, int> GetNextWorldIdDelegate =
             AccessTools.MethodDelegate<Func<ClusterManager, int>>(AccessTools.Method(typeof(ClusterManager), "GetNextWorldId"));
 
         private static readonly Action<TrackerTool, int> AddNewWorldTrackersDelegate =
             AccessTools.MethodDelegate<Action<TrackerTool, int>>(AccessTools.Method(typeof(TrackerTool), "AddNewWorldTrackers"));
 
+        private static readonly Func<TimeOfDay, float> UpdateSunlightIntensityDelegate =
+            AccessTools.MethodDelegate<Func<TimeOfDay, float>>(AccessTools.Method(typeof(TimeOfDay), "UpdateSunlightIntensity"));
+
+        public static readonly AccessTools.FieldRef<WorldContainer, WorldDetailSave.OverworldCell> OverworldCellRef =
+            AccessTools.FieldRefAccess<WorldContainer, WorldDetailSave.OverworldCell>("overworldCell");
+
         private static readonly AccessTools.FieldRef<ColonyDiagnosticUtility, Dictionary<int, List<ColonyDiagnostic>>> WorldDiagnosticsRef =
             AccessTools.FieldRefAccess<ColonyDiagnosticUtility, Dictionary<int, List<ColonyDiagnostic>>>("worldDiagnostics");
 
         public static int GetNextWorldId(ClusterManager clusterManager) => GetNextWorldIdDelegate(clusterManager);
+
+        public static void RefreshTimeOfDaySunlight()
+        {
+            if (TimeOfDay.Instance != null)
+            {
+                UpdateSunlightIntensityDelegate(TimeOfDay.Instance);
+            }
+        }
 
         public static void EnsureWorldDiagnosticsRegistered(int worldId)
         {
@@ -504,13 +831,6 @@ namespace OmniMod.Buildings
         public static class ColonyDiagnosticUtility_GetWorldDiagnosticResultTooltip_Patch
         {
             public static void Prefix(int worldID) => EnsureWorldDiagnosticsRegistered(worldID);
-        }
-
-        [HarmonyPatch(typeof(ColonyAchievementTracker), "OnNewDay")]
-        public static class ColonyAchievementTracker_OnNewDay_Patch
-        {
-            public static void Prefix() => suppressModuleInteriorDepth++;
-            public static void Finalizer() => suppressModuleInteriorDepth--;
         }
 
         // 防止点击生态舱内部门时触发原版 RocketInteriorSectionSideScreen（该界面强依赖 Clustercraft）
