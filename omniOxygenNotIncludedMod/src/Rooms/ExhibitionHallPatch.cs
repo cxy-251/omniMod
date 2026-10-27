@@ -235,11 +235,11 @@ namespace OmniMod.Rooms
     [HarmonyPatch(typeof(CavityInfo), nameof(CavityInfo.OnEnter))]
     public static class CavityInfo_OnEnter_ExhibitionHall_Patch
     {
-        public static void Postfix( object entity)
+        public static void Postfix(object data)
         {
             try
             {
-                if (entity is GameObject go && go != null && go.GetComponent<MinionIdentity>() != null)
+                if (data is GameObject go && go != null && go.GetComponent<MinionIdentity>() != null)
                 {
                     Room room = Game.Instance?.roomProber?.GetRoomOfGameObject(go);
                     if (room?.roomType != null && room.roomType.Id == ExhibitionHallPatch.RoomTypeId)

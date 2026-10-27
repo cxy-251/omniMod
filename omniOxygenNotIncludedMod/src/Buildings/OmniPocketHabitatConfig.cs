@@ -63,11 +63,10 @@ namespace OmniMod.Buildings
             kpid.AddTag(GameTags.Bunker);
             kpid.AddTag(GameTags.NotRoomAssignable);
 
-            // 声明 CreateRocketInteriorWorld 动态挂载的组件，确保存档/读档序列化完整无损
+            // 声明动态挂载的内部世界组件，确保存档/读档序列化完整无损
             SaveLoadRoot saveLoadRoot = go.AddOrGet<SaveLoadRoot>();
             saveLoadRoot.DeclareOptionalComponent<WorldInventory>();
             saveLoadRoot.DeclareOptionalComponent<WorldContainer>();
-            saveLoadRoot.DeclareOptionalComponent<OrbitalMechanics>();
 
             // WorldContainer 强制要求同 GameObject 上存在 AlertStateManager.Instance 状态机与 Notifier
             go.AddOrGet<Notifier>();

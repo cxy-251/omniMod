@@ -97,30 +97,57 @@ namespace OmniMod.Buildings
                 return;
             }
 
-            if (targetWorldId < 0)
+            isInitializingWorld = true;
+            try
             {
-                isInitializingWorld = true;
-                try
+                // 清理旧版残留的 OrbitalMechanics 组件（防止读档时内部空引用崩溃）
+                OrbitalMechanics orbital = GetComponent<OrbitalMechanics>();
+                if (!Util.IsNullOrDestroyed(orbital))
                 {
-                    CreatePocketWorld();
+                    UnityEngine.Object.DestroyImmediate(orbital);
                 }
-                finally
+
+                WorldContainer existingWorld = GetComponent<WorldContainer>();
+                if (targetWorldId < 0)
                 {
-                    isInitializingWorld = false;
-                }
-            }
-            else
-            {
-                WorldContainer world = GetTargetWorld();
-                if (world != null)
-                {
-                    int myWorldId = ClusterUtil.GetMyWorldId(this);
-                    if (myWorldId != -1)
+                    if (existingWorld != null && existingWorld.id >= 0)
                     {
-                        world.SetParentIdx(myWorldId);
+                        // 容灾恢复：存档中已存在挂载于本建筑的 WorldContainer，接管并重铺标准模板
+                        targetWorldId = existingWorld.id;
+                        int parentWorldId = ClusterUtil.GetMyWorldId(this);
+                        if (parentWorldId != -1)
+                        {
+                            existingWorld.SetParentIdx(parentWorldId);
+                        }
+
+                        OmniPocketHabitatPatches.EnsureWorldDiagnosticsRegistered(targetWorldId);
+                        existingWorld.DestroyWorldBuildings(out _);
+                        existingWorld.PlaceInteriorTemplate(OmniPocketTemplate.TemplateName, PairWithInteriorDoor);
+                        ModLog.Info($"[折叠生态舱] 已接管并修复存档中的内部空间 (World ID: {targetWorldId})。");
+                    }
+                    else
+                    {
+                        CreatePocketWorld();
                     }
                 }
-                StartCoroutine(DelayedPairDoor());
+                else
+                {
+                    WorldContainer world = GetTargetWorld();
+                    if (world != null)
+                    {
+                        int myWorldId = ClusterUtil.GetMyWorldId(this);
+                        if (myWorldId != -1)
+                        {
+                            world.SetParentIdx(myWorldId);
+                        }
+                        OmniPocketHabitatPatches.EnsureWorldDiagnosticsRegistered(world.id);
+                    }
+                    StartCoroutine(DelayedPairDoor());
+                }
+            }
+            finally
+            {
+                isInitializingWorld = false;
             }
         }
 
@@ -137,26 +164,43 @@ namespace OmniMod.Buildings
         {
             try
             {
-                WorldContainer world = ClusterManager.Instance.CreateRocketInteriorWorld(
-                    gameObject,
-                    OmniPocketTemplate.TemplateName,
-                    PairWithInteriorDoor
-                );
-
-                if (world != null)
-                {
-                    targetWorldId = world.id;
-                    int parentWorldId = ClusterUtil.GetMyWorldId(this);
-                    if (parentWorldId != -1)
-                    {
-                        world.SetParentIdx(parentWorldId);
-                    }
-                    ModLog.Info($"[折叠生态舱] 成功创建内部空间 (World ID: {targetWorldId})。");
-                }
-                else
+                Vector2I size = TUNING.ROCKETRY.ROCKET_INTERIOR_SIZE;
+                if (!Grid.GetFreeGridSpace(size, out Vector2I offset))
                 {
                     ModLog.Warn("[折叠生态舱] 创建内部空间失败：底层网格空间不足。");
+                    return;
                 }
+
+                int newWorldId = OmniPocketHabitatPatches.GetNextWorldId(ClusterManager.Instance);
+                gameObject.AddOrGet<WorldInventory>();
+                WorldContainer world = gameObject.AddOrGet<WorldContainer>();
+                world.SetRocketInteriorWorldDetails(newWorldId, size, offset);
+
+                Vector2I max = offset + size;
+                for (int y = offset.y; y < max.y; y++)
+                {
+                    for (int x = offset.x; x < max.x; x++)
+                    {
+                        int cell = Grid.XYToCell(x, y);
+                        Grid.WorldIdx[cell] = (byte)newWorldId;
+                        Pathfinding.Instance?.AddDirtyNavGridCell(cell);
+                    }
+                }
+
+                targetWorldId = world.id;
+                int parentWorldId = ClusterUtil.GetMyWorldId(this);
+                if (parentWorldId != -1)
+                {
+                    world.SetParentIdx(parentWorldId);
+                }
+
+                // 直接传入 PairWithInteriorDoor 回调，绕过原版 CreateRocketInteriorWorld 对 CraftModuleInterface 与 OrbitalMechanics 的强依赖
+                world.PlaceInteriorTemplate(OmniPocketTemplate.TemplateName, PairWithInteriorDoor);
+
+                ClusterManager.Instance.BoxingTrigger((int)GameHashes.WorldAdded, world.id);
+                OmniPocketHabitatPatches.EnsureWorldDiagnosticsRegistered(world.id);
+
+                ModLog.Info($"[折叠生态舱] 成功创建内部空间 (World ID: {targetWorldId}, Offset: {offset}, Size: {size})。");
             }
             catch (Exception ex)
             {
@@ -168,6 +212,15 @@ namespace OmniMod.Buildings
         {
             yield return null;
             PairWithInteriorDoor();
+            if (pairedInteriorDoor == null)
+            {
+                WorldContainer world = GetTargetWorld();
+                if (world != null)
+                {
+                    ModLog.Info($"[折叠生态舱] 检测到内部空间 (World {targetWorldId}) 缺少舱内门，正在自动补齐标准模板...");
+                    world.PlaceInteriorTemplate(OmniPocketTemplate.TemplateName, PairWithInteriorDoor);
+                }
+            }
         }
 
         public void PairWithInteriorDoor()
@@ -402,11 +455,55 @@ namespace OmniMod.Buildings
             public static void Finalizer() => suppressModuleInteriorDepth--;
         }
 
-        [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.AddWorld))]
-        public static class ColonyDiagnosticUtility_AddWorld_Patch
+        private static readonly Func<ClusterManager, int> GetNextWorldIdDelegate =
+            AccessTools.MethodDelegate<Func<ClusterManager, int>>(AccessTools.Method(typeof(ClusterManager), "GetNextWorldId"));
+
+        private static readonly Action<TrackerTool, int> AddNewWorldTrackersDelegate =
+            AccessTools.MethodDelegate<Action<TrackerTool, int>>(AccessTools.Method(typeof(TrackerTool), "AddNewWorldTrackers"));
+
+        private static readonly AccessTools.FieldRef<ColonyDiagnosticUtility, Dictionary<int, List<ColonyDiagnostic>>> WorldDiagnosticsRef =
+            AccessTools.FieldRefAccess<ColonyDiagnosticUtility, Dictionary<int, List<ColonyDiagnostic>>>("worldDiagnostics");
+
+        public static int GetNextWorldId(ClusterManager clusterManager) => GetNextWorldIdDelegate(clusterManager);
+
+        public static void EnsureWorldDiagnosticsRegistered(int worldId)
         {
-            public static void Prefix() => suppressModuleInteriorDepth++;
-            public static void Finalizer() => suppressModuleInteriorDepth--;
+            if (worldId < 0 || ClusterManager.Instance == null || ClusterManager.Instance.GetWorld(worldId) == null)
+            {
+                return;
+            }
+
+            if (TrackerTool.Instance != null && TrackerTool.Instance.GetWorldTracker<BreathabilityTracker>(worldId) == null)
+            {
+                AddNewWorldTrackersDelegate(TrackerTool.Instance, worldId);
+            }
+
+            if (ColonyDiagnosticUtility.Instance != null)
+            {
+                Dictionary<int, List<ColonyDiagnostic>> worldDiagnostics = WorldDiagnosticsRef(ColonyDiagnosticUtility.Instance);
+                if (worldDiagnostics != null && !worldDiagnostics.ContainsKey(worldId))
+                {
+                    ColonyDiagnosticUtility.Instance.AddWorld(worldId);
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.GetWorldDiagnosticResult))]
+        public static class ColonyDiagnosticUtility_GetWorldDiagnosticResult_Patch
+        {
+            public static void Prefix(int worldID) => EnsureWorldDiagnosticsRegistered(worldID);
+        }
+
+        [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.GetWorldDiagnosticResultStatus))]
+        public static class ColonyDiagnosticUtility_GetWorldDiagnosticResultStatus_Patch
+        {
+            public static void Prefix(int worldID) => EnsureWorldDiagnosticsRegistered(worldID);
+        }
+
+        [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.GetWorldDiagnosticResultTooltip))]
+        public static class ColonyDiagnosticUtility_GetWorldDiagnosticResultTooltip_Patch
+        {
+            public static void Prefix(int worldID) => EnsureWorldDiagnosticsRegistered(worldID);
         }
 
         [HarmonyPatch(typeof(ColonyAchievementTracker), "OnNewDay")]
