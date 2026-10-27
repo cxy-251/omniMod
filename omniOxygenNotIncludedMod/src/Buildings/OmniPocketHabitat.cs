@@ -89,6 +89,15 @@ namespace OmniMod.Buildings
         protected override void OnSpawn()
         {
             base.OnSpawn();
+
+            // 确保使用火箭舱体动画（rocket_habitat_medium_module_kanim）时播放 grounded 常驻状态，防止因默认 off 状态缺失导致建筑隐形
+            KBatchedAnimController kbac = GetComponent<KBatchedAnimController>();
+            if (kbac != null)
+            {
+                kbac.enabled = true;
+                kbac.Play("grounded", KAnim.PlayMode.Loop);
+            }
+
             EnsurePocketWorldInitialized();
         }
 
@@ -544,7 +553,16 @@ namespace OmniMod.Buildings
                 world.ClearWorldZones();
                 world.TransferResourcesToParentWorld(ejectPos + new Vector3(0f, 0.5f, 0f), noRefundTiles);
 
+                var overworldCells = SaveLoader.Instance?.clusterDetailSave?.overworldCells;
+                ref WorldDetailSave.OverworldCell overworldCell = ref OmniPocketHabitatPatches.OverworldCellRef(world);
+                if (overworldCells != null && overworldCell != null)
+                {
+                    overworldCells.Remove(overworldCell);
+                }
+
+                int worldIdToClean = targetWorldId;
                 ClusterManager.Instance.UnregisterWorldContainer(world);
+                OmniPocketHabitatPatches.CleanupDestroyedWorldTrackersAndDiagnostics(worldIdToClean);
 
                 OrbitalMechanics orbital = GetComponent<OrbitalMechanics>();
                 if (!Util.IsNullOrDestroyed(orbital))
@@ -552,7 +570,7 @@ namespace OmniMod.Buildings
                     UnityEngine.Object.Destroy(orbital);
                 }
 
-                ModLog.Info($"[折叠生态舱] 建筑已拆除，内部空间 (World {targetWorldId}) 已安全回收并将物资退回舱外。");
+                ModLog.Info($"[折叠生态舱] 建筑已拆除，内部空间 (World {worldIdToClean}) 已安全回收并将物资退回舱外。");
                 targetWorldId = -1;
             }
             catch (Exception ex)
@@ -783,6 +801,12 @@ namespace OmniMod.Buildings
         private static readonly AccessTools.FieldRef<ColonyDiagnosticUtility, Dictionary<int, List<ColonyDiagnostic>>> WorldDiagnosticsRef =
             AccessTools.FieldRefAccess<ColonyDiagnosticUtility, Dictionary<int, List<ColonyDiagnostic>>>("worldDiagnostics");
 
+        private static readonly AccessTools.FieldRef<TrackerTool, List<WorldTracker>> WorldTrackersRef =
+            AccessTools.FieldRefAccess<TrackerTool, List<WorldTracker>>("worldTrackers");
+
+        private static readonly AccessTools.FieldRef<TrackerTool, int> UpdatingWorldTrackerRef =
+            AccessTools.FieldRefAccess<TrackerTool, int>("updatingWorldTracker");
+
         public static int GetNextWorldId(ClusterManager clusterManager) => GetNextWorldIdDelegate(clusterManager);
 
         public static void RefreshTimeOfDaySunlight()
@@ -808,10 +832,91 @@ namespace OmniMod.Buildings
             if (ColonyDiagnosticUtility.Instance != null)
             {
                 Dictionary<int, List<ColonyDiagnostic>> worldDiagnostics = WorldDiagnosticsRef(ColonyDiagnosticUtility.Instance);
-                if (worldDiagnostics != null && !worldDiagnostics.ContainsKey(worldId))
+                if (worldDiagnostics != null)
                 {
-                    ColonyDiagnosticUtility.Instance.AddWorld(worldId);
+                    if (!worldDiagnostics.ContainsKey(worldId))
+                    {
+                        // 抑制 IsModuleInterior，防止 AddWorld 将口袋生态舱误判为真实火箭并挂载火箭专属诊断项
+                        suppressModuleInteriorDepth++;
+                        try
+                        {
+                            ColonyDiagnosticUtility.Instance.AddWorld(worldId);
+                        }
+                        finally
+                        {
+                            suppressModuleInteriorDepth--;
+                        }
+                    }
+                    else if (worldDiagnostics.TryGetValue(worldId, out List<ColonyDiagnostic> existingDiags) && existingDiags != null)
+                    {
+                        // 容灾与复用：如果该 worldId 曾被注销过调度，重新唤醒加入调度器
+                        foreach (ColonyDiagnostic diag in existingDiags)
+                        {
+                            if (diag != null && SimAndRenderScheduler.instance != null)
+                            {
+                                SimAndRenderScheduler.instance.Add(diag, load_balance: true);
+                            }
+                        }
+                    }
                 }
+            }
+        }
+
+        public static void CleanupDestroyedWorldTrackersAndDiagnostics(int worldId)
+        {
+            if (worldId < 0)
+            {
+                return;
+            }
+
+            // 1. 清理 TrackerTool 中的世界追踪器，防止更新已销毁的世界
+            if (TrackerTool.Instance != null)
+            {
+                List<WorldTracker> trackers = WorldTrackersRef(TrackerTool.Instance);
+                if (trackers != null)
+                {
+                    trackers.RemoveAll(t => t != null && t.WorldID == worldId);
+                    UpdatingWorldTrackerRef(TrackerTool.Instance) = 0;
+                }
+            }
+
+            // 2. 从调度器（SimAndRenderScheduler）中注销诊断实例，防止已销毁世界继续轮询
+            if (ColonyDiagnosticUtility.Instance != null)
+            {
+                Dictionary<int, List<ColonyDiagnostic>> worldDiagnostics = WorldDiagnosticsRef(ColonyDiagnosticUtility.Instance);
+                if (worldDiagnostics != null && worldDiagnostics.TryGetValue(worldId, out List<ColonyDiagnostic> diags) && diags != null)
+                {
+                    foreach (ColonyDiagnostic diag in diags)
+                    {
+                        if (diag != null && SimAndRenderScheduler.instance != null)
+                        {
+                            SimAndRenderScheduler.instance.Remove(diag);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 防御性拦截：若诊断所属世界已被销毁或注销，直接跳过并移出调度器，防止后续调用 Evaluate 触发 NRE
+        [HarmonyPatch(typeof(ColonyDiagnostic), nameof(ColonyDiagnostic.Sim4000ms))]
+        public static class ColonyDiagnostic_Sim4000ms_Patch
+        {
+            public static bool Prefix(ColonyDiagnostic __instance)
+            {
+                if (__instance == null || ClusterManager.Instance == null)
+                {
+                    return false;
+                }
+                WorldContainer world = ClusterManager.Instance.GetWorld(__instance.worldID);
+                if (world == null)
+                {
+                    if (SimAndRenderScheduler.instance != null)
+                    {
+                        SimAndRenderScheduler.instance.Remove(__instance);
+                    }
+                    return false;
+                }
+                return true;
             }
         }
 
@@ -850,14 +955,14 @@ namespace OmniMod.Buildings
             }
         }
 
-        // 兜底保护：对旧存档中已注册的火箭专属诊断项做空引用防护
+        // 兜底保护：对火箭专属诊断项做空引用与非火箭世界全面防护
         [HarmonyPatch(typeof(FloatingRocketDiagnostic), nameof(FloatingRocketDiagnostic.Evaluate))]
         public static class FloatingRocketDiagnostic_Evaluate_Patch
         {
             public static bool Prefix(FloatingRocketDiagnostic __instance, ref ColonyDiagnostic.DiagnosticResult __result)
             {
                 WorldContainer world = ClusterManager.Instance?.GetWorld(__instance.worldID);
-                if (IsPocketHabitatWorld(world))
+                if (world == null || world.GetComponent<Clustercraft>() == null || IsPocketHabitatWorld(world))
                 {
                     __result = new ColonyDiagnostic.DiagnosticResult(ColonyDiagnostic.DiagnosticResult.Opinion.Normal, string.Empty);
                     return false;
@@ -872,7 +977,7 @@ namespace OmniMod.Buildings
             public static bool Prefix(RocketFuelDiagnostic __instance, ref ColonyDiagnostic.DiagnosticResult __result)
             {
                 WorldContainer world = ClusterManager.Instance?.GetWorld(__instance.worldID);
-                if (IsPocketHabitatWorld(world))
+                if (world == null || world.GetComponent<Clustercraft>() == null || IsPocketHabitatWorld(world))
                 {
                     __result = new ColonyDiagnostic.DiagnosticResult(ColonyDiagnostic.DiagnosticResult.Opinion.Normal, string.Empty);
                     return false;
@@ -887,10 +992,36 @@ namespace OmniMod.Buildings
             public static bool Prefix(RocketOxidizerDiagnostic __instance, ref ColonyDiagnostic.DiagnosticResult __result)
             {
                 WorldContainer world = ClusterManager.Instance?.GetWorld(__instance.worldID);
-                if (IsPocketHabitatWorld(world))
+                if (world == null || world.GetComponent<Clustercraft>() == null || IsPocketHabitatWorld(world))
                 {
                     __result = new ColonyDiagnostic.DiagnosticResult(ColonyDiagnostic.DiagnosticResult.Opinion.Normal, string.Empty);
                     return false;
+                }
+                return true;
+            }
+        }
+
+        // 允许玩家在生态舱内任意位置（玻璃砖、普通砖块、或真空）自由建造【电源插座】(RocketInteriorPowerPlug) 及各类舱内接口建筑
+        [HarmonyPatch(typeof(BuildingDef), nameof(BuildingDef.CheckFoundation))]
+        public static class BuildingDef_CheckFoundation_Patch
+        {
+            public static bool Prefix(
+                int cell,
+                BuildLocationRule build_location_rule,
+                ref bool __result)
+            {
+                if (build_location_rule == BuildLocationRule.OnRocketEnvelope && Grid.IsValidCell(cell))
+                {
+                    int worldIdx = Grid.WorldIdx[cell];
+                    if (worldIdx != (int)ClusterManager.INVALID_WORLD_IDX && ClusterManager.Instance != null)
+                    {
+                        WorldContainer world = ClusterManager.Instance.GetWorld(worldIdx);
+                        if (IsPocketHabitatWorld(world))
+                        {
+                            __result = true;
+                            return false;
+                        }
+                    }
                 }
                 return true;
             }

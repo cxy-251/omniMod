@@ -38,6 +38,7 @@ namespace OmniMod.Buildings
 
             def.SceneLayer = Grid.SceneLayer.BuildingBack;
             def.ForegroundLayer = Grid.SceneLayer.BuildingFront;
+            def.DefaultAnimState = "grounded";
 
             def.Floodable = false;
             def.Entombable = false;
