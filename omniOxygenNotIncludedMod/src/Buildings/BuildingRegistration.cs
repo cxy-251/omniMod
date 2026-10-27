@@ -38,6 +38,7 @@ namespace OmniMod.Buildings
             RegisterTeleporters();
             RegisterNuclearReprocessor();
             RegisterPocketHabitat();
+            RegisterExhibitionSign();
         }
 
         private static void RegisterFluidProcessors()
@@ -362,17 +363,37 @@ namespace OmniMod.Buildings
                 OmniPocketHabitatConfig.ID,
                 name: ModStrings.T("折叠空间生态巨舱", "Omni Pocket Hyper-Habitat"),
                 desc: ModStrings.T(
-                    "采用高维拓扑空间折叠技术建造的微型异次元口袋巨舱。外部仅占 3x3 地块，完全防水防淹，可深置于水底深渊。内部拓展出 32x32 极限尺寸的纯净开阔平层，预铺背景护墙板，适合自由隔断为大型生态厩舍、水产养殖、自动化或独立工业区。",
-                    "A pocket dimensional hyper-habitat constructed via topological space folding. Occupies only a 3x3 footprint externally, fully waterproof and submergeable. Expands internally into an immense 32x32 clean slate (28x28 usable space) with pre-sealed drywall, ideal for multi-room ranches, deep-water aquaculture, or isolated industry."),
+                    "采用高维空间折叠技术建造的独立基地太空舱。外部仅占 3x3 地块，防水防淹，可放置于基地地面或水底。内部提供 28x27 格纯粹净空（外框为标准钢制火箭壁板，不塞中子物质、不预充气体），并支持通过原版【电源插座】将舱内与舱外电网直接连通。",
+                    "A standalone pocket habitat module occupying a 3x3 footprint externally, fully waterproof and submergeable. Internally provides a clean 28x27 vacuum space framed by standard steel rocket walls, with direct cross-dimensional power grid linkage via standard Rocket Interior Power Plugs."),
                 effect: ModStrings.T(
-                    "建造后自动在底层世界开辟 28x28 纯净绝热生态空间。复制人可通过双向导航门自由进出，侧边栏支持一键切换视角。完全防水防淹，无数量限制，可建造于基地任何地板或水底。",
-                    "Creates an immense 28x28 pocket world interior upon construction. Duplicants can enter and exit seamlessly via the two-way portal door, with a one-click view button on the side screen. Fully waterproof, can be placed anywhere on floors or underwater without build count limits."));
+                    "建造后开辟 28x27 净空太空舱空间，复制人可自由进出，侧边栏支持舱内外一键切换视角。外部自带电源接口，与舱内【电源插座】共享同一电网。",
+                    "Creates a 28x27 clean rocket interior upon construction. Duplicants can enter and exit freely, with one-click interior/exterior camera switching. Features an external power port that bridges directly with interior Power Plugs."));
 
             ModUtil.AddBuildingToPlanScreen(
                 new HashedString("Base"),
                 OmniPocketHabitatConfig.ID,
                 "doors",
                 relativeBuildingId: "Door",
+                ordering: ModUtil.BuildingOrdering.After);
+        }
+
+        private static void RegisterExhibitionSign()
+        {
+            ModStrings.AddBuilding(
+                ExhibitionSignConfig.ID,
+                name: ModStrings.T("展览馆标牌", "Exhibition Sign"),
+                desc: ModStrings.T(
+                    "一座典雅的展馆导览铭牌。如同【公园标牌】用于标识公园与自然保护区一样，在房间内立起此标牌并陈列画作、雕塑与展台藏品，即可将该房间正式认定为【展览馆】，彻底避免与摆放了艺术品的私人卧室发生冲突。",
+                    "An elegant gallery plaque. Just like a Park Sign designates a Park or Nature Reserve, placing this sign in a room alongside a painting, sculpture, and displayed artifact designates the room as an Exhibition Hall without conflicting with decorated Private Bedrooms."),
+                effect: ModStrings.T(
+                    "将满足艺术品陈列条件的房间标识为【展览馆】（到访复制人获得 +6 士气、-15% 压力/周期、+2 学习能力）。未放置此标牌的房间不会被识别为展览馆。",
+                    "Designates a qualified room as an Exhibition Hall (+6 Morale, -15% Stress/cycle, +2 Science to visitors). Rooms without this sign will never conflict with Exhibition Hall."));
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Furniture"),
+                ExhibitionSignConfig.ID,
+                "decor",
+                relativeBuildingId: "ParkSign",
                 ordering: ModUtil.BuildingOrdering.After);
         }
 

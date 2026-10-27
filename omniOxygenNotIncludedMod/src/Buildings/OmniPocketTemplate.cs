@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
@@ -6,117 +5,130 @@ using UnityEngine;
 namespace OmniMod.Buildings
 {
     /// <summary>
-    /// 32x32 极限尺寸的纯净毛坯异次元空间模板生成器。
-    /// 
-    /// 核心参数：
-    /// - 物理总网格：32 x 32 (1024 格)
-    /// - 外围防护边界：2 格厚度的中子物质（Unobtanium），绝对零导热、零漏气、防辐射、无法被破坏
-    /// - 净可用空间：28 格宽 x 28 格高 = 784 格巨型开阔空间（可划分多达 7~8 个满编 96 格大房间！）
-    /// - 背景：全域预铺护墙板封底（Granite Drywall）
-    /// - 初始环境：充填 20°C、1.2kg/格 常温常压纯净氧气
-    /// - 纯净度：零预装垃圾建筑（彻底删除火箭驾驶台、吸顶插座等累赘）
-    /// - 仅在左下角保留 1 个进出舱门 (ClustercraftInteriorDoor)
+    /// 太空生态舱内部空间模板生成器：
+    /// 严格遵循原版太空舱（habitat_medium）的结构规范，并扩展至 32x32 火箭内部网格的最大可用尺寸：
+    /// - 外框（x ∈ [-15, 14], y ∈ [-15, 13]，共 30x29）：标准【火箭壁板】(RocketWallTile, 钢材质)，
+    ///   由 WorldContainer.PlaceInteriorTemplate 自动识别并生成完整室内背景区域（ZoneType.RocketInterior）。
+    /// - 内部净空（x ∈ [-14, 13], y ∈ [-14, 12]，共 28x27 = 756 格）：纯粹的真空空腔（Vacuum），
+    ///   不塞任何中子物质、不预充任何气体、不预铺背景板，完全交给玩家自由规划。
+    /// - 左下角（-15, -14）：原版【太空舱内门】(ClustercraftInteriorDoor)，复制人可直接从底层地板进出。
+    /// - 门旁地面（-14, -14）：预置 1 个原版【电源插座】(RocketInteriorPowerPlug)，与舱外电源接口直通；
+    ///   玩家也可随时在舱内任意壁板旁增建更多【电源插座】。
     /// </summary>
     public static class OmniPocketTemplate
     {
         public const string TemplateName = "expansion1::interiors/omni_hyper_habitat";
 
+        private const int MinX = -15;
+        private const int MaxX = 14;
+        private const int MinY = -15;
+        private const int MaxY = 13;
+
         private static TemplateContainer cachedTemplate;
 
         public static TemplateContainer GetOrCreateTemplate()
         {
-            if (cachedTemplate != null)
+            if (cachedTemplate == null)
             {
-                return cachedTemplate;
+                cachedTemplate = BuildTemplate();
             }
-
-            cachedTemplate = CreateMaxInteriorTemplate();
             return cachedTemplate;
         }
 
-        private static TemplateContainer CreateMaxInteriorTemplate()
+        private static TemplateContainer BuildTemplate()
         {
+            int width = MaxX - MinX + 1;   // 30
+            int height = MaxY - MinY + 1;  // 29
+            int area = width * height;     // 870
+
             var template = new TemplateContainer
             {
                 name = "omni_hyper_habitat",
                 priority = 100,
                 info = new TemplateContainer.Info
                 {
-                    size = new Vector2f(32, 32),
-                    area = 1024
+                    size = new Vector2f(width, height),
+                    area = area
                 },
-                cells = new List<TemplateClasses.Cell>(1024),
+                cells = new List<TemplateClasses.Cell>(area),
                 buildings = new List<TemplateClasses.Prefab>(),
                 otherEntities = new List<TemplateClasses.Prefab>()
             };
 
-            // 32x32 空间坐标范围：x ∈ [-16, 15], y ∈ [-16, 15]
-            // 外围 2 格保护边界：
-            // x <= -15 或 x >= 14 或 y <= -15 或 y >= 14
-            for (int x = -16; x <= 15; x++)
+            for (int y = MinY; y <= MaxY; y++)
             {
-                for (int y = -16; y <= 15; y++)
+                for (int x = MinX; x <= MaxX; x++)
                 {
-                    bool isBorder = (x <= -15 || x >= 14 || y <= -15 || y >= 14);
+                    bool isHull = (x == MinX || x == MaxX || y == MinY || y == MaxY);
 
-                    if (isBorder)
+                    if (isHull)
                     {
-                        // 2 格厚度的防爆绝热中子物质边界，杜绝任何外部热量与气体干扰
-                        var borderCell = new TemplateClasses.Cell(
+                        template.cells.Add(new TemplateClasses.Cell(
                             x,
                             y,
-                            SimHashes.Unobtanium,
+                            SimHashes.Steel,
                             293.15f,
-                            1000f,
+                            100f,
+                            null,
+                            0
+                        ));
+
+                        template.buildings.Add(new TemplateClasses.Prefab(
+                            "RocketWallTile",
+                            TemplateClasses.Prefab.Type.Building,
+                            x,
+                            y,
+                            SimHashes.Steel,
+                            293.15f,
+                            100f,
                             null,
                             0,
-                            false,
-                            SimHashes.Vacuum,
-                            0f,
-                            0f
-                        );
-                        template.cells.Add(borderCell);
+                            Orientation.Neutral
+                        ));
                     }
                     else
                     {
-                        // 28x28 纯净内部可用空间：全域铺设花岗岩护墙板，充入 20°C 纯净氧气
-                        var interiorCell = new TemplateClasses.Cell(
+                        template.cells.Add(new TemplateClasses.Cell(
                             x,
                             y,
-                            SimHashes.Oxygen,
-                            293.15f,
-                            1.2f,
+                            SimHashes.Vacuum,
+                            0f,
+                            0f,
                             null,
-                            0,
-                            false,
-                            SimHashes.Granite, // 背景板 (Drywall)
-                            100f,
-                            293.15f
-                        );
-                        template.cells.Add(interiorCell);
+                            0
+                        ));
                     }
                 }
             }
 
-            // 在左下角地面上放置 1 个进出舱门 (ClustercraftInteriorDoor)
-            // 内部可用地板高度为 y = -14，左边界为 x = -14
-            var exitDoor = new TemplateClasses.Prefab(
+            // 预置 1 个舱内【电源插座】，紧邻舱门右侧地面 (-13, -14)，与舱外电网直连
+            template.buildings.Add(new TemplateClasses.Prefab(
+                "RocketInteriorPowerPlug",
+                TemplateClasses.Prefab.Type.Building,
+                MinX + 2,
+                MinY + 1,
+                SimHashes.Cuprite,
+                293.15f,
+                25f,
+                null,
+                0,
+                Orientation.Neutral
+            ));
+
+            // 左下角壁板处放置原版【太空舱内门】(ClustercraftInteriorDoor)
+            // 门位于 (-15, -14)，复制人进门落脚点为右侧一格 (-14, -14)，脚下即为 (-14, -15) 坚固地板
+            template.otherEntities.Add(new TemplateClasses.Prefab(
                 "ClustercraftInteriorDoor",
                 TemplateClasses.Prefab.Type.Other,
-                -13,
-                -14,
+                MinX,
+                MinY + 1,
                 SimHashes.Unobtanium,
-                293.15f,
+                294.15f,
                 1f,
                 null,
                 0,
-                Orientation.Neutral,
-                null,
-                null,
-                0,
-                null
-            );
-            template.otherEntities.Add(exitDoor);
+                Orientation.Neutral
+            ));
 
             return template;
         }

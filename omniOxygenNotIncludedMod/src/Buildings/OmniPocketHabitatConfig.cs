@@ -1,17 +1,19 @@
+using System.Collections.Generic;
 using TUNING;
 using UnityEngine;
 
 namespace OmniMod.Buildings
 {
     /// <summary>
-    /// 折叠空间生态巨舱配置（Omni Pocket Hyper-Habitat）：
-    /// 3x3 紧凑占地，直接建造于任何楼层或水底（Floodable = false）。
-    /// 内部封装 32x32 极限网格空间（净可用面积 28x28 = 784 格大平层），
-    /// 全面预铺背景护墙板，充入纯净常温氧气，支持自由隔断与全自动化养殖/工业/生活。
+    /// 【折叠空间生态巨舱】建筑配置：
+    /// - 外部占地 3x3，防水防淹（Floodable = false），可建于基地任意地面或水底。
+    /// - 底部正中自带白色电源接口，与舱内的原版【电源插座】(RocketInteriorPowerPlug) 跨维直通，共享同一电网。
+    /// - 挂载 AlertStateManager.Def、Notifier 与 SaveLoadRoot 可选组件声明，完美满足 WorldContainer 底层契约。
     /// </summary>
     public class OmniPocketHabitatConfig : IBuildingConfig
     {
         public const string ID = "OmniPocketHabitat";
+        public static readonly CellOffset PowerPlugOffset = new CellOffset(0, 0);
 
         public override string[] GetRequiredDlcIds()
         {
@@ -37,13 +39,20 @@ namespace OmniMod.Buildings
             def.SceneLayer = Grid.SceneLayer.BuildingBack;
             def.ForegroundLayer = Grid.SceneLayer.BuildingFront;
 
-            // 核心防水与防破坏特性：支持沉入水底深渊
             def.Floodable = false;
             def.Entombable = false;
             def.Overheatable = false;
-            def.Invincible = true;
             def.AudioCategory = "Metal";
             def.AudioSize = "large";
+
+            // 外部电网直连插口（位于建筑底部中心 0,0），与舱内【电源插座】共享虚拟电路网络
+            def.ViewMode = OverlayModes.Power.ID;
+            def.PowerInputOffset = PowerPlugOffset;
+            def.PowerOutputOffset = PowerPlugOffset;
+            def.RequiresPowerOutput = true;
+            def.UseWhitePowerOutputConnectorColour = true;
+
+            GeneratedBuildings.RegisterWithOverlay(OverlayScreen.WireIDs, ID);
 
             return def;
         }
@@ -54,30 +63,112 @@ namespace OmniMod.Buildings
             kpid.AddTag(GameTags.Bunker);
             kpid.AddTag(GameTags.NotRoomAssignable);
 
+            // 声明 CreateRocketInteriorWorld 动态挂载的组件，确保存档/读档序列化完整无损
+            SaveLoadRoot saveLoadRoot = go.AddOrGet<SaveLoadRoot>();
+            saveLoadRoot.DeclareOptionalComponent<WorldInventory>();
+            saveLoadRoot.DeclareOptionalComponent<WorldContainer>();
+            saveLoadRoot.DeclareOptionalComponent<OrbitalMechanics>();
+
+            // WorldContainer 强制要求同 GameObject 上存在 AlertStateManager.Instance 状态机与 Notifier
+            go.AddOrGet<Notifier>();
+            go.AddOrGetDef<AlertStateManager.Def>();
+
+            // 为右侧星球列表（WorldSelector）提供图标与名称实体（不显示在星图上，也不修改建筑坐标）
+            go.AddOrGet<OmniPocketClusterEntity>();
+
             Prioritizable.AddRef(go);
             go.AddOrGet<Operational>();
             go.AddOrGet<LoopingSounds>();
+            go.AddComponent<RequireInputs>();
+
+            AssignmentGroupController agc = go.AddOrGet<AssignmentGroupController>();
+            agc.generateGroupOnStart = true;
+
             go.AddOrGet<NavTeleporter>();
             go.AddOrGet<AccessControl>();
+            go.AddOrGet<UserNameable>();
 
             Ownable ownable = go.AddOrGet<Ownable>();
             ownable.tintWhenUnassigned = false;
 
-            // 核心控制器
             go.AddOrGet<OmniPocketHabitat>();
-
-            // 允许在火箭内部也可建造（无限套娃折叠）
-            go.AddOrGetDef<RocketUsageRestriction.Def>();
         }
 
         public override void DoPostConfigureComplete(GameObject go)
         {
+            WireUtilitySemiVirtualNetworkLink wireLink = go.AddOrGet<WireUtilitySemiVirtualNetworkLink>();
+            wireLink.link1 = PowerPlugOffset;
+            wireLink.visualizeOnly = false;
+
             KBatchedAnimController kbac = go.GetComponent<KBatchedAnimController>();
             if (kbac != null)
             {
                 kbac.sceneLayer = Grid.SceneLayer.BuildingBack;
                 kbac.fgLayer = Grid.SceneLayer.BuildingFront;
             }
+        }
+    }
+
+    /// <summary>
+    /// 供右侧星球切换列表（WorldSelector）读取名称与图标的轻量级星图实体：
+    /// - isWorldEntity = true 防止 ClusterGridEntity.OnSpawn 篡改建筑的 transform.localPosition。
+    /// - IsVisible = false 确保不会在星图（Starmap）上渲染任何多余图标。
+    /// </summary>
+    public class OmniPocketClusterEntity : ClusterGridEntity
+    {
+        private List<AnimConfig> cachedAnimConfigs;
+
+        public override string Name
+        {
+            get
+            {
+                UserNameable nameable = GetComponent<UserNameable>();
+                if (nameable != null && !string.IsNullOrEmpty(nameable.savedName))
+                {
+                    return nameable.savedName;
+                }
+                return ModStrings.T("折叠空间生态舱", "Pocket Habitat").Resolve();
+            }
+        }
+
+        public override EntityLayer Layer => EntityLayer.None;
+        public override bool IsVisible => false;
+        public override ClusterRevealLevel IsVisibleInFOW => ClusterRevealLevel.Hidden;
+
+        public override List<AnimConfig> AnimConfigs
+        {
+            get
+            {
+                if (cachedAnimConfigs == null)
+                {
+                    cachedAnimConfigs = new List<AnimConfig>
+                    {
+                        new AnimConfig
+                        {
+                            animFile = Assets.GetAnim("rocket_habitat_medium_module_kanim"),
+                            initialAnim = "grounded"
+                        }
+                    };
+                }
+                return cachedAnimConfigs;
+            }
+        }
+
+        protected override void OnPrefabInit()
+        {
+            // 关键：标记为 isWorldEntity，阻止基类 OnSpawn 将建筑 localPosition 重置为 (-1, 0, 0)
+            isWorldEntity = true;
+            base.OnPrefabInit();
+        }
+
+        public override Sprite GetUISprite()
+        {
+            var tuple = Def.GetUISprite(gameObject);
+            if (tuple != null && tuple.first != null)
+            {
+                return tuple.first;
+            }
+            return Assets.GetSprite("unknown_far");
         }
     }
 }
