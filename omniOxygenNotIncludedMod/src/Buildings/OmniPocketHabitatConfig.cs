@@ -89,6 +89,8 @@ namespace OmniMod.Buildings
             go.AddOrGet<UserNameable>();
 
             Ownable ownable = go.AddOrGet<Ownable>();
+            ownable.slotID = Db.Get().AssignableSlots.HabitatModule.Id;
+            ownable.canBePublic = false;
             ownable.tintWhenUnassigned = false;
 
             go.AddOrGet<OmniPocketHabitat>();

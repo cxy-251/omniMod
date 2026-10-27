@@ -70,6 +70,17 @@ namespace OmniMod.Buildings
             }
         }
 
+        protected override void OnPrefabInit()
+        {
+            base.OnPrefabInit();
+            Ownable ownable = GetComponent<Ownable>();
+            if (ownable != null && string.IsNullOrEmpty(ownable.slotID))
+            {
+                ownable.slotID = Db.Get().AssignableSlots.HabitatModule.Id;
+                ownable.canBePublic = false;
+            }
+        }
+
         protected override void OnSpawn()
         {
             base.OnSpawn();
