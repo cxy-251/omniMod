@@ -75,9 +75,9 @@ namespace OmniMod.Buildings
                 float lowTemp = pe.Element.lowTemp;
                 float highTemp = pe.Element.highTemp;
 
-                // 智能防爆管：出液温度最低不能低于冰点+2度，最高不能高于沸点-2度
-                float safeMin = lowTemp + 2.0f;
-                float safeMax = highTemp - 2.0f;
+                // 智能防爆管：出液温度最低不能低于冰点+3度，最高不能高于沸点-3度
+                float safeMin = lowTemp + 3.0f;
+                float safeMax = highTemp - 3.0f;
                 float targetKelvin = Mathf.Clamp(TargetTemperatureCelsius + 273.15f, safeMin, safeMax);
 
                 if (SelectedMode == ChillerMode.CoolOnly)
@@ -197,6 +197,6 @@ namespace OmniMod.Buildings
         public string GetSliderTooltipKey(int index) => "STRINGS.UI.UISIDESCREENS.OMNIMOD_LIQUIDCHILLER.TARGET_TEMP_TOOLTIP";
 
         public string GetSliderTooltip(int index) =>
-            $"目标出液温度：{TargetTemperatureCelsius:0}°C\n管道流体经过时一步直接调节至此温度出管。\n若设定温度低于流体冰点，系统将自动锁死在冰点+2°C以保护管道永不爆裂。";
+            $"目标出液温度：{TargetTemperatureCelsius:0}°C\n管道流体经过时一步直接调节至此温度出管。\n若设定温度低于流体冰点，系统将自动锁死在冰点+3°C以保护管道永不爆裂。";
     }
 }

@@ -59,7 +59,7 @@ namespace OmniMod.Buildings
             go.GetComponent<KPrefabID>().AddTag(RoomConstraints.ConstraintTags.IndustrialMachinery);
 
             Storage storage = BuildingTemplates.CreateDefaultStorage(go);
-            storage.capacityKg = 2000f;
+            storage.capacityKg = 20f;
             storage.showInUI = true;
             storage.allowItemRemoval = false;
             storage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
