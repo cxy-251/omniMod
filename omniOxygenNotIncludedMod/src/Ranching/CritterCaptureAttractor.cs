@@ -64,6 +64,13 @@ namespace OmniMod.Ranching
                     pickupable.UpdateCachedCell(captureCell);
                 }
 
+                // 5.5 确保 ReachabilityMonitor 立即将袋装小动物设为 Reachable，供机械臂与取物系统实时识别
+                var reachability = go.GetSMI<ReachabilityMonitor.Instance>();
+                if (reachability != null)
+                {
+                    reachability.sm.isReachable.Set(true, reachability);
+                }
+
                 // 6. 注册到袋装小动物注册表
                 if (baggable != null)
                 {
@@ -92,26 +99,45 @@ namespace OmniMod.Ranching
         private static void Postfix(FixedCapturableMonitor.Instance capturable, FixedCapturePoint.Instance capture_point, CavityInfo capture_cavity_info, int capture_cell, ref bool __result)
         {
             if (__result) return;
-            if (capturable == null || !capturable.IsRunning() || capture_point == null) return;
-            if (capturable.targetCapturePoint != capture_point && !capturable.targetCapturePoint.IsNullOrStopped()) return;
-            if (capturable.HasTag(GameTags.Creatures.Bagged)) return;
-            if (capturable.isBaby && !capture_point.def.allowBabies) return;
-
-            int cell = Grid.PosToCell(capturable.transform.GetPosition());
-            CavityInfo cavity = Game.Instance.roomProber?.GetCavityForCell(cell);
-            if (cavity == null || cavity != capture_cavity_info) return;
-
-            if (capture_point.def == null || capture_point.def.isAmountStoredOverCapacity == null) return;
-            if (!capture_point.def.isAmountStoredOverCapacity(capture_point, capturable)) return;
-
-            Navigator nav = capturable.Navigator;
-            if (nav != null)
+            try
             {
-                int targetCell = capture_point.def.getTargetCapturePoint != null ? capture_point.def.getTargetCapturePoint(capture_point) : capture_cell;
-                if (nav.CanReach(targetCell))
+                if (capturable == null || !capturable.IsRunning() || capture_point == null) return;
+                if (capturable.targetCapturePoint != capture_point && !capturable.targetCapturePoint.IsNullOrStopped()) return;
+                if (capturable.HasTag(GameTags.Creatures.Bagged)) return;
+                if (capturable.isBaby && !capture_point.def.allowBabies) return;
+
+                int cell = Grid.PosToCell(capturable.transform.GetPosition());
+                CavityInfo cavity = Game.Instance.roomProber?.GetCavityForCell(cell);
+                if (cavity == null || cavity != capture_cavity_info) return;
+
+                if (capture_point.def == null || capture_point.def.isAmountStoredOverCapacity == null) return;
+                if (!capture_point.def.isAmountStoredOverCapacity(capture_point, capturable)) return;
+
+                Navigator nav = capturable.Navigator;
+                if (nav != null)
                 {
-                    __result = true;
+                    // 只要小动物能到达取出点本体、左右相邻格、上下相邻格任意一处，即视为可达（克服建筑本身占位不可立足的问题）
+                    if (nav.CanReach(capture_cell) ||
+                        (Grid.IsValidCell(capture_cell - 1) && nav.CanReach(capture_cell - 1)) ||
+                        (Grid.IsValidCell(capture_cell + 1) && nav.CanReach(capture_cell + 1)) ||
+                        (Grid.IsValidCell(Grid.CellBelow(capture_cell)) && nav.CanReach(Grid.CellBelow(capture_cell))) ||
+                        (Grid.IsValidCell(Grid.CellAbove(capture_cell)) && nav.CanReach(Grid.CellAbove(capture_cell))))
+                    {
+                        __result = true;
+                    }
+                    else if (capture_point.def != null && capture_point.def.postCaptureOffset.HasValue)
+                    {
+                        int postCell = Grid.OffsetCell(capture_cell, capture_point.def.postCaptureOffset.Value);
+                        if (Grid.IsValidCell(postCell) && nav.CanReach(postCell))
+                        {
+                            __result = true;
+                        }
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error("FixedCapturePoint_CanCapturableBeCapturedAtCapturePoint_Patch failed", ex);
             }
         }
     }
@@ -177,9 +203,13 @@ namespace OmniMod.Ranching
                         }
                     }
                 }
-                else if (stationId != 0)
+                else
                 {
-                    _captureStartTimes.Remove(stationId);
+                    if (stationId != 0)
+                    {
+                        _captureStartTimes.Remove(stationId);
+                    }
+                    __instance.isCurrentlyCapturingCreature = false;
                 }
             });
         }
@@ -198,8 +228,11 @@ namespace OmniMod.Ranching
             {
                 capture.move.waitforranchertobeready.Enter("OmniMod_AutoBagOnArrival", (FixedCaptureStates.Instance smi) =>
                 {
-                    var capturePoint = smi.GetCapturePoint();
-                    AutoWrangleHelper.AutoBagCreature(smi.gameObject, capturePoint);
+                    if (smi != null && smi.gameObject != null)
+                    {
+                        var capturePoint = smi.GetCapturePoint();
+                        AutoWrangleHelper.AutoBagCreature(smi.gameObject, capturePoint);
+                    }
                 });
             }
         }
@@ -216,10 +249,13 @@ namespace OmniMod.Ranching
             if (__instance == null || __instance.gameObject == null) return;
             __instance.Subscribe((int)GameHashes.CreatureArrivedAtCapturePoint, (data) =>
             {
-                if (__instance.targetCapturable != null && !__instance.targetCapturable.IsNullOrStopped())
+                ExceptionShield.Execute("FixedCapturePoint.CreatureArrived", () =>
                 {
-                    AutoWrangleHelper.AutoBagCreature(__instance.targetCapturable.gameObject, __instance);
-                }
+                    if (__instance != null && __instance.targetCapturable != null && !__instance.targetCapturable.IsNullOrStopped() && __instance.targetCapturable.gameObject != null)
+                    {
+                        AutoWrangleHelper.AutoBagCreature(__instance.targetCapturable.gameObject, __instance);
+                    }
+                });
             });
         }
     }

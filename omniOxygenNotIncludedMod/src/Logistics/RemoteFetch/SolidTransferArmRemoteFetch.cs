@@ -101,7 +101,10 @@ namespace OmniMod.Logistics.RemoteFetch
     {
         private static bool Prefix(ReachabilityMonitor.Instance __instance)
         {
-            if (__instance != null && __instance.master is Pickupable p && (AggregateBoxRegistry.IsBoxStorage(p.storage) || p.storage?.GetComponent<Bottler>() != null))
+            if (__instance != null && __instance.master is Pickupable p &&
+                (AggregateBoxRegistry.IsBoxStorage(p.storage) ||
+                 p.storage?.GetComponent<Bottler>() != null ||
+                 (p.KPrefabID != null && p.KPrefabID.HasTag(GameTags.Creatures.Bagged))))
             {
                 __instance.sm.isReachable.Set(true, __instance);
                 return false;
@@ -226,8 +229,11 @@ namespace OmniMod.Logistics.RemoteFetch
                 AggregateBoxRegistry.RefreshRocketInteriorIfNeeded(world);
             }
 
-            // 0. 本星球袋装小动物：仅当搬运需求为小动物交付（CreatureFetch）时快速匹配
-            if (Db.Get() != null && chore.choreType == Db.Get().ChoreTypes.CreatureFetch)
+            // 0. 本星球袋装小动物：当搬运需求为小动物交付（放生点 CreatureDeliveryPoint 或 CreatureFetch/RanchingFetch）时快速匹配
+            bool isCreatureChore = destination.GetComponent<CreatureDeliveryPoint>() != null ||
+                                   (Db.Get() != null && (chore.choreType == Db.Get().ChoreTypes.CreatureFetch ||
+                                                         chore.choreType == Db.Get().ChoreTypes.RanchingFetch));
+            if (isCreatureChore)
             {
                 var baggedList = BaggedCreatureRegistry.GetBaggedCreatures(world);
                 for (int i = 0; i < baggedList.Length; i++)
@@ -238,7 +244,7 @@ namespace OmniMod.Logistics.RemoteFetch
                         continue;
                     }
                     Pickupable p = bag.GetComponent<Pickupable>();
-                    if (p != null && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
+                    if (p != null && p.storage == null && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
                     {
                         if (FetchManager.IsFetchablePickup(p, chore, destination))
                         {

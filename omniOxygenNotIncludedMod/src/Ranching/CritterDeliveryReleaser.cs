@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using HarmonyLib;
+using OmniMod.Core.Logging;
 using OmniMod.Core.Safety;
 using OmniMod.Ranching.Registries;
 using UnityEngine;
@@ -53,13 +54,20 @@ namespace OmniMod.Ranching
     {
         private static void Prefix(Pickupable __instance, int cell)
         {
-            if (__instance != null && __instance.cachedCell != cell)
+            try
             {
-                var bag = __instance.GetComponent<Baggable>();
-                if (bag != null && bag.wrangled)
+                if (__instance != null && __instance.cachedCell != cell && __instance.KPrefabID != null && __instance.KPrefabID.HasTag(GameTags.Creatures.Bagged))
                 {
-                    BaggedCreatureRegistry.OnCellChanged(bag, __instance.cachedCell, cell);
+                    var bag = __instance.GetComponent<Baggable>();
+                    if (bag != null && bag.wrangled)
+                    {
+                        BaggedCreatureRegistry.OnCellChanged(bag, __instance.cachedCell, cell);
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error("Pickupable_UpdateCachedCell_BaggedRegistry_Patch failed", ex);
             }
         }
     }

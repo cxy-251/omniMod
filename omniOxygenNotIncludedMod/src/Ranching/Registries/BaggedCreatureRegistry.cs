@@ -130,7 +130,7 @@ namespace OmniMod.Ranching.Registries
             var counts = _baggedCellCount;
             if (counts != null && (uint)cell < (uint)counts.Length && counts[cell] > 0)
             {
-                return Grid.WorldIdx[cell] == worldId;
+                return Grid.WorldIdx != null && (uint)cell < (uint)Grid.WorldIdx.Length && Grid.WorldIdx[cell] == worldId;
             }
             return false;
         }
