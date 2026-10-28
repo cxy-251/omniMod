@@ -114,9 +114,11 @@ namespace OmniMod.Logistics.RemoteFetch
     [HarmonyPatch(typeof(StandardWorker), "DetachAnimOverrides")]
     internal static class StandardWorker_DetachAnimOverrides_Patch
     {
-        private static bool Prefix(StandardWorker __instance, KAnimControllerBase worker_controller)
+        private static bool Prefix(StandardWorker __instance)
         {
-            if (worker_controller == null || worker_controller.GetComponent<SymbolOverrideController>() == null)
+            if (__instance == null) return true;
+            var controller = __instance.GetComponent<KAnimControllerBase>();
+            if (controller == null || controller.GetComponent<SymbolOverrideController>() == null)
             {
                 return false;
             }
@@ -126,6 +128,31 @@ namespace OmniMod.Logistics.RemoteFetch
 
     [HarmonyPatch(typeof(KAnimControllerBase), nameof(KAnimControllerBase.AddAnimOverrides), new Type[] { typeof(KAnimFile), typeof(float) })]
     internal static class KAnimControllerBase_AddAnimOverrides_Patch
+    {
+        private static bool Prefix(KAnimControllerBase __instance, KAnimFile kanim_file, float priority)
+        {
+            if (__instance == null || kanim_file == null) return false;
+            try
+            {
+                var data = kanim_file.GetData();
+                if (data != null && data.build != null && data.build.symbols != null && data.build.symbols.Length > 0)
+                {
+                    if (__instance.GetComponent<SymbolOverrideController>() == null)
+                    {
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error("KAnimControllerBase_AddAnimOverrides_Patch failed", ex);
+            }
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(KAnimControllerBase), nameof(KAnimControllerBase.RemoveAnimOverrides), new Type[] { typeof(KAnimFile) })]
+    internal static class KAnimControllerBase_RemoveAnimOverrides_Patch
     {
         private static bool Prefix(KAnimControllerBase __instance, KAnimFile kanim_file)
         {
@@ -143,7 +170,7 @@ namespace OmniMod.Logistics.RemoteFetch
             }
             catch (Exception ex)
             {
-                ModLog.Error("KAnimControllerBase_AddAnimOverrides_Patch failed", ex);
+                ModLog.Error("KAnimControllerBase_RemoveAnimOverrides_Patch failed", ex);
             }
             return true;
         }
