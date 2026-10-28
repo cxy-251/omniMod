@@ -61,6 +61,7 @@ namespace OmniMod.Buildings
             Storage storage = BuildingTemplates.CreateDefaultStorage(go);
             storage.capacityKg = 2000f;
             storage.showInUI = true;
+            storage.allowItemRemoval = false;
             storage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
 
             ConduitConsumer consumer = go.AddOrGet<ConduitConsumer>();
@@ -68,7 +69,7 @@ namespace OmniMod.Buildings
             consumer.consumptionRate = 10f;
             consumer.capacityKG = 20f;
             consumer.forceAlwaysSatisfied = true;
-            consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
+            consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Store;
             consumer.OperatingRequirement = Operational.State.Operational;
 
             ConduitDispenser dispenser = go.AddOrGet<ConduitDispenser>();
