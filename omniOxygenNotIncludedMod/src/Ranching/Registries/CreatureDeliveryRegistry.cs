@@ -3,29 +3,46 @@ using System.Collections.Generic;
 namespace OmniMod.Ranching.Registries
 {
     /// <summary>
-    /// 放生点全局注册表：记录全星系所有放生点及其有效释放格子，实现 O(1) 判定
+    /// 放生点全局注册表：按星球记录全星系所有放生点及其有效释放格子，实现 O(1) 判定
     /// </summary>
     public static class CreatureDeliveryRegistry
     {
-        private static readonly HashSet<int> _deliveryCells = new HashSet<int>();
+        private static readonly object _lock = new object();
+        private static readonly Dictionary<int, HashSet<int>> _worldDeliveryCells = new Dictionary<int, HashSet<int>>();
 
         public static void Register(CreatureDeliveryPoint point)
         {
             if (point == null) return;
+            int world = point.GetMyWorldId();
             int baseCell = Grid.PosToCell(point.transform.GetPosition());
-            if (Grid.IsValidCell(baseCell))
+
+            lock (_lock)
             {
-                _deliveryCells.Add(baseCell);
-            }
-            if (point.deliveryOffsets != null)
-            {
-                for (int i = 0; i < point.deliveryOffsets.Length; i++)
+                if (!_worldDeliveryCells.TryGetValue(world, out var cells))
                 {
-                    int offsetCell = Grid.OffsetCell(baseCell, point.deliveryOffsets[i]);
-                    if (Grid.IsValidCell(offsetCell))
+                    cells = new HashSet<int>();
+                    _worldDeliveryCells[world] = cells;
+                }
+
+                if (Grid.IsValidCell(baseCell))
+                {
+                    cells.Add(baseCell);
+                }
+                if (point.deliveryOffsets != null)
+                {
+                    for (int i = 0; i < point.deliveryOffsets.Length; i++)
                     {
-                        _deliveryCells.Add(offsetCell);
+                        int offsetCell = Grid.OffsetCell(baseCell, point.deliveryOffsets[i]);
+                        if (Grid.IsValidCell(offsetCell))
+                        {
+                            cells.Add(offsetCell);
+                        }
                     }
+                }
+                int spawnCell = Grid.OffsetCell(baseCell, point.spawnOffset);
+                if (Grid.IsValidCell(spawnCell))
+                {
+                    cells.Add(spawnCell);
                 }
             }
         }
@@ -33,26 +50,44 @@ namespace OmniMod.Ranching.Registries
         public static void Unregister(CreatureDeliveryPoint point)
         {
             if (point == null) return;
+            int world = point.GetMyWorldId();
             int baseCell = Grid.PosToCell(point.transform.GetPosition());
-            _deliveryCells.Remove(baseCell);
-            if (point.deliveryOffsets != null)
+
+            lock (_lock)
             {
-                for (int i = 0; i < point.deliveryOffsets.Length; i++)
+                if (_worldDeliveryCells.TryGetValue(world, out var cells))
                 {
-                    int offsetCell = Grid.OffsetCell(baseCell, point.deliveryOffsets[i]);
-                    _deliveryCells.Remove(offsetCell);
+                    cells.Remove(baseCell);
+                    if (point.deliveryOffsets != null)
+                    {
+                        for (int i = 0; i < point.deliveryOffsets.Length; i++)
+                        {
+                            cells.Remove(Grid.OffsetCell(baseCell, point.deliveryOffsets[i]));
+                        }
+                    }
+                    cells.Remove(Grid.OffsetCell(baseCell, point.spawnOffset));
                 }
             }
         }
 
-        public static bool IsDeliveryCell(int cell)
+        public static bool IsDeliveryCell(int cell, int worldId)
         {
-            return _deliveryCells.Contains(cell);
+            lock (_lock)
+            {
+                if (_worldDeliveryCells.TryGetValue(worldId, out var cells))
+                {
+                    return cells.Contains(cell);
+                }
+                return false;
+            }
         }
 
         public static void Clear()
         {
-            _deliveryCells.Clear();
+            lock (_lock)
+            {
+                _worldDeliveryCells.Clear();
+            }
         }
     }
 }

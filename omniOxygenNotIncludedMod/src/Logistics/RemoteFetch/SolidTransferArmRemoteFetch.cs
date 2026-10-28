@@ -158,10 +158,11 @@ namespace OmniMod.Logistics.RemoteFetch
                 }
 
                 // 3. 动物放生点与袋装小动物：同星球下支持机械臂隔空抓取袋装动物并投送至放生点
-                if (CreatureDeliveryRegistry.IsDeliveryCell(cell) ||
-                    BaggedCreatureRegistry.HasBaggedCreatureAtCell(cell))
+                if (CreatureDeliveryRegistry.IsDeliveryCell(cell, myWorld) ||
+                    BaggedCreatureRegistry.HasBaggedCreatureAtCell(cell, myWorld))
                 {
                     __result = true;
+                    return;
                 }
             }
             catch (Exception ex)
@@ -225,18 +226,10 @@ namespace OmniMod.Logistics.RemoteFetch
                 AggregateBoxRegistry.RefreshRocketInteriorIfNeeded(world);
             }
 
-            // 1. 本星球聚合箱及火箭舱内储物（基于 Tag 字典 O(1) 索引查找）
-            Pickupable matched = AggregateBoxRegistry.FindMatchInWorldBox(world, chore, destination);
-            if (matched != null)
-            {
-                ModLog.DebugLog("隔空取物：机械臂锁定目标: " + matched.name);
-                return matched;
-            }
-
-            // 1.2 本星球袋装小动物：仅当搬运需求为小动物交付（CreatureFetch）时快速匹配
+            // 0. 本星球袋装小动物：仅当搬运需求为小动物交付（CreatureFetch）时快速匹配
             if (Db.Get() != null && chore.choreType == Db.Get().ChoreTypes.CreatureFetch)
             {
-                var baggedList = BaggedCreatureRegistry.GetBaggedCreatures();
+                var baggedList = BaggedCreatureRegistry.GetBaggedCreatures(world);
                 for (int i = 0; i < baggedList.Count; i++)
                 {
                     Baggable bag = baggedList[i];
@@ -254,6 +247,15 @@ namespace OmniMod.Logistics.RemoteFetch
                         }
                     }
                 }
+                return null;
+            }
+
+            // 1. 本星球聚合箱及火箭舱内储物（基于 Tag 字典 O(1) 索引查找）
+            Pickupable matched = AggregateBoxRegistry.FindMatchInWorldBox(world, chore, destination);
+            if (matched != null)
+            {
+                ModLog.DebugLog("隔空取物：机械臂锁定目标: " + matched.name);
+                return matched;
             }
 
             // 1.5 若本星球聚合箱未匹配到目标，检查是否有其它星球聚合箱（主杂物箱 DiscreteHome 或 主食物箱 FoodHome）中的闲置离散物品/食物满足需求，

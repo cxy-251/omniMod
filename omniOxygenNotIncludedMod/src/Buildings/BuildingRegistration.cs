@@ -1,4 +1,5 @@
 using HarmonyLib;
+using OmniMod.Logistics.RemoteFetch;
 using OmniMod.Teleportation;
 
 namespace OmniMod.Buildings
@@ -25,6 +26,8 @@ namespace OmniMod.Buildings
                 return;   // 防止某些 mod 管理器重复调用导致菜单里出现重复入口
             }
             _done = true;
+
+            SolidTransferArmTagsHelper.EnsureInitialized();
 
             RegisterJunkBox();
             RegisterFoodBox();

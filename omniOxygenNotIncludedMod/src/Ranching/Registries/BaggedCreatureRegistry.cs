@@ -4,14 +4,12 @@ using UnityEngine;
 namespace OmniMod.Ranching.Registries
 {
     /// <summary>
-    /// 全星系袋装小动物全局注册表：提供 O(1) 格子索引与实时袋装动物检索
+    /// 全星系袋装小动物全局注册表：提供高效星球/格子索引与袋装动物检索
     /// </summary>
     public static class BaggedCreatureRegistry
     {
         private static readonly object _lock = new object();
         private static readonly HashSet<Baggable> _bagged = new HashSet<Baggable>();
-        private static readonly Dictionary<Baggable, int> _bagToCell = new Dictionary<Baggable, int>();
-        private static readonly HashSet<int> _baggedCells = new HashSet<int>();
 
         public static void Register(Baggable bag)
         {
@@ -19,12 +17,6 @@ namespace OmniMod.Ranching.Registries
             lock (_lock)
             {
                 _bagged.Add(bag);
-                int cell = Grid.PosToCell(bag.transform.GetPosition());
-                if (Grid.IsValidCell(cell))
-                {
-                    _bagToCell[bag] = cell;
-                    _baggedCells.Add(cell);
-                }
             }
 
             bag.Subscribe((int)GameHashes.ObjectDestroyed, (data) =>
@@ -39,30 +31,68 @@ namespace OmniMod.Ranching.Registries
             lock (_lock)
             {
                 _bagged.Remove(bag);
-                if (_bagToCell.TryGetValue(bag, out int oldCell))
+            }
+        }
+
+        public static bool HasBaggedCreatureAtCell(int cell, int worldId)
+        {
+            if (!Grid.IsValidCell(cell)) return false;
+
+            lock (_lock)
+            {
+                _bagged.RemoveWhere(b => b == null || b.gameObject == null || !b.wrangled);
+                foreach (var b in _bagged)
                 {
-                    _bagToCell.Remove(bag);
-                    if (!_bagToCell.ContainsValue(oldCell))
+                    if (b.GetMyWorldId() == worldId)
                     {
-                        _baggedCells.Remove(oldCell);
+                        if (Grid.PosToCell(b) == cell) return true;
+                        var p = b.GetComponent<Pickupable>();
+                        if (p != null)
+                        {
+                            if (p.cachedCell == cell || p.GetCell() == cell) return true;
+                            var offsets = p.GetOffsets();
+                            if (offsets != null)
+                            {
+                                int bCell = Grid.PosToCell(b);
+                                for (int i = 0; i < offsets.Length; i++)
+                                {
+                                    if (Grid.OffsetCell(bCell, offsets[i]) == cell) return true;
+                                }
+                            }
+                        }
                     }
                 }
             }
-        }
 
-        public static bool HasBaggedCreatureAtCell(int cell)
-        {
-            lock (_lock)
+            // Fallback: 检查该格子上是否有掉落的袋装小动物
+            GameObject go = Grid.Objects[cell, (int)ObjectLayer.Pickupables];
+            if (go != null)
             {
-                return _baggedCells.Contains(cell);
+                var bag = go.GetComponent<Baggable>();
+                if (bag != null && bag.wrangled && bag.GetMyWorldId() == worldId)
+                {
+                    Register(bag);
+                    return true;
+                }
             }
+
+            return false;
         }
 
-        public static List<Baggable> GetBaggedCreatures()
+        public static List<Baggable> GetBaggedCreatures(int worldId)
         {
             lock (_lock)
             {
-                return new List<Baggable>(_bagged);
+                _bagged.RemoveWhere(b => b == null || b.gameObject == null || !b.wrangled);
+                var list = new List<Baggable>();
+                foreach (var b in _bagged)
+                {
+                    if (b.GetMyWorldId() == worldId)
+                    {
+                        list.Add(b);
+                    }
+                }
+                return list;
             }
         }
 
@@ -71,8 +101,6 @@ namespace OmniMod.Ranching.Registries
             lock (_lock)
             {
                 _bagged.Clear();
-                _bagToCell.Clear();
-                _baggedCells.Clear();
             }
         }
     }

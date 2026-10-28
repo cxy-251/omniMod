@@ -8,9 +8,21 @@ using UnityEngine;
 namespace OmniMod.Ranching
 {
     /// <summary>
-    /// 放生点全自动解袋与安全释放小动物
-    /// 当机械臂或小人将袋装动物放入放生点时，瞬间自动解开包装并安全释放小动物到目标格子。
+    /// 袋装小动物生命周期监听：确保全星系任何生成的袋装小动物（包括读档、孵化器产出等）实时纳入注册表
     /// </summary>
+    [HarmonyPatch(typeof(Baggable), "OnSpawn")]
+    internal static class Baggable_OnSpawn_Patch
+    {
+        private static void Postfix(Baggable __instance)
+        {
+            if (__instance != null && __instance.wrangled)
+            {
+                __instance.gameObject.AddTag(GameTags.Creatures.Deliverable);
+                BaggedCreatureRegistry.Register(__instance);
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(Baggable), nameof(Baggable.SetWrangled))]
     internal static class Baggable_SetWrangled_Patch
     {
@@ -36,6 +48,22 @@ namespace OmniMod.Ranching
         }
     }
 
+    [HarmonyPatch(typeof(Baggable), "OnCleanUp")]
+    internal static class Baggable_OnCleanUp_Patch
+    {
+        private static void Prefix(Baggable __instance)
+        {
+            if (__instance != null)
+            {
+                BaggedCreatureRegistry.Unregister(__instance);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 放生点全自动解袋与安全释放小动物：
+    /// 当机械臂或小人将袋装动物放入放生点时，瞬间自动解开包装并安全释放小动物到目标格子。
+    /// </summary>
     [HarmonyPatch(typeof(CreatureDeliveryPoint), "OnSpawn")]
     internal static class CreatureDeliveryPoint_OnSpawn_Patch
     {
@@ -114,6 +142,13 @@ namespace OmniMod.Ranching
                         if (anim != null)
                         {
                             anim.SetSceneLayer(Grid.SceneLayer.Creatures);
+                        }
+
+                        // 唤醒大脑让小动物立即恢复正常作息
+                        CreatureBrain brain = go.GetComponent<CreatureBrain>();
+                        if (brain != null)
+                        {
+                            Game.BrainScheduler?.PrioritizeBrain(brain);
                         }
                     }
 
