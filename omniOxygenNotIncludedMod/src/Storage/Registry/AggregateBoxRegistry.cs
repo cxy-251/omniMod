@@ -19,9 +19,29 @@ namespace OmniMod.Collection
 
         /// <summary>所有生效聚合箱的根格子 → 所属聚合箱映射（仅单格，绝不污染周围挖掘格）。</summary>
         private static readonly Dictionary<int, GlobalItemCollector> ActiveBoxCellToBox = new Dictionary<int, GlobalItemCollector>();
+        private static short[] _activeBoxCellWorld;
+        private static readonly HashSet<int> _dirtyWorlds = new HashSet<int>();
 
         private static GlobalItemCollector _discreteHome;
         private static GlobalItemCollector _foodHome;
+
+        internal static void MarkWorldDirty(int worldId)
+        {
+            lock (_dirtyWorlds)
+            {
+                _dirtyWorlds.Add(worldId);
+            }
+        }
+
+        private static void EnsureCellArray()
+        {
+            if (_activeBoxCellWorld == null || _activeBoxCellWorld.Length < Grid.CellCount)
+            {
+                int count = Mathf.Max(Grid.CellCount, 1);
+                _activeBoxCellWorld = new short[count];
+                for (int i = 0; i < count; i++) _activeBoxCellWorld[i] = -1;
+            }
+        }
 
         internal static void Register(GlobalItemCollector box)
         {
@@ -38,6 +58,7 @@ namespace OmniMod.Collection
                 box.BoxStorage.ignoreSourcePriority = true;
                 StorageToBox[box.BoxStorage] = box;
             }
+            MarkWorldDirty(box.GetMyWorldId());
             RebuildActiveBoxCells();
         }
 
@@ -60,6 +81,7 @@ namespace OmniMod.Collection
             {
                 _foodHome = null;       // 下次访问 FoodHome 时重新选
             }
+            MarkWorldDirty(box.GetMyWorldId());
             RebuildActiveBoxCells();
         }
 
@@ -72,6 +94,12 @@ namespace OmniMod.Collection
         internal static void RebuildActiveBoxCells()
         {
             ActiveBoxCellToBox.Clear();
+            EnsureCellArray();
+            if (_activeBoxCellWorld != null)
+            {
+                for (int i = 0; i < _activeBoxCellWorld.Length; i++) _activeBoxCellWorld[i] = -1;
+            }
+
             for (int i = 0; i < Boxes.Count; i++)
             {
                 GlobalItemCollector b = Boxes[i];
@@ -79,6 +107,7 @@ namespace OmniMod.Collection
                 {
                     continue;
                 }
+                short wid = (short)b.GetMyWorldId();
                 OccupyArea area = b.GetComponent<OccupyArea>();
                 int[] cells = area != null ? area.GetOccupiedGridCells() : null;
                 if (cells != null && cells.Length > 0)
@@ -89,6 +118,10 @@ namespace OmniMod.Collection
                         if (Grid.IsValidCell(cell))
                         {
                             ActiveBoxCellToBox[cell] = b;
+                            if ((uint)cell < (uint)_activeBoxCellWorld.Length)
+                            {
+                                _activeBoxCellWorld[cell] = wid;
+                            }
                         }
                     }
                 }
@@ -98,6 +131,10 @@ namespace OmniMod.Collection
                     if (Grid.IsValidCell(bc))
                     {
                         ActiveBoxCellToBox[bc] = b;
+                        if ((uint)bc < (uint)_activeBoxCellWorld.Length)
+                        {
+                            _activeBoxCellWorld[bc] = wid;
+                        }
                     }
                 }
             }
@@ -213,23 +250,24 @@ namespace OmniMod.Collection
         /// <summary>
         /// 判断某个格子是否是与 workerCell 位于【同一星球】的生效聚合箱根格（供本星机械手无视距离隔空取物）。
         /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         internal static bool IsSameWorldActiveBoxCell(int cell, int workerCell)
         {
             if (!Grid.IsValidCell(cell) || !Grid.IsValidCell(workerCell))
             {
                 return false;
             }
-            if (!ActiveBoxCellToBox.TryGetValue(cell, out GlobalItemCollector box) || box == null || box.IsRedundant)
+            short[] arr = _activeBoxCellWorld;
+            if (arr == null || (uint)cell >= (uint)arr.Length)
             {
                 return false;
             }
-            int workerWorldId = Grid.WorldIdx[workerCell];
-            int boxWorldId = box.GetMyWorldId();
-            if (workerWorldId == boxWorldId)
+            short boxWorld = arr[cell];
+            if (boxWorld < 0)
             {
-                return true;
+                return false;
             }
-            return box.GetMyParentWorldId() == ClusterUtil.GetMyParentWorldId(box.gameObject) && Grid.WorldIdx[cell] == workerWorldId;
+            return (uint)workerCell < (uint)Grid.WorldIdx.Length && Grid.WorldIdx[workerCell] == boxWorld;
         }
 
         // —— 机械臂"本星球隔空取物"用：主线程每秒刷新每个星球自身聚合箱内物品的快照，
@@ -328,8 +366,17 @@ namespace OmniMod.Collection
             }
         }
 
-        internal static void RefreshWorldBoxItems(int worldId)
+        internal static void RefreshWorldBoxItems(int worldId, bool force = false)
         {
+            lock (_dirtyWorlds)
+            {
+                if (!force && !_dirtyWorlds.Contains(worldId) && _worldBoxItems.ContainsKey(worldId))
+                {
+                    return;
+                }
+                _dirtyWorlds.Remove(worldId);
+            }
+
             _refreshScratch.Clear();
 
             GlobalItemCollector localJunk = GetActiveBoxForWorld(worldId, GlobalItemCollector.CollectMode.Debris);
@@ -842,31 +889,6 @@ namespace OmniMod.Collection
 
             if (extra == null || extra.Count == 0)
             {
-                // 即便没有额外追加物品，也安全过滤原始集合中的死引用/已销毁对象
-                if (result != null)
-                {
-                    bool hasDead = false;
-                    foreach (Pickupable p in result)
-                    {
-                        if (p == null || p.gameObject == null || p.KPrefabID == null)
-                        {
-                            hasDead = true;
-                            break;
-                        }
-                    }
-                    if (hasDead)
-                    {
-                        HashSet<Pickupable> clean = new HashSet<Pickupable>();
-                        foreach (Pickupable p in result)
-                        {
-                            if (p != null && p.gameObject != null && p.KPrefabID != null)
-                            {
-                                clean.Add(p);
-                            }
-                        }
-                        result = clean;
-                    }
-                }
                 return;
             }
 

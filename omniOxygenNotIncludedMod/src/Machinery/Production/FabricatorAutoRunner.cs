@@ -96,23 +96,31 @@ namespace OmniMod.Machinery.Production
         private static readonly AccessTools.FieldRef<ComplexFabricator, Chore> ChoreField =
             AccessTools.FieldRefAccess<ComplexFabricator, Chore>("chore");
 
-        private static readonly MethodInfo ShowProgressBarMethod =
-            AccessTools.Method(typeof(ComplexFabricator), "ShowProgressBar", new[] { typeof(bool) });
+        private static readonly Action<ComplexFabricator, bool> ShowProgressBarAction =
+            (Action<ComplexFabricator, bool>)Delegate.CreateDelegate(
+                typeof(Action<ComplexFabricator, bool>),
+                AccessTools.Method(typeof(ComplexFabricator), "ShowProgressBar", new[] { typeof(bool) }));
 
-        private static readonly MethodInfo CancelChoreMethod =
-            AccessTools.Method(typeof(ComplexFabricator), "CancelChore");
+        private static readonly Action<ComplexFabricator> CancelChoreAction =
+            (Action<ComplexFabricator>)Delegate.CreateDelegate(
+                typeof(Action<ComplexFabricator>),
+                AccessTools.Method(typeof(ComplexFabricator), "CancelChore"));
 
-        private static readonly MethodInfo RefreshAndStartNextOrderMethod =
-            AccessTools.Method(typeof(ComplexFabricator), "RefreshAndStartNextOrder");
+        private static readonly Action<ComplexFabricator> RefreshAndStartNextOrderAction =
+            (Action<ComplexFabricator>)Delegate.CreateDelegate(
+                typeof(Action<ComplexFabricator>),
+                AccessTools.Method(typeof(ComplexFabricator), "RefreshAndStartNextOrder"));
 
-        private static readonly MethodInfo HasIngredientsMethod =
-            AccessTools.Method(typeof(ComplexFabricator), "HasIngredients", new[] { typeof(ComplexRecipe), typeof(Storage) });
+        private static readonly Func<ComplexFabricator, ComplexRecipe, Storage, bool> HasIngredientsFunc =
+            (Func<ComplexFabricator, ComplexRecipe, Storage, bool>)Delegate.CreateDelegate(
+                typeof(Func<ComplexFabricator, ComplexRecipe, Storage, bool>),
+                AccessTools.Method(typeof(ComplexFabricator), "HasIngredients", new[] { typeof(ComplexRecipe), typeof(Storage) }));
 
         private static bool Prefix(ComplexFabricator __instance, float dt)
         {
             if (__instance == null) return true;
 
-            return ExceptionShield.Execute("ComplexFabricator.Sim200ms", () =>
+            try
             {
                 // 保持免人力开关与进度条始终开启
                 if (__instance.duplicantOperated)
@@ -136,7 +144,7 @@ namespace OmniMod.Machinery.Production
                 // 取消可能残留的小人操作任务
                 if (ChoreField(__instance) != null)
                 {
-                    CancelChoreMethod?.Invoke(__instance, null);
+                    CancelChoreAction?.Invoke(__instance);
                 }
 
                 Operational op = __instance.GetComponent<Operational>();
@@ -151,9 +159,9 @@ namespace OmniMod.Machinery.Production
                 if (!hasWorkingOrder)
                 {
                     ComplexRecipe next = __instance.NextOrder;
-                    if (next != null && HasIngredientsMethod != null && (bool)HasIngredientsMethod.Invoke(__instance, new object[] { next, __instance.inStorage }))
+                    if (next != null && HasIngredientsFunc != null && HasIngredientsFunc(__instance, next, __instance.inStorage))
                     {
-                        RefreshAndStartNextOrderMethod?.Invoke(__instance, null);
+                        RefreshAndStartNextOrderAction?.Invoke(__instance);
                         workingOrderIdx = WorkingOrderIdxField(__instance);
                         hasWorkingOrder = workingOrderIdx > -1;
                     }
@@ -165,7 +173,7 @@ namespace OmniMod.Machinery.Production
 
                 if (hasWorkingOrder && recipeList != null && workingOrderIdx >= 0 && workingOrderIdx < recipeList.Length)
                 {
-                    ShowProgressBarMethod?.Invoke(__instance, new object[] { true });
+                    ShowProgressBarAction?.Invoke(__instance, true);
 
                     ComplexRecipe recipe = recipeList[workingOrderIdx];
                     float baseTime = recipe != null && recipe.time > 0f ? recipe.time : 40f;
@@ -186,7 +194,7 @@ namespace OmniMod.Machinery.Production
 
                     if (currentProgress >= 1f)
                     {
-                        ShowProgressBarMethod?.Invoke(__instance, new object[] { false });
+                        ShowProgressBarAction?.Invoke(__instance, false);
                         __instance.CompleteWorkingOrder();
                     }
 
@@ -198,12 +206,17 @@ namespace OmniMod.Machinery.Production
                 }
                 else
                 {
-                    ShowProgressBarMethod?.Invoke(__instance, new object[] { false });
+                    ShowProgressBarAction?.Invoke(__instance, false);
                     BuildingAnimHelper.StopWorkingAnim(__instance.GetComponent<KBatchedAnimController>(), op);
                 }
 
                 return false;
-            }, true);
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error("ComplexFabricator.Sim200ms failed", ex);
+                return true;
+            }
         }
     }
 }

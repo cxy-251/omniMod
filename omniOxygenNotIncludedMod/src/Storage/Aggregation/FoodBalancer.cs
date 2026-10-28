@@ -12,9 +12,17 @@ namespace OmniMod.Collection
     {
         private static readonly List<GlobalItemCollector> _boxesScratch = new List<GlobalItemCollector>(8);
         private static readonly HashSet<Tag> _foodTagsScratch = new HashSet<Tag>();
+        private static float _lastRebalanceTime = 0f;
 
         public static void RebalanceFoodAcrossBoxes()
         {
+            float now = Time.time;
+            if (now - _lastRebalanceTime < 15.0f)
+            {
+                return;
+            }
+            _lastRebalanceTime = now;
+
             ExceptionShield.Execute("FoodBalancer.Rebalance", () =>
             {
                 _boxesScratch.Clear();

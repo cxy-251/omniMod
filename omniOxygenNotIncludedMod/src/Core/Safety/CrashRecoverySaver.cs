@@ -68,10 +68,16 @@ namespace OmniMod.Core.Safety
                         targetFolder = SaveLoader.GetActiveSaveColonyFolder();
                     }
 
-                    // 优先存入 auto_save 子目录，保持主目录清爽
+                    // 优先存入 auto_save 子目录，保持主目录清爽（同时防止递归嵌套 auto_save/auto_save/...）
                     string autoSaveDir = SaveLoader.GetActiveAutoSavePath();
                     if (!string.IsNullOrEmpty(autoSaveDir))
                     {
+                        DirectoryInfo dInfo = new DirectoryInfo(autoSaveDir);
+                        while (dInfo.Parent != null && dInfo.Name.Equals("auto_save", StringComparison.OrdinalIgnoreCase) && dInfo.Parent.Name.Equals("auto_save", StringComparison.OrdinalIgnoreCase))
+                        {
+                            dInfo = dInfo.Parent;
+                        }
+                        autoSaveDir = dInfo.FullName;
                         if (!Directory.Exists(autoSaveDir))
                         {
                             Directory.CreateDirectory(autoSaveDir);

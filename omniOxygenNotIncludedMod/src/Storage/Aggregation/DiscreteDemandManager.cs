@@ -100,6 +100,8 @@ namespace OmniMod.Collection
             }
         }
 
+        private static readonly Dictionary<int, float> _lastServeTimes = new Dictionary<int, float>();
+
         public static void ServeDiscreteDemand(GlobalItemCollector collector, Storage storage)
         {
             if (storage == null || storage.items == null || AggregateBoxRegistry.DiscreteHome == collector)
@@ -110,6 +112,13 @@ namespace OmniMod.Collection
             int myWorld = collector.GetMyWorldId();
             int myParentWorld = collector.GetMyParentWorldId();
             if (myWorld < 0 || myWorld == 255) return;
+
+            float now = Time.time;
+            if (_lastServeTimes.TryGetValue(myWorld, out float lastTime) && now - lastTime < 10.0f)
+            {
+                return;
+            }
+            _lastServeTimes[myWorld] = now;
 
             ExceptionShield.Execute("DiscreteDemandManager.ServeDemand", () =>
             {
@@ -231,66 +240,8 @@ namespace OmniMod.Collection
 
         public static void ReturnIdleDiscrete(GlobalItemCollector collector, Storage storage)
         {
-            if (storage == null || storage.items == null || storage.items.Count == 0) return;
-
-            GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
-            Storage homeStore = home != null && home != collector ? home.BoxStorage : null;
-            if (homeStore == null) return;
-
-            int myWorld = collector.GetMyWorldId();
-            int myParentWorld = collector.GetMyParentWorldId();
-            bool hasBionic = WorldHasLiveBionicMinion(myWorld);
-            float keptBatteries = 0f;
-
-            List<FetchChore> chores = null;
-            if (GlobalChoreProvider.Instance != null)
-            {
-                GlobalChoreProvider.Instance.fetchMap.TryGetValue(myParentWorld, out chores);
-            }
-
-            ExceptionShield.Execute("DiscreteDemandManager.ReturnIdle", () =>
-            {
-                for (int i = storage.items.Count - 1; i >= 0; i--)
-                {
-                    GameObject go = storage.items[i];
-                    if (go == null || !IsDiscreteManaged(go)) continue;
-
-                    Pickupable p = go.GetComponent<Pickupable>();
-                    KPrefabID id = go.GetComponent<KPrefabID>();
-                    if (p == null || id == null || p.ReservedAmount > 0f) continue;
-
-                    Assignable assignable = go.GetComponent<Assignable>();
-                    if (assignable != null && assignable.IsAssigned() && AggregateBoxRegistry.GetAssigneeWorldId(assignable.assignee) == myWorld)
-                    {
-                        continue;
-                    }
-
-                    if (hasBionic && id.HasTag(GameTags.ChargedPortableBattery) && keptBatteries < 2f)
-                    {
-                        keptBatteries += p.PrimaryElement != null ? p.PrimaryElement.Units : 1f;
-                        continue;
-                    }
-
-                    bool wantedByChore = false;
-                    if (chores != null)
-                    {
-                        for (int cIdx = 0; cIdx < chores.Count; cIdx++)
-                        {
-                            FetchChore fc = chores[cIdx];
-                            if (fc != null && fc.destination != null && fc.driver == null && fc.amount > 0f
-                                && !IsStorageToStorageDestination(fc.destination)
-                                && FetchManager.IsFetchablePickup(p, fc, fc.destination))
-                            {
-                                wantedByChore = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (wantedByChore) continue;
-
-                    storage.Transfer(go, homeStore, block_events: false, hide_popups: true);
-                }
-            });
+            // 闲置离散物品保留在本地杂物箱中，供本星球小人随时取用或其它星球按需调拨。
+            // 绝不每秒退回，杜绝跨星球反复争抢转移引发的引擎卡顿与状态震荡。
         }
     }
 }

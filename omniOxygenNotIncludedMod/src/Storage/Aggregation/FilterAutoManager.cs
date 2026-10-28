@@ -174,6 +174,21 @@ namespace OmniMod.Collection
             return false;
         }
 
+        private static readonly Dictionary<Tag, Tag> _cachedCategories = new Dictionary<Tag, Tag>(128);
+
+        public static Tag GetCategoryCached(KPrefabID id)
+        {
+            if (id == null) return Tag.Invalid;
+            Tag prefabTag = id.PrefabTag;
+            if (_cachedCategories.TryGetValue(prefabTag, out Tag cat))
+            {
+                return cat;
+            }
+            cat = DiscoveredResources.GetCategoryForEntity(id);
+            _cachedCategories[prefabTag] = cat;
+            return cat;
+        }
+
         public static bool IsAcceptedByFilter(GlobalItemCollector collector, TreeFilterable treeFilterable, KPrefabID id)
         {
             if (treeFilterable == null || id == null) return true;
@@ -193,25 +208,20 @@ namespace OmniMod.Collection
                     return treeFilterable.ContainsTag(GameTags.BionicUpgrade);
                 }
 
-                // 散装固体元素检查
-                ElementChunk chunk = id.GetComponent<ElementChunk>();
-                if (chunk != null)
+                // 散装固体元素检查（纯 O(1) 静态表查，零 GetComponent）
+                Element e = ElementLoader.GetElement(id.PrefabTag);
+                if (e != null && e.IsSolid)
                 {
-                    PrimaryElement pe = chunk.GetComponent<PrimaryElement>();
-                    Element e = pe != null ? pe.Element : null;
-                    if (e != null && e.IsSolid)
+                    Storage storage = treeFilterable.GetFilterStorage();
+                    if (storage != null && storage.storageFilters != null && storage.storageFilters.Contains(e.materialCategory))
                     {
-                        Storage storage = treeFilterable.GetFilterStorage();
-                        if (storage != null && storage.storageFilters != null && storage.storageFilters.Contains(e.materialCategory))
-                        {
-                            treeFilterable.AddTagToFilter(id.PrefabTag);
-                            return true;
-                        }
+                        treeFilterable.AddTagToFilter(id.PrefabTag);
+                        return true;
                     }
                 }
             }
 
-            Tag category = DiscoveredResources.GetCategoryForEntity(id);
+            Tag category = GetCategoryCached(id);
             if (!category.IsValid)
             {
                 return collector.mode == GlobalItemCollector.CollectMode.Debris && IsSeedItem(id);

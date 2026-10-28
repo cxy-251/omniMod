@@ -184,13 +184,15 @@ namespace OmniMod.Logistics.RemoteFetch
     {
         private static bool Prefix(ReachabilityMonitor.Instance __instance)
         {
-            if (__instance != null && __instance.master is Pickupable p &&
-                (AggregateBoxRegistry.IsBoxStorage(p.storage) ||
-                 p.storage?.GetComponent<Bottler>() != null ||
-                 (p.KPrefabID != null && p.KPrefabID.HasTag(GameTags.Creatures.Bagged))))
+            if (__instance != null && __instance.master is Pickupable p)
             {
-                __instance.sm.isReachable.Set(true, __instance);
-                return false;
+                if (AggregateBoxRegistry.IsBoxStorage(p.storage) ||
+                    BottlerRegistry.IsBottlerStorage(p.storage) ||
+                    (p.KPrefabID != null && p.KPrefabID.HasTag(GameTags.Creatures.Bagged)))
+                {
+                    __instance.sm.isReachable.Set(true, __instance);
+                    return false;
+                }
             }
             return true;
         }
@@ -202,58 +204,70 @@ namespace OmniMod.Logistics.RemoteFetch
     [HarmonyPatch(typeof(SolidTransferArm), nameof(SolidTransferArm.IsCellReachable))]
     internal static class SolidTransferArm_IsCellReachable_Patch
     {
+        private static readonly bool[] _isModuleInteriorCache = new bool[256];
+        private static readonly bool[] _isModuleInteriorChecked = new bool[256];
+
+        internal static void ClearInteriorCache()
+        {
+            Array.Clear(_isModuleInteriorChecked, 0, _isModuleInteriorChecked.Length);
+        }
+
+        private static bool IsRocketInterior(int worldId)
+        {
+            if ((uint)worldId >= (uint)_isModuleInteriorCache.Length) return false;
+            if (!_isModuleInteriorChecked[worldId])
+            {
+                if (ClusterManager.Instance != null)
+                {
+                    WorldContainer wc = ClusterManager.Instance.GetWorld(worldId);
+                    _isModuleInteriorCache[worldId] = (wc != null && wc.IsModuleInterior);
+                    _isModuleInteriorChecked[worldId] = true;
+                }
+            }
+            return _isModuleInteriorCache[worldId];
+        }
+
         private static void Postfix(SolidTransferArm __instance, int cell, ref bool __result)
         {
-            if (__result || __instance == null || !Grid.IsValidCell(cell))
+            if (__result || __instance == null || (uint)cell >= (uint)Grid.WorldIdx.Length)
             {
                 return;
             }
 
-            try
+            int myCell = Grid.PosToCell(__instance);
+            if ((uint)myCell >= (uint)Grid.WorldIdx.Length)
             {
-                int myCell = Grid.PosToCell(__instance);
-                if (!Grid.IsValidCell(myCell))
-                {
-                    return;
-                }
-
-                int myWorld = Grid.WorldIdx[myCell];
-                int cellWorld = Grid.WorldIdx[cell];
-                if (myWorld != cellWorld)
-                {
-                    return;
-                }
-
-                // 1. 如果在火箭舱内部：整舱内所有格子均视为可达（无视舱内距离与死角）
-                if (ClusterManager.Instance != null)
-                {
-                    WorldContainer wc = ClusterManager.Instance.GetWorld(myWorld);
-                    if (wc != null && wc.IsModuleInterior)
-                    {
-                        __result = true;
-                        return;
-                    }
-                }
-
-                // 2. 常规世界：纯 O(1) 字典查找聚合箱与装瓶器，零遍历、零 GC、零延迟
-                if (AggregateBoxRegistry.IsSameWorldActiveBoxCell(cell, myCell) ||
-                    BottlerRegistry.IsSameWorldActiveBottlerCell(cell, myCell))
-                {
-                    __result = true;
-                    return;
-                }
-
-                // 3. 动物放生点与袋装小动物：同星球下支持机械臂隔空抓取袋装动物并投送至放生点
-                if (CreatureDeliveryRegistry.IsDeliveryCell(cell, myWorld) ||
-                    BaggedCreatureRegistry.HasBaggedCreatureAtCell(cell, myWorld))
-                {
-                    __result = true;
-                    return;
-                }
+                return;
             }
-            catch (Exception ex)
+
+            int myWorld = Grid.WorldIdx[myCell];
+            int cellWorld = Grid.WorldIdx[cell];
+            if (myWorld != cellWorld)
             {
-                ModLog.Error("SolidTransferArm_IsCellReachable_Patch failed", ex);
+                return;
+            }
+
+            // 1. 如果在火箭舱内部：整舱内所有格子均视为可达（无视舱内距离与死角）
+            if (IsRocketInterior(myWorld))
+            {
+                __result = true;
+                return;
+            }
+
+            // 2. 常规世界：纯 O(1) 数组查找聚合箱与装瓶器，零遍历、零 GC、零延迟
+            if (AggregateBoxRegistry.IsSameWorldActiveBoxCell(cell, myCell) ||
+                BottlerRegistry.IsSameWorldActiveBottlerCell(cell, myCell))
+            {
+                __result = true;
+                return;
+            }
+
+            // 3. 动物放生点与袋装小动物：同星球下支持机械臂隔空抓取袋装动物并投送至放生点
+            if (CreatureDeliveryRegistry.IsDeliveryCell(cell, myWorld) ||
+                BaggedCreatureRegistry.HasBaggedCreatureAtCell(cell, myWorld))
+            {
+                __result = true;
+                return;
             }
         }
     }

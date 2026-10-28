@@ -22,7 +22,7 @@ namespace OmniMod.Machinery
         {
             if (kbac == null) return;
             string anim = (op != null && op.IsOperational) ? "on" : "off";
-            if (kbac.HasAnimation(anim))
+            if (kbac.currentAnim != anim && kbac.HasAnimation(anim))
             {
                 kbac.Play(anim, KAnim.PlayMode.Once);
             }

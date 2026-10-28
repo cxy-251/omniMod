@@ -66,7 +66,11 @@ namespace OmniMod.Collection
             }
 
             LivingThingsSafety.EjectLivingThings(this);
-            AggregateBoxRegistry.RefreshWorldBoxItems(this.GetMyWorldId());
+            if (_storage != null)
+            {
+                _storage.Subscribe((int)GameHashes.OnStorageChange, (data) => AggregateBoxRegistry.MarkWorldDirty(this.GetMyWorldId()));
+            }
+            AggregateBoxRegistry.RefreshWorldBoxItems(this.GetMyWorldId(), force: true);
         }
 
         private void OnResourceDiscovered(Tag category, Tag resource)
@@ -89,7 +93,7 @@ namespace OmniMod.Collection
             LivingThingsSafety.EjectLivingThings(this);
             if (_isRedundant) return;
 
-            // 每秒刷新本星球聚合箱内物品快照，供本星球机械手隔空取物 O(1) 匹配使用
+            // 仅在脏标记触发时刷新快照，绝不每秒无谓重建
             AggregateBoxRegistry.RefreshWorldBoxItems(this.GetMyWorldId());
 
             _timer += dt;
@@ -106,7 +110,6 @@ namespace OmniMod.Collection
                     else
                     {
                         DiscreteDemandManager.ServeDiscreteDemand(this, _storage);
-                        DiscreteDemandManager.ReturnIdleDiscrete(this, _storage);
                     }
                     BulkBufferManager.RestockFromPool(this, _storage, _treeFilterable);
                 }
@@ -222,7 +225,8 @@ namespace OmniMod.Collection
             if (id.HasTag(GameTags.Creature) ||
                 id.HasTag(GameTags.BaseMinion) ||
                 id.HasTag(GameTags.DupeBrain) ||
-                id.HasTag(GameTags.BagableCreature))
+                id.HasTag(GameTags.BagableCreature) ||
+                id.HasTag(GameTags.Robot))
             {
                 return false;
             }
@@ -233,22 +237,7 @@ namespace OmniMod.Collection
             Element e = pe.Element;
             if (e != null && (e.IsLiquid || e.IsGas)) return false;
 
-            if (e != null && e.IsSolid && id.PrefabTag == e.tag)
-            {
-                Clearable clearableOre = p.GetComponent<Clearable>();
-                return clearableOre == null || clearableOre.isClearable;
-            }
-
-            bool safeDiscrete = id.HasTag(GameTags.Egg) || id.HasTag(GameTags.Clothes);
-            if ((p.GetComponent<Health>() != null && !safeDiscrete) ||
-                p.GetComponent<Navigator>() != null ||
-                p.GetComponent<MinionIdentity>() != null)
-            {
-                return false;
-            }
-
-            Clearable clearable = p.GetComponent<Clearable>();
-            return clearable == null || clearable.isClearable;
+            return true;
         }
 
         internal static bool IsBulkSolidElementChunk(Pickupable p) => BulkBufferManager.IsBulkSolidElementChunk(p);

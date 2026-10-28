@@ -11,8 +11,24 @@ namespace OmniMod.Collection
     internal static class BottlerRegistry
     {
         private static readonly List<Bottler> Bottlers = new List<Bottler>();
-        private static readonly Dictionary<int, Bottler> ActiveBottlerCellToBottler = new Dictionary<int, Bottler>();
+        private static readonly HashSet<Storage> BottlerStorages = new HashSet<Storage>();
+        private static short[] _bottlerCellWorld;
         private static readonly Dictionary<int, List<Bottler>> WorldBottlers = new Dictionary<int, List<Bottler>>();
+
+        internal static bool IsBottlerStorage(Storage storage)
+        {
+            return storage != null && BottlerStorages.Contains(storage);
+        }
+
+        private static void EnsureCellArray()
+        {
+            if (_bottlerCellWorld == null || _bottlerCellWorld.Length < Grid.CellCount)
+            {
+                int count = Mathf.Max(Grid.CellCount, 1);
+                _bottlerCellWorld = new short[count];
+                for (int i = 0; i < count; i++) _bottlerCellWorld[i] = -1;
+            }
+        }
 
         internal static void Register(Bottler bottler)
         {
@@ -24,11 +40,11 @@ namespace OmniMod.Collection
             {
                 Bottlers.Add(bottler);
             }
-            // 确保装瓶器 Storage 允许机械臂取物，且不因优先级被拦截
             if (bottler.storage != null)
             {
                 bottler.storage.ignoreSourcePriority = true;
                 bottler.storage.allowItemRemoval = true;
+                BottlerStorages.Add(bottler.storage);
             }
             Rebuild();
         }
@@ -40,12 +56,20 @@ namespace OmniMod.Collection
                 return;
             }
             Bottlers.Remove(bottler);
+            if (bottler.storage != null)
+            {
+                BottlerStorages.Remove(bottler.storage);
+            }
             Rebuild();
         }
 
         private static void Rebuild()
         {
-            ActiveBottlerCellToBottler.Clear();
+            EnsureCellArray();
+            if (_bottlerCellWorld != null)
+            {
+                for (int i = 0; i < _bottlerCellWorld.Length; i++) _bottlerCellWorld[i] = -1;
+            }
             WorldBottlers.Clear();
 
             for (int i = 0; i < Bottlers.Count; i++)
@@ -55,6 +79,9 @@ namespace OmniMod.Collection
                 {
                     continue;
                 }
+                int worldId = b.GetMyWorldId();
+                short wid = (short)worldId;
+
                 OccupyArea area = b.GetComponent<OccupyArea>();
                 int[] cells = area != null ? area.GetOccupiedGridCells() : null;
                 if (cells != null && cells.Length > 0)
@@ -62,21 +89,21 @@ namespace OmniMod.Collection
                     for (int c = 0; c < cells.Length; c++)
                     {
                         int ac = cells[c];
-                        if (Grid.IsValidCell(ac))
+                        if (Grid.IsValidCell(ac) && (uint)ac < (uint)_bottlerCellWorld.Length)
                         {
-                            ActiveBottlerCellToBottler[ac] = b;
+                            _bottlerCellWorld[ac] = wid;
                         }
                     }
                 }
                 else
                 {
                     int cell = Grid.PosToCell(b.transform.GetPosition());
-                    if (Grid.IsValidCell(cell))
+                    if (Grid.IsValidCell(cell) && (uint)cell < (uint)_bottlerCellWorld.Length)
                     {
-                        ActiveBottlerCellToBottler[cell] = b;
+                        _bottlerCellWorld[cell] = wid;
                     }
                 }
-                int worldId = b.GetMyWorldId();
+
                 if (worldId >= 0 && worldId != 255)
                 {
                     if (!WorldBottlers.TryGetValue(worldId, out List<Bottler> list))
@@ -89,17 +116,24 @@ namespace OmniMod.Collection
             }
         }
 
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         internal static bool IsSameWorldActiveBottlerCell(int cell, int workerCell)
         {
             if (!Grid.IsValidCell(cell) || !Grid.IsValidCell(workerCell))
             {
                 return false;
             }
-            if (!ActiveBottlerCellToBottler.TryGetValue(cell, out Bottler b) || b == null)
+            short[] arr = _bottlerCellWorld;
+            if (arr == null || (uint)cell >= (uint)arr.Length)
             {
                 return false;
             }
-            return Grid.WorldIdx[cell] == Grid.WorldIdx[workerCell];
+            short cellWorld = arr[cell];
+            if (cellWorld < 0)
+            {
+                return false;
+            }
+            return (uint)workerCell < (uint)Grid.WorldIdx.Length && Grid.WorldIdx[workerCell] == cellWorld;
         }
 
         internal static List<Bottler> GetWorldBottlers(int worldId)
