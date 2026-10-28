@@ -24,12 +24,12 @@ namespace OmniMod.Buildings
         {
             BuildingDef def = BuildingTemplates.CreateBuildingDef(
                 id: ID,
-                width: 3,
-                height: 3,
+                width: 5,
+                height: 4,
                 anim: "rocket_habitat_medium_module_kanim",
                 hitpoints: 1000,
-                construction_time: 30f,
-                construction_mass: BUILDINGS.CONSTRUCTION_MASS_KG.TIER4,
+                construction_time: 45f,
+                construction_mass: BUILDINGS.CONSTRUCTION_MASS_KG.TIER5,
                 construction_materials: MATERIALS.REFINED_METALS,
                 melting_point: 2400f,
                 build_location_rule: BuildLocationRule.OnFloor,

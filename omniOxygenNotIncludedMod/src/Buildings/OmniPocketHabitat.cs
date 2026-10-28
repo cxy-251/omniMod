@@ -551,6 +551,46 @@ namespace OmniMod.Buildings
                 world.CancelChores();
                 world.DestroyWorldBuildings(out HashSet<int> noRefundTiles);
                 world.ClearWorldZones();
+
+                if (noRefundTiles == null)
+                {
+                    noRefundTiles = new HashSet<int>();
+                }
+
+                // 将内部空间所有中子物质（Unobtanium）格全部加入不退还列表，
+                // 彻底阻止 TransferLiquidsSolidsAndGases 将世界边界中子质转为成千上万公斤碎片吐出舱外
+                int minX = (int)world.minimumBounds.x;
+                int minY = (int)world.minimumBounds.y;
+                int maxX = (int)world.maximumBounds.x;
+                int maxY = (int)world.maximumBounds.y;
+                for (int x = minX; x <= maxX; x++)
+                {
+                    for (int y = minY; y <= maxY; y++)
+                    {
+                        int cell = Grid.XYToCell(x, y);
+                        if (!Grid.IsValidCell(cell)) continue;
+                        Element elem = Grid.Element[cell];
+                        if (elem != null && elem.id == SimHashes.Unobtanium)
+                        {
+                            noRefundTiles.Add(cell);
+                        }
+                    }
+                }
+
+                // 清理内部可能遗留的中子物质碎片，确保绝不转移到外部世界
+                var pickupables = Components.Pickupables.GetWorldItems(targetWorldId);
+                if (pickupables != null)
+                {
+                    for (int i = pickupables.Count - 1; i >= 0; i--)
+                    {
+                        Pickupable p = pickupables[i];
+                        if (p != null && p.PrimaryElement != null && p.PrimaryElement.ElementID == SimHashes.Unobtanium)
+                        {
+                            Util.KDestroyGameObject(p.gameObject);
+                        }
+                    }
+                }
+
                 world.TransferResourcesToParentWorld(ejectPos + new Vector3(0f, 0.5f, 0f), noRefundTiles);
 
                 var overworldCells = SaveLoader.Instance?.clusterDetailSave?.overworldCells;
@@ -1007,10 +1047,10 @@ namespace OmniMod.Buildings
         {
             public static bool Prefix(
                 int cell,
-                BuildLocationRule build_location_rule,
+                BuildLocationRule location_rule,
                 ref bool __result)
             {
-                if (build_location_rule == BuildLocationRule.OnRocketEnvelope && Grid.IsValidCell(cell))
+                if (location_rule == BuildLocationRule.OnRocketEnvelope && Grid.IsValidCell(cell))
                 {
                     int worldIdx = Grid.WorldIdx[cell];
                     if (worldIdx != (int)ClusterManager.INVALID_WORLD_IDX && ClusterManager.Instance != null)

@@ -74,7 +74,7 @@ namespace OmniMod.Buildings
                 TemplateClasses.Prefab.Type.Other,
                 MinX,
                 MinY + 1,
-                SimHashes.Unobtanium,
+                SimHashes.Steel,
                 294.15f,
                 1f,
                 null,
