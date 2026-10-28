@@ -27,7 +27,7 @@ namespace OmniMod.Collection
         [Serialize]
         private bool _backfillDiscoveredV3;
 
-        private const float ScanIntervalSeconds = 4f;
+        private const float ScanIntervalSeconds = 6f;
         private const float MaxCollectTemperatureK = 673.15f; // 400°C
 
         private float _timer;
@@ -136,8 +136,10 @@ namespace OmniMod.Collection
 
             if (mode == CollectMode.Edibles)
             {
-                foreach (Edible edible in Components.Edibles.WorldItemsEnumerate(worldId, false))
+                var edibles = Components.Edibles.GetWorldItems(worldId, false);
+                for (int i = 0; i < edibles.Count; i++)
                 {
+                    Edible edible = edibles[i];
                     if (edible == null) continue;
                     Pickupable p = edible.GetComponent<Pickupable>();
                     if (IsLooseInertPickupable(p) && FilterAutoManager.IsAcceptedByFilter(this, _treeFilterable, p.KPrefabID))
@@ -146,9 +148,12 @@ namespace OmniMod.Collection
                     }
                 }
 
-                foreach (Pickupable p in Components.Pickupables.WorldItemsEnumerate(worldId, false))
+                var items = Components.Pickupables.GetWorldItems(worldId, false);
+                for (int i = 0; i < items.Count; i++)
                 {
-                    KPrefabID id = p != null ? p.KPrefabID : null;
+                    Pickupable p = items[i];
+                    if (p == null || p.storage != null) continue;
+                    KPrefabID id = p.KPrefabID;
                     if (id != null && id.HasTag(GameTags.CookingIngredient) && !id.HasTag(GameTags.Edible)
                         && IsLooseInertPickupable(p) && FilterAutoManager.IsAcceptedByFilter(this, _treeFilterable, id))
                     {
@@ -160,8 +165,10 @@ namespace OmniMod.Collection
             {
                 if (OmniPool.Instance == null) return;
 
-                foreach (Pickupable p in Components.Pickupables.WorldItemsEnumerate(worldId, false))
+                var items = Components.Pickupables.GetWorldItems(worldId, false);
+                for (int i = 0; i < items.Count; i++)
                 {
+                    Pickupable p = items[i];
                     if (!IsLooseInertPickupable(p)) continue;
                     KPrefabID id = p.KPrefabID;
 
@@ -180,6 +187,7 @@ namespace OmniMod.Collection
                 }
             }
 
+            bool changed = false;
             for (int i = 0; i < _candidates.Count; i++)
             {
                 Pickupable p = _candidates[i];
@@ -190,6 +198,7 @@ namespace OmniMod.Collection
                     PrimaryElement pe = p.PrimaryElement;
                     OmniPool.Instance.AddSolid(pe.ElementID, pe.Mass, pe.Temperature);
                     Util.KDestroyGameObject(p.gameObject);
+                    changed = true;
                 }
                 else if (mode == CollectMode.Debris)
                 {
@@ -197,19 +206,29 @@ namespace OmniMod.Collection
                     if (assignable != null && assignable.IsAssigned()
                         && AggregateBoxRegistry.GetAssigneeWorldId(assignable.assignee) == worldId)
                     {
-                        _storage.Store(p.gameObject, hide_popups: true);
+                        _storage.Store(p.gameObject, hide_popups: true, block_events: true);
+                        changed = true;
                     }
                     else
                     {
                         GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
                         Storage dest = (home != null ? home.BoxStorage : null) ?? _storage;
-                        dest.Store(p.gameObject, hide_popups: true);
+                        dest.Store(p.gameObject, hide_popups: true, block_events: true);
+                        changed = true;
                     }
                 }
                 else
                 {
-                    _storage.Store(p.gameObject, hide_popups: true);
+                    _storage.Store(p.gameObject, hide_popups: true, block_events: true);
+                    changed = true;
                 }
+            }
+
+            if (changed)
+            {
+                _storage.Trigger((int)GameHashes.OnStorageChange, null);
+                _storage.OnStorageChange?.Invoke(_storage.gameObject);
+                AggregateBoxRegistry.MarkWorldDirty(worldId);
             }
 
             _candidates.Clear();

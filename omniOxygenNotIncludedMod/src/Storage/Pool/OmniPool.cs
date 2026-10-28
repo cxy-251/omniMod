@@ -438,7 +438,7 @@ namespace OmniMod.Pool
             return take;
         }
 
-        /// <summary>遍历杂物池内容：(元素, 总质量kg, 平均温度K)。</summary>
+        /// <summary>遍历杂物池内容：(元素, 总质量kg, 默认温度K)。如需精确质量加权温度可调用 GetTemperature。</summary>
         public IEnumerable<PoolLine> EnumerateJunk()
         {
             foreach (KeyValuePair<int, float> kv in _mass)
@@ -448,7 +448,7 @@ namespace OmniMod.Pool
                     continue;
                 }
                 var element = (SimHashes)kv.Key;
-                yield return new PoolLine(element, kv.Value, GetTemperature(element));
+                yield return new PoolLine(element, kv.Value, DefaultTemperatureK);
             }
         }
 

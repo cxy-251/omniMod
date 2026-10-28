@@ -73,6 +73,18 @@ namespace OmniMod.Logistics.RemoteFetch
         }
     }
 
+    [HarmonyPatch(typeof(SolidTransferArmConfig), nameof(SolidTransferArmConfig.DoPostConfigureComplete))]
+    internal static class SolidTransferArmConfig_DoPostConfigureComplete_Patch
+    {
+        private static void Postfix(GameObject go)
+        {
+            if (go != null && go.GetComponent<SymbolOverrideController>() == null)
+            {
+                SymbolOverrideControllerUtil.AddToPrefab(go);
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(SolidTransferArm), "OnSpawn")]
     internal static class SolidTransferArm_OnSpawn_PermitRanching_Patch
     {
@@ -83,6 +95,10 @@ namespace OmniMod.Logistics.RemoteFetch
                 SolidTransferArmTagsHelper.EnsureInitialized();
                 if (__instance != null)
                 {
+                    if (__instance.GetComponent<SymbolOverrideController>() == null)
+                    {
+                        SymbolOverrideControllerUtil.AddToPrefab(__instance.gameObject);
+                    }
                     var choreConsumer = __instance.GetComponent<ChoreConsumer>();
                     if (choreConsumer != null && Db.Get()?.ChoreGroups?.Ranching != null)
                     {
@@ -186,12 +202,23 @@ namespace OmniMod.Logistics.RemoteFetch
         {
             if (__instance != null && __instance.master is Pickupable p)
             {
-                if (AggregateBoxRegistry.IsBoxStorage(p.storage) ||
-                    BottlerRegistry.IsBottlerStorage(p.storage) ||
-                    (p.KPrefabID != null && p.KPrefabID.HasTag(GameTags.Creatures.Bagged)))
+                var storage = p.storage;
+                if (storage != null)
                 {
-                    __instance.sm.isReachable.Set(true, __instance);
-                    return false;
+                    if (AggregateBoxRegistry.IsBoxStorage(storage) || BottlerRegistry.IsBottlerStorage(storage))
+                    {
+                        __instance.sm.isReachable.Set(true, __instance);
+                        return false;
+                    }
+                }
+                else
+                {
+                    var kpid = p.KPrefabID;
+                    if (kpid != null && kpid.HasTag(GameTags.Creatures.Bagged))
+                    {
+                        __instance.sm.isReachable.Set(true, __instance);
+                        return false;
+                    }
                 }
             }
             return true;

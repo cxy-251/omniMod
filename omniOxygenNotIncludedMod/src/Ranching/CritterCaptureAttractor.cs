@@ -91,7 +91,7 @@ namespace OmniMod.Ranching
 
     /// <summary>
     /// 放宽取出点对小动物可达性的判定：原版由于 captureCell 往往被建筑本体占用导致 GetNavigationCost 返回 -1，
-    /// 此处允许小动物只要能到达取出点目标交互格或相邻格即视为可达。
+    /// 并且 PathGrid 未对远距离小动物及时探查，此处只要同房间或同星球直线距离内且数量超标即视为可捕捉。
     /// </summary>
     [HarmonyPatch(typeof(FixedCapturePoint.Instance), "CanCapturableBeCapturedAtCapturePoint")]
     internal static class FixedCapturePoint_CanCapturableBeCapturedAtCapturePoint_Patch
@@ -107,33 +107,20 @@ namespace OmniMod.Ranching
                 if (capturable.isBaby && !capture_point.def.allowBabies) return;
 
                 int cell = Grid.PosToCell(capturable.transform.GetPosition());
+                int pointCell = Grid.PosToCell(capture_point);
+
+                if (Grid.WorldIdx == null || (uint)cell >= (uint)Grid.WorldIdx.Length || (uint)pointCell >= (uint)Grid.WorldIdx.Length) return;
+                if (Grid.WorldIdx[cell] != Grid.WorldIdx[pointCell]) return;
+
                 CavityInfo cavity = Game.Instance.roomProber?.GetCavityForCell(cell);
-                if (cavity == null || cavity != capture_cavity_info) return;
+                bool sameRoom = (cavity != null && cavity == capture_cavity_info);
+                bool nearby = (capture_cavity_info == null && Grid.GetCellDistance(cell, pointCell) <= 30);
+                if (!sameRoom && !nearby) return;
 
                 if (capture_point.def == null || capture_point.def.isAmountStoredOverCapacity == null) return;
                 if (!capture_point.def.isAmountStoredOverCapacity(capture_point, capturable)) return;
 
-                Navigator nav = capturable.Navigator;
-                if (nav != null)
-                {
-                    // 只要小动物能到达取出点本体、左右相邻格、上下相邻格任意一处，即视为可达（克服建筑本身占位不可立足的问题）
-                    if (nav.CanReach(capture_cell) ||
-                        (Grid.IsValidCell(capture_cell - 1) && nav.CanReach(capture_cell - 1)) ||
-                        (Grid.IsValidCell(capture_cell + 1) && nav.CanReach(capture_cell + 1)) ||
-                        (Grid.IsValidCell(Grid.CellBelow(capture_cell)) && nav.CanReach(Grid.CellBelow(capture_cell))) ||
-                        (Grid.IsValidCell(Grid.CellAbove(capture_cell)) && nav.CanReach(Grid.CellAbove(capture_cell))))
-                    {
-                        __result = true;
-                    }
-                    else if (capture_point.def != null && capture_point.def.postCaptureOffset.HasValue)
-                    {
-                        int postCell = Grid.OffsetCell(capture_cell, capture_point.def.postCaptureOffset.Value);
-                        if (Grid.IsValidCell(postCell) && nav.CanReach(postCell))
-                        {
-                            __result = true;
-                        }
-                    }
-                }
+                __result = true;
             }
             catch (Exception ex)
             {
@@ -145,7 +132,7 @@ namespace OmniMod.Ranching
     /// <summary>
     /// 取出点寻找过剩小动物并吸引其走近：
     /// 当选中小动物后，保持 shouldCreatureGoGetCaptured 为 true，唤醒小动物大脑，
-    /// 并在走近（<= 2 格）或寻路超时（> 15 秒）时瞬间自动打包。
+    /// 并在走近（<= 2 格）或寻路超时（> 12 秒）时瞬间自动打包。
     /// </summary>
     [HarmonyPatch(typeof(FixedCapturePoint.Instance), nameof(FixedCapturePoint.Instance.FindFixedCapturable))]
     internal static class FixedCapturePoint_FindFixedCapturable_Patch
@@ -153,7 +140,20 @@ namespace OmniMod.Ranching
         private static readonly AccessTools.FieldRef<FixedCapturePoint.Instance, int> CaptureCellRef =
             AccessTools.FieldRefAccess<FixedCapturePoint.Instance, int>("captureCell");
 
+        private static readonly AccessTools.FieldRef<FixedCapturePoint.Instance, FixedCapturableMonitor.Instance> TargetCapturableRef =
+            AccessTools.FieldRefAccess<FixedCapturePoint.Instance, FixedCapturableMonitor.Instance>("<targetCapturable>k__BackingField");
+
         private static readonly Dictionary<int, float> _captureStartTimes = new Dictionary<int, float>();
+
+        private static void Prefix(FixedCapturePoint.Instance __instance)
+        {
+            if (__instance == null || !__instance.IsOperational) return;
+            // 如果已有目标正在行进中，保持正在捕捉标记，防止原版 FindFixedCapturable 误调用 ResetCapturePoint() 清理目标
+            if (__instance.targetCapturable != null && !__instance.targetCapturable.IsNullOrStopped())
+            {
+                __instance.isCurrentlyCapturingCreature = true;
+            }
+        }
 
         private static void Postfix(FixedCapturePoint.Instance __instance)
         {
@@ -161,14 +161,56 @@ namespace OmniMod.Ranching
 
             ExceptionShield.Execute("FixedCapturePoint.FindFixedCapturable", () =>
             {
-                var target = __instance.targetCapturable;
                 int stationId = __instance.gameObject != null ? __instance.gameObject.GetInstanceID() : 0;
+                var target = __instance.targetCapturable;
+
+                // 兜底补救：如果原版由于未探测到腔体等原因未能匹配目标，自行检索过剩动物
+                if (target == null || target.IsNullOrStopped() || target.gameObject == null)
+                {
+                    if (__instance.critterCapactiy is IUserControlledCapacity capacity && capacity.AmountStored > capacity.UserMaxCapacity)
+                    {
+                        TreeFilterable filter = __instance.GetComponent<TreeFilterable>();
+                        int stationCell = Grid.PosToCell(__instance);
+                        int worldId = __instance.GetMyWorldId();
+
+                        FixedCapturableMonitor.Instance bestCandidate = null;
+                        int bestDist = int.MaxValue;
+
+                        foreach (FixedCapturableMonitor.Instance monitor in Components.FixedCapturableMonitors)
+                        {
+                            if (monitor == null || !monitor.IsRunning() || monitor.gameObject == null) continue;
+                            if (monitor.HasTag(GameTags.Creatures.Bagged)) continue;
+                            if (!monitor.targetCapturePoint.IsNullOrStopped()) continue;
+                            if (monitor.isBaby && !__instance.def.allowBabies) continue;
+                            if (filter != null && !filter.ContainsTag(monitor.PrefabTag)) continue;
+
+                            int cCell = Grid.PosToCell(monitor.gameObject);
+                            if (!Grid.IsValidCell(cCell) || Grid.WorldIdx[cCell] != worldId) continue;
+
+                            int dist = Grid.GetCellDistance(cCell, stationCell);
+                            if (dist < bestDist)
+                            {
+                                bestDist = dist;
+                                bestCandidate = monitor;
+                            }
+                        }
+
+                        if (bestCandidate != null)
+                        {
+                            if (TargetCapturableRef != null)
+                            {
+                                TargetCapturableRef(__instance) = bestCandidate;
+                            }
+                            bestCandidate.targetCapturePoint = __instance;
+                            target = bestCandidate;
+                        }
+                    }
+                }
 
                 if (target != null && !target.IsNullOrStopped() && target.gameObject != null)
                 {
                     // 1. 常驻牧场主就位标记，确保 FixedCapturableMonitor.ShouldGoGetCaptured() 持续返回 true
                     __instance.SetRancherIsAvailableForCapturing();
-                    // 标记正在捕捉中，防止原版 FindFixedCapturable 在下一秒误将其 ResetCapturePoint
                     __instance.isCurrentlyCapturingCreature = true;
 
                     // 2. 唤醒小动物大脑，立即触发前往行为
@@ -178,6 +220,7 @@ namespace OmniMod.Ranching
                         Game.BrainScheduler?.PrioritizeBrain(brain);
                     }
                     target.Trigger((int)GameHashes.RancherReadyAtCapturePoint);
+                    target.GetComponent<ChoreConsumer>()?.Trigger((int)GameHashes.ChoreInterrupt);
 
                     // 3. 记录或检查行走耗时
                     if (stationId != 0)
@@ -189,13 +232,13 @@ namespace OmniMod.Ranching
                         }
 
                         int creatureCell = Grid.PosToCell(target.transform.GetPosition());
-                        int captureCell = CaptureCellRef(__instance);
+                        int captureCell = CaptureCellRef != null ? CaptureCellRef(__instance) : Grid.PosToCell(__instance);
 
                         if (Grid.IsValidCell(creatureCell) && Grid.IsValidCell(captureCell))
                         {
                             int dist = Grid.GetCellDistance(creatureCell, captureCell);
-                            // 距离 2 格以内自动打包；若卡路超过 15 秒则兜底自动打包防卡死
-                            if (dist <= 2 || (Time.time - startTime > 15f))
+                            // 距离 2 格以内自动打包；若行走超过 12 秒则兜底自动打包防卡死
+                            if (dist <= 2 || (Time.time - startTime > 12f))
                             {
                                 _captureStartTimes.Remove(stationId);
                                 AutoWrangleHelper.AutoBagCreature(target.gameObject, __instance);
@@ -216,14 +259,36 @@ namespace OmniMod.Ranching
     }
 
     /// <summary>
+    /// 确保小动物大脑在被取出点选中时，立即判定为应当去被打包（无需等待复制人到达）
+    /// </summary>
+    [HarmonyPatch(typeof(FixedCapturableMonitor.Instance), nameof(FixedCapturableMonitor.Instance.ShouldGoGetCaptured))]
+    internal static class FixedCapturableMonitor_ShouldGoGetCaptured_Patch
+    {
+        private static void Postfix(FixedCapturableMonitor.Instance __instance, ref bool __result)
+        {
+            if (__result || __instance == null) return;
+            if (__instance.targetCapturePoint != null && __instance.targetCapturePoint.IsRunning())
+            {
+                if (!__instance.isBaby || __instance.targetCapturePoint.def.allowBabies)
+                {
+                    __result = true;
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// 小动物走到取出点就位时（进入 waitforranchertobeready 状态），瞬间触发免人工自动打包
     /// </summary>
     [HarmonyPatch(typeof(FixedCaptureStates), nameof(FixedCaptureStates.InitializeStates))]
     internal static class FixedCaptureStates_InitializeStates_Patch
     {
+        private static readonly AccessTools.FieldRef<FixedCaptureStates, FixedCaptureStates.CaptureStates> CaptureFieldRef =
+            AccessTools.FieldRefAccess<FixedCaptureStates, FixedCaptureStates.CaptureStates>("capture");
+
         private static void Postfix(FixedCaptureStates __instance)
         {
-            var capture = Traverse.Create(__instance).Field<FixedCaptureStates.CaptureStates>("capture")?.Value;
+            var capture = CaptureFieldRef != null ? CaptureFieldRef(__instance) : null;
             if (capture?.move?.waitforranchertobeready != null)
             {
                 capture.move.waitforranchertobeready.Enter("OmniMod_AutoBagOnArrival", (FixedCaptureStates.Instance smi) =>

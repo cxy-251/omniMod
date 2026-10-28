@@ -12,8 +12,13 @@ namespace OmniMod.Machinery.Research
     [HarmonyPatch(typeof(ResearchCenter), "Sim200ms")]
     internal static class BasicResearchRunnerPatch
     {
-        private static readonly MethodInfo HasMaterialMethod =
-            AccessTools.Method(typeof(ResearchCenter), "HasMaterial");
+        private static readonly Func<ResearchCenter, bool> HasMaterialFunc =
+            (Func<ResearchCenter, bool>)Delegate.CreateDelegate(
+                typeof(Func<ResearchCenter, bool>),
+                AccessTools.Method(typeof(ResearchCenter), "HasMaterial"));
+
+        private static readonly AccessTools.FieldRef<ResearchCenter, Chore> ChoreField =
+            AccessTools.FieldRefAccess<ResearchCenter, Chore>("chore");
 
         private static bool Prefix(ResearchCenter __instance)
         {
@@ -39,7 +44,7 @@ namespace OmniMod.Machinery.Research
                 {
                     return true;
                 }
-                if (HasMaterialMethod != null && !(bool)HasMaterialMethod.Invoke(__instance, null))
+                if (HasMaterialFunc != null && !HasMaterialFunc(__instance))
                 {
                     return true; // 缺少原料
                 }
@@ -51,12 +56,11 @@ namespace OmniMod.Machinery.Research
                 }
 
                 // 取消香草可能已经建好的小人操作任务
-                Traverse choreT = Traverse.Create(__instance).Field("chore");
-                Chore chore = choreT.GetValue<Chore>();
+                Chore chore = ChoreField(__instance);
                 if (chore != null)
                 {
                     chore.Cancel("OmniMod auto-research");
-                    choreT.SetValue(null);
+                    ChoreField(__instance) = null;
                 }
 
                 conv.SetWorkSpeedMultiplier(2f);

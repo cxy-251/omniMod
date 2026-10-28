@@ -599,8 +599,8 @@ namespace OmniMod.Collection
                             Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
                             if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
                             {
-                                RefreshWorldBoxItems(worldId);
-                                ModLog.Info($"隔空取物即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)");
+                                RefreshWorldBoxItems(worldId, force: true);
+                                ModLog.Throttle($"mat_{e.name}", $"隔空取物即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)", 5f);
                                 return p;
                             }
                         }
@@ -618,7 +618,8 @@ namespace OmniMod.Collection
                         Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
                         if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
                         {
-                            RefreshWorldBoxItems(worldId);
+                            RefreshWorldBoxItems(worldId, force: true);
+                            ModLog.Throttle($"mat_req_{e.name}", $"隔空取物即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)", 5f);
                             return p;
                         }
                     }
@@ -632,7 +633,8 @@ namespace OmniMod.Collection
                         Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
                         if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
                         {
-                            RefreshWorldBoxItems(worldId);
+                            RefreshWorldBoxItems(worldId, force: true);
+                            ModLog.Throttle($"mat_first_{e.name}", $"隔空取物即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)", 5f);
                             return p;
                         }
                     }
@@ -648,7 +650,8 @@ namespace OmniMod.Collection
                             Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
                             if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
                             {
-                                RefreshWorldBoxItems(worldId);
+                                RefreshWorldBoxItems(worldId, force: true);
+                                ModLog.Throttle($"mat_tag_{e.name}", $"隔空取物即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)", 5f);
                                 return p;
                             }
                         }
@@ -704,8 +707,8 @@ namespace OmniMod.Collection
                         Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
                         if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
                         {
-                            RefreshWorldBoxItems(worldId);
-                            ModLog.Info($"隔空取物按标签即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)");
+                            RefreshWorldBoxItems(worldId, force: true);
+                            ModLog.Throttle($"mat_tag_{e.name}", $"隔空取物按标签即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)", 5f);
                             return p;
                         }
                     }

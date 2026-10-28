@@ -11,6 +11,8 @@ namespace OmniMod.Machinery.Research
     /// </summary>
     public class NuclearResearchCenterAutoRunner : KMonoBehaviour, ISim200ms
     {
+        internal static readonly AccessTools.FieldRef<NuclearResearchCenter.StatesInstance, Chore> NrcChoreField =
+            AccessTools.FieldRefAccess<NuclearResearchCenter.StatesInstance, Chore>("chore");
         private NuclearResearchCenter _nrc;
         private NuclearResearchCenterWorkable _workable;
         private Operational _operational;
@@ -92,12 +94,11 @@ namespace OmniMod.Machinery.Research
                 var smi = _nrc.GetSMI<NuclearResearchCenter.StatesInstance>();
                 if (smi != null)
                 {
-                    Traverse choreT = Traverse.Create(smi).Field("chore");
-                    Chore chore = choreT.GetValue<Chore>();
+                    Chore chore = NrcChoreField(smi);
                     if (chore != null)
                     {
                         chore.Cancel("OmniMod auto-research");
-                        choreT.SetValue(null);
+                        NrcChoreField(smi) = null;
                     }
                 }
 
@@ -192,7 +193,7 @@ namespace OmniMod.Machinery.Research
             {
                 return false;
             }
-            Chore chore = Traverse.Create(__instance).Field("chore").GetValue<Chore>();
+            Chore chore = NuclearResearchCenterAutoRunner.NrcChoreField(__instance);
             if (chore == null)
             {
                 return false; // chore 为空时不调用原版 chore.Cancel()，防止空指针异常
