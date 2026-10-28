@@ -94,6 +94,62 @@ namespace OmniMod.Logistics.RemoteFetch
     }
 
     /// <summary>
+    /// 屏蔽机械臂或非复制人工作者（无 SymbolOverrideController）加载小动物或物品的姿势贴图覆写（minionAnimOverride）。
+    /// 原版中 StandardWorker.AttachOverrideAnims 会对 Worker 的动画控制器调用 AddAnimOverrides，
+    /// 若 worker 没有 SymbolOverrideController（如机械臂），将触发底层 DebugUtil.Assert 报错并中断搬运！
+    /// </summary>
+    [HarmonyPatch(typeof(StandardWorker), "AttachOverrideAnims")]
+    internal static class StandardWorker_AttachOverrideAnims_Patch
+    {
+        private static bool Prefix(StandardWorker __instance, KAnimControllerBase worker_controller)
+        {
+            if (worker_controller == null || worker_controller.GetComponent<SymbolOverrideController>() == null)
+            {
+                return false;
+            }
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(StandardWorker), "DetachAnimOverrides")]
+    internal static class StandardWorker_DetachAnimOverrides_Patch
+    {
+        private static bool Prefix(StandardWorker __instance, KAnimControllerBase worker_controller)
+        {
+            if (worker_controller == null || worker_controller.GetComponent<SymbolOverrideController>() == null)
+            {
+                return false;
+            }
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(KAnimControllerBase), nameof(KAnimControllerBase.AddAnimOverrides), new Type[] { typeof(KAnimFile), typeof(float) })]
+    internal static class KAnimControllerBase_AddAnimOverrides_Patch
+    {
+        private static bool Prefix(KAnimControllerBase __instance, KAnimFile kanim_file)
+        {
+            if (__instance == null || kanim_file == null) return false;
+            try
+            {
+                var data = kanim_file.GetData();
+                if (data != null && data.build != null && data.build.symbols != null && data.build.symbols.Length > 0)
+                {
+                    if (__instance.GetComponent<SymbolOverrideController>() == null)
+                    {
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error("KAnimControllerBase_AddAnimOverrides_Patch failed", ex);
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
     /// 确保聚合箱内的物品始终视为 Reachable（即使箱子被砌在封闭房间里也正常注册进 FetchManager 与 WorldInventory）。
     /// </summary>
     [HarmonyPatch(typeof(ReachabilityMonitor.Instance), nameof(ReachabilityMonitor.Instance.UpdateReachability))]
