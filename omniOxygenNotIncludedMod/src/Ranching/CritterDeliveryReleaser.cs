@@ -48,14 +48,18 @@ namespace OmniMod.Ranching
         }
     }
 
-    [HarmonyPatch(typeof(Baggable), "OnCleanUp")]
-    internal static class Baggable_OnCleanUp_Patch
+    [HarmonyPatch(typeof(Pickupable), nameof(Pickupable.UpdateCachedCell))]
+    internal static class Pickupable_UpdateCachedCell_BaggedRegistry_Patch
     {
-        private static void Prefix(Baggable __instance)
+        private static void Prefix(Pickupable __instance, int cell)
         {
-            if (__instance != null)
+            if (__instance != null && __instance.cachedCell != cell)
             {
-                BaggedCreatureRegistry.Unregister(__instance);
+                var bag = __instance.GetComponent<Baggable>();
+                if (bag != null && bag.wrangled)
+                {
+                    BaggedCreatureRegistry.OnCellChanged(bag, __instance.cachedCell, cell);
+                }
             }
         }
     }

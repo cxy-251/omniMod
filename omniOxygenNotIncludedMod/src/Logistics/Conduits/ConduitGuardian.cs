@@ -15,7 +15,7 @@ namespace OmniMod.Conduits
     /// 3. 相变防爆锁死：协同 AntiBurst 补丁，确保管道流体温度恒定处于安全相态区间，永不相变爆管，永不因凝固/沸腾导致流体外泄被吞。
     /// </summary>
     [SerializationConfig(MemberSerialization.OptIn)]
-    public class ConduitGuardian : KMonoBehaviour, ISaveLoadable, ISim1000ms
+    public class ConduitGuardian : KMonoBehaviour, ISaveLoadable
     {
         public static ConduitGuardian Instance { get; private set; }
 
@@ -33,10 +33,6 @@ namespace OmniMod.Conduits
         [Serialize] private List<byte> _gasDiseaseIdxs = new List<byte>();
         [Serialize] private List<int> _gasDiseaseCounts = new List<int>();
 
-        private int _initialVerifyTicks = 0;
-        private const int MaxInitialVerifyTicks = 5;
-        private float _periodicSnapshotTimer = 0f;
-
         protected override void OnPrefabInit()
         {
             base.OnPrefabInit();
@@ -51,18 +47,9 @@ namespace OmniMod.Conduits
             if (Game.Instance != null)
             {
                 Game.Instance.OnSave += OnGameSave;
-
-                if (Game.Instance.liquidConduitFlow != null)
-                {
-                    Game.Instance.liquidConduitFlow.onConduitsRebuilt += OnConduitsRebuilt;
-                }
-                if (Game.Instance.gasConduitFlow != null)
-                {
-                    Game.Instance.gasConduitFlow.onConduitsRebuilt += OnConduitsRebuilt;
-                }
             }
 
-            // 读档后第 0 帧立即执行初次管道流体核验与修复
+            // 读档后首帧立即执行管道流体核验与修复
             RestoreSnapshots();
         }
 
@@ -71,15 +58,6 @@ namespace OmniMod.Conduits
             if (Game.Instance != null)
             {
                 Game.Instance.OnSave -= OnGameSave;
-
-                if (Game.Instance.liquidConduitFlow != null)
-                {
-                    Game.Instance.liquidConduitFlow.onConduitsRebuilt -= OnConduitsRebuilt;
-                }
-                if (Game.Instance.gasConduitFlow != null)
-                {
-                    Game.Instance.gasConduitFlow.onConduitsRebuilt -= OnConduitsRebuilt;
-                }
             }
 
             if (Instance == this)
@@ -88,33 +66,6 @@ namespace OmniMod.Conduits
             }
 
             base.OnCleanUp();
-        }
-
-        public void Sim1000ms(float dt)
-        {
-            // 读档前 5 秒内持续守护，防止部分建筑/电网/管道网在跨帧异步重建时吞掉流体包
-            if (_initialVerifyTicks < MaxInitialVerifyTicks)
-            {
-                _initialVerifyTicks++;
-                RestoreSnapshots();
-            }
-
-            // 每隔 8 秒对运行中管道进行一次静默内存快照，确保突发崩溃或自动存盘时快照始终最新
-            _periodicSnapshotTimer += dt;
-            if (_periodicSnapshotTimer >= 8f)
-            {
-                _periodicSnapshotTimer = 0f;
-                CaptureSnapshots();
-            }
-        }
-
-        private void OnConduitsRebuilt()
-        {
-            // 管道网重构（如玩家接驳管道或拆改管网）完成时触发一次流体核验
-            if (_initialVerifyTicks <= MaxInitialVerifyTicks)
-            {
-                RestoreSnapshots();
-            }
         }
 
         [OnSerializing]

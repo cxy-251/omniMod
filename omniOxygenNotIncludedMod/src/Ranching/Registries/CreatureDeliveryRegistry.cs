@@ -1,92 +1,107 @@
+using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace OmniMod.Ranching.Registries
 {
     /// <summary>
-    /// 放生点全局注册表：按星球记录全星系所有放生点及其有效释放格子，实现 O(1) 判定
+    /// 放生点全局注册表：采用整型数组索引记录有效释放格子，实现无锁 0 GC O(1) 判定
     /// </summary>
     public static class CreatureDeliveryRegistry
     {
         private static readonly object _lock = new object();
-        private static readonly Dictionary<int, HashSet<int>> _worldDeliveryCells = new Dictionary<int, HashSet<int>>();
+        private static int[] _deliveryPointCells;
+        private static readonly Dictionary<CreatureDeliveryPoint, List<int>> _pointCells = new Dictionary<CreatureDeliveryPoint, List<int>>();
+
+        private static void EnsureCellArray()
+        {
+            if (_deliveryPointCells == null || _deliveryPointCells.Length < Grid.CellCount)
+            {
+                int count = Math.Max(Grid.CellCount, 1);
+                _deliveryPointCells = new int[count];
+            }
+        }
 
         public static void Register(CreatureDeliveryPoint point)
         {
             if (point == null) return;
-            int world = point.GetMyWorldId();
             int baseCell = Grid.PosToCell(point.transform.GetPosition());
+            if (!Grid.IsValidCell(baseCell)) return;
 
             lock (_lock)
             {
-                if (!_worldDeliveryCells.TryGetValue(world, out var cells))
+                EnsureCellArray();
+
+                if (_pointCells.ContainsKey(point)) return;
+
+                var cells = new List<int>();
+                _pointCells[point] = cells;
+
+                void AddCell(int c)
                 {
-                    cells = new HashSet<int>();
-                    _worldDeliveryCells[world] = cells;
+                    if (Grid.IsValidCell(c) && (uint)c < (uint)_deliveryPointCells.Length)
+                    {
+                        cells.Add(c);
+                        _deliveryPointCells[c]++;
+                    }
                 }
 
-                if (Grid.IsValidCell(baseCell))
-                {
-                    cells.Add(baseCell);
-                }
+                AddCell(baseCell);
                 if (point.deliveryOffsets != null)
                 {
                     for (int i = 0; i < point.deliveryOffsets.Length; i++)
                     {
-                        int offsetCell = Grid.OffsetCell(baseCell, point.deliveryOffsets[i]);
-                        if (Grid.IsValidCell(offsetCell))
-                        {
-                            cells.Add(offsetCell);
-                        }
+                        AddCell(Grid.OffsetCell(baseCell, point.deliveryOffsets[i]));
                     }
                 }
-                int spawnCell = Grid.OffsetCell(baseCell, point.spawnOffset);
-                if (Grid.IsValidCell(spawnCell))
-                {
-                    cells.Add(spawnCell);
-                }
+                AddCell(Grid.OffsetCell(baseCell, point.spawnOffset));
             }
         }
 
         public static void Unregister(CreatureDeliveryPoint point)
         {
             if (point == null) return;
-            int world = point.GetMyWorldId();
-            int baseCell = Grid.PosToCell(point.transform.GetPosition());
 
             lock (_lock)
             {
-                if (_worldDeliveryCells.TryGetValue(world, out var cells))
+                if (_pointCells.TryGetValue(point, out var cells))
                 {
-                    cells.Remove(baseCell);
-                    if (point.deliveryOffsets != null)
+                    _pointCells.Remove(point);
+                    if (_deliveryPointCells != null)
                     {
-                        for (int i = 0; i < point.deliveryOffsets.Length; i++)
+                        for (int i = 0; i < cells.Count; i++)
                         {
-                            cells.Remove(Grid.OffsetCell(baseCell, point.deliveryOffsets[i]));
+                            int c = cells[i];
+                            if ((uint)c < (uint)_deliveryPointCells.Length && _deliveryPointCells[c] > 0)
+                            {
+                                _deliveryPointCells[c]--;
+                            }
                         }
                     }
-                    cells.Remove(Grid.OffsetCell(baseCell, point.spawnOffset));
                 }
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsDeliveryCell(int cell, int worldId)
         {
-            lock (_lock)
+            var cells = _deliveryPointCells;
+            if (cells != null && (uint)cell < (uint)cells.Length && cells[cell] > 0)
             {
-                if (_worldDeliveryCells.TryGetValue(worldId, out var cells))
-                {
-                    return cells.Contains(cell);
-                }
-                return false;
+                return Grid.WorldIdx[cell] == worldId;
             }
+            return false;
         }
 
         public static void Clear()
         {
             lock (_lock)
             {
-                _worldDeliveryCells.Clear();
+                _pointCells.Clear();
+                if (_deliveryPointCells != null)
+                {
+                    Array.Clear(_deliveryPointCells, 0, _deliveryPointCells.Length);
+                }
             }
         }
     }

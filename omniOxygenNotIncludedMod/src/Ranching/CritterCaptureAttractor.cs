@@ -19,47 +19,65 @@ namespace OmniMod.Ranching
 
             ExceptionShield.Execute("AutoWrangleHelper.AutoBagCreature", () =>
             {
-                // 1. 停止小动物当前的导航/脑部任务（退出 FixedCaptureStates）
+                int captureCell = Grid.PosToCell(capturePoint != null ? capturePoint.transform.GetPosition() : go.transform.position);
+                if (capturePoint != null && capturePoint.def != null && capturePoint.def.postCaptureOffset.HasValue)
+                {
+                    captureCell = Grid.OffsetCell(captureCell, capturePoint.def.postCaptureOffset.Value);
+                }
+                if (!Grid.IsValidCell(captureCell))
+                {
+                    captureCell = Grid.PosToCell(go);
+                }
+
+                // 1. 先移动实体至取出点目标格
+                if (Grid.IsValidCell(captureCell))
+                {
+                    go.transform.SetPosition(Grid.CellToPosCCC(captureCell, Grid.SceneLayer.Creatures));
+                }
+
+                // 2. 停止小动物当前的导航/脑部任务（退出 FixedCaptureStates）
                 var driver = go.GetComponent<ChoreDriver>();
                 if (driver != null && driver.HasChore())
                 {
                     driver.StopChore();
                 }
 
-                // 2. 取消常规捕捉标记
+                // 3. 取消常规捕捉标记
                 var capturable = go.GetComponent<Capturable>();
                 if (capturable != null)
                 {
                     capturable.MarkForCapture(false);
                 }
 
-                // 3. 打包为袋装小动物并打上可搬运标签
+                // 4. 打包为袋装小动物并打上可搬运标签
                 var baggable = go.GetComponent<Baggable>();
                 if (baggable != null)
                 {
                     baggable.SetWrangled();
                     go.AddTag(GameTags.Creatures.Deliverable);
+                }
+
+                // 5. 关键：更新 Pickupable 的 cachedCell 与空间分区系统，确保机械手与引擎精准感知其新位置！
+                var pickupable = go.GetComponent<Pickupable>();
+                if (pickupable != null && Grid.IsValidCell(captureCell))
+                {
+                    pickupable.UpdateCachedCell(captureCell);
+                }
+
+                // 6. 注册到袋装小动物注册表
+                if (baggable != null)
+                {
                     BaggedCreatureRegistry.Register(baggable);
                 }
 
-                // 4. 重置取出点，释放占用并立刻准备吸引下一只过剩动物
+                // 7. 重置取出点，释放占用并立刻准备吸引下一只过剩动物
                 if (capturePoint != null && capturePoint.IsRunning())
                 {
-                    int captureCell = Grid.PosToCell(capturePoint.transform.GetPosition());
-                    if (capturePoint.def != null && capturePoint.def.postCaptureOffset.HasValue)
-                    {
-                        captureCell = Grid.OffsetCell(captureCell, capturePoint.def.postCaptureOffset.Value);
-                    }
-                    if (Grid.IsValidCell(captureCell))
-                    {
-                        go.transform.SetPosition(Grid.CellToPosCCC(captureCell, Grid.SceneLayer.Creatures));
-                    }
-
                     capturePoint.isCurrentlyCapturingCreature = false;
                     capturePoint.ResetCapturePoint();
                 }
 
-                ModLog.DebugLog($"小动物取出点：成功自动打包 {go.name}");
+                ModLog.DebugLog($"小动物取出点：成功自动打包 {go.name} 于格子 {captureCell}");
             });
         }
     }
@@ -90,9 +108,7 @@ namespace OmniMod.Ranching
             if (nav != null)
             {
                 int targetCell = capture_point.def.getTargetCapturePoint != null ? capture_point.def.getTargetCapturePoint(capture_point) : capture_cell;
-                if (nav.CanReach(targetCell) || nav.CanReach(capture_cell) ||
-                    (Grid.IsValidCell(capture_cell - 1) && nav.CanReach(capture_cell - 1)) ||
-                    (Grid.IsValidCell(capture_cell + 1) && nav.CanReach(capture_cell + 1)))
+                if (nav.CanReach(targetCell))
                 {
                     __result = true;
                 }

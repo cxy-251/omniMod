@@ -230,7 +230,7 @@ namespace OmniMod.Logistics.RemoteFetch
             if (Db.Get() != null && chore.choreType == Db.Get().ChoreTypes.CreatureFetch)
             {
                 var baggedList = BaggedCreatureRegistry.GetBaggedCreatures(world);
-                for (int i = 0; i < baggedList.Count; i++)
+                for (int i = 0; i < baggedList.Length; i++)
                 {
                     Baggable bag = baggedList[i];
                     if (bag == null || bag.gameObject == null || !bag.wrangled || bag.GetMyWorldId() != world)
