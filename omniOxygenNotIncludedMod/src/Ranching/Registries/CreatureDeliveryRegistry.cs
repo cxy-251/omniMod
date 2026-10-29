@@ -83,6 +83,13 @@ namespace OmniMod.Ranching.Registries
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsDeliveryCell(int cell)
+        {
+            var cells = _deliveryPointCells;
+            return cells != null && (uint)cell < (uint)cells.Length && cells[cell] > 0;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool IsDeliveryCell(int cell, int worldId)
         {
             var cells = _deliveryPointCells;

@@ -261,6 +261,13 @@ namespace OmniMod.Logistics.RemoteFetch
                 return;
             }
 
+            // 0. 袋装小动物：全星系（跨星球、火箭舱内与地面）只要该格有打包好的小动物，机械臂均可隔空抓取！
+            if (BaggedCreatureRegistry.HasBaggedCreatureAtCell(cell))
+            {
+                __result = true;
+                return;
+            }
+
             int myCell = Grid.PosToCell(__instance);
             if ((uint)myCell >= (uint)Grid.WorldIdx.Length)
             {
@@ -269,29 +276,24 @@ namespace OmniMod.Logistics.RemoteFetch
 
             int myWorld = Grid.WorldIdx[myCell];
             int cellWorld = Grid.WorldIdx[cell];
+
+            // 1. 如果在火箭舱内部且目标也在舱内：整舱内所有格子均视为可达（无视舱内距离与死角）
+            if (myWorld == cellWorld && IsRocketInterior(myWorld))
+            {
+                __result = true;
+                return;
+            }
+
+            // 2. 跨世界限制：对于普通箱子、装瓶器与放生点，仍遵循同世界限制
             if (myWorld != cellWorld)
             {
                 return;
             }
 
-            // 1. 如果在火箭舱内部：整舱内所有格子均视为可达（无视舱内距离与死角）
-            if (IsRocketInterior(myWorld))
-            {
-                __result = true;
-                return;
-            }
-
-            // 2. 常规世界：纯 O(1) 数组查找聚合箱与装瓶器，零遍历、零 GC、零延迟
+            // 3. 常规世界：纯 O(1) 数组查找聚合箱、装瓶器与本世界动物放生点，零遍历、零 GC、零延迟
             if (AggregateBoxRegistry.IsSameWorldActiveBoxCell(cell, myCell) ||
-                BottlerRegistry.IsSameWorldActiveBottlerCell(cell, myCell))
-            {
-                __result = true;
-                return;
-            }
-
-            // 3. 动物放生点与袋装小动物：同星球下支持机械臂隔空抓取袋装动物并投送至放生点
-            if (CreatureDeliveryRegistry.IsDeliveryCell(cell, myWorld) ||
-                BaggedCreatureRegistry.HasBaggedCreatureAtCell(cell, myWorld))
+                BottlerRegistry.IsSameWorldActiveBottlerCell(cell, myCell) ||
+                CreatureDeliveryRegistry.IsDeliveryCell(cell, myWorld))
             {
                 __result = true;
                 return;
@@ -353,30 +355,43 @@ namespace OmniMod.Logistics.RemoteFetch
                 AggregateBoxRegistry.RefreshRocketInteriorIfNeeded(world);
             }
 
-            // 0. 本星球袋装小动物：当搬运需求为小动物交付（放生点 CreatureDeliveryPoint 或 CreatureFetch/RanchingFetch）时快速匹配
+            // 0. 全星系袋装小动物：当搬运需求为小动物交付（放生点 CreatureDeliveryPoint 或 CreatureFetch/RanchingFetch）时快速匹配
             bool isCreatureChore = destination.GetComponent<CreatureDeliveryPoint>() != null ||
                                    (Db.Get() != null && (chore.choreType == Db.Get().ChoreTypes.CreatureFetch ||
                                                          chore.choreType == Db.Get().ChoreTypes.RanchingFetch));
             if (isCreatureChore)
             {
-                var baggedList = BaggedCreatureRegistry.GetBaggedCreatures(world);
-                for (int i = 0; i < baggedList.Length; i++)
+                // 1. 本世界优先（例如舱内已有袋装小动物，或本星球地面已有袋装小动物）
+                Pickupable matchedBag = FindMatchingBaggedCreature(world, chore, destination);
+                if (matchedBag != null)
                 {
-                    Baggable bag = baggedList[i];
-                    if (bag == null || bag.gameObject == null || !bag.wrangled || bag.GetMyWorldId() != world)
+                    ModLog.Throttle("arm_bag_" + matchedBag.name, "隔空取物：机械臂锁定本世界袋装小动物: " + matchedBag.name, 3f);
+                    return matchedBag;
+                }
+
+                // 2. 所属母星/着陆星球优先（例如机械臂位于火箭舱内，检索着陆所在的母星星球表面）
+                if (ClusterManager.Instance != null)
+                {
+                    WorldContainer wc = ClusterManager.Instance.GetWorld(world);
+                    if (wc != null && wc.ParentWorldId >= 0 && wc.ParentWorldId != 255 && wc.ParentWorldId != world)
                     {
-                        continue;
-                    }
-                    Pickupable p = bag.GetComponent<Pickupable>();
-                    if (p != null && p.storage == null && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
-                    {
-                        if (FetchManager.IsFetchablePickup(p, chore, destination))
+                        matchedBag = FindMatchingBaggedCreature(wc.ParentWorldId, chore, destination);
+                        if (matchedBag != null)
                         {
-                            ModLog.DebugLog("隔空取物：机械臂锁定袋装小动物: " + p.name);
-                            return p;
+                            ModLog.Throttle("arm_bag_parent_" + matchedBag.name, "隔空取物：舱内机械臂锁定所属星球表面袋装小动物: " + matchedBag.name, 3f);
+                            return matchedBag;
                         }
                     }
                 }
+
+                // 3. 全星系跨星球检索（如果本星和所属星均无可用小动物，检索其它所有星球的袋装小动物）
+                matchedBag = FindMatchingBaggedCreatureAcrossAllWorlds(world, chore, destination);
+                if (matchedBag != null)
+                {
+                    ModLog.Throttle("arm_bag_cross_" + matchedBag.name, "隔空取物：机械臂跨星球锁定袋装小动物: " + matchedBag.name, 3f);
+                    return matchedBag;
+                }
+
                 return null;
             }
 
@@ -518,6 +533,41 @@ namespace OmniMod.Logistics.RemoteFetch
             }
             return chore.requiredTag == GameTags.Edible || chore.requiredTag == GameTags.CookingIngredient ||
                    chore.tagsFirst == GameTags.Edible || chore.tagsFirst == GameTags.CookingIngredient;
+        }
+
+        private static Pickupable FindMatchingBaggedCreature(int worldId, FetchChore chore, Storage destination)
+        {
+            var baggedList = BaggedCreatureRegistry.GetBaggedCreatures(worldId);
+            if (baggedList == null || baggedList.Length == 0) return null;
+            for (int i = 0; i < baggedList.Length; i++)
+            {
+                Baggable bag = baggedList[i];
+                if (bag == null || bag.gameObject == null || !bag.wrangled) continue;
+                Pickupable p = bag.GetComponent<Pickupable>();
+                if (p != null && p.storage == null && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
+                {
+                    if (FetchManager.IsFetchablePickup(p, chore, destination)) return p;
+                }
+            }
+            return null;
+        }
+
+        private static Pickupable FindMatchingBaggedCreatureAcrossAllWorlds(int excludeWorldId, FetchChore chore, Storage destination)
+        {
+            var allBagged = BaggedCreatureRegistry.GetAllBaggedCreatures();
+            if (allBagged == null || allBagged.Length == 0) return null;
+            for (int i = 0; i < allBagged.Length; i++)
+            {
+                Baggable bag = allBagged[i];
+                if (bag == null || bag.gameObject == null || !bag.wrangled) continue;
+                if (bag.GetMyWorldId() == excludeWorldId) continue;
+                Pickupable p = bag.GetComponent<Pickupable>();
+                if (p != null && p.storage == null && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
+                {
+                    if (FetchManager.IsFetchablePickup(p, chore, destination)) return p;
+                }
+            }
+            return null;
         }
     }
 }

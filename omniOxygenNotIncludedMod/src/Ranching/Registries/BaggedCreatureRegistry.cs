@@ -17,6 +17,8 @@ namespace OmniMod.Ranching.Registries
         private static readonly Dictionary<Baggable, int> _baggedToCell = new Dictionary<Baggable, int>();
         private static readonly Dictionary<int, List<Baggable>> _worldBagged = new Dictionary<int, List<Baggable>>();
         private static readonly Dictionary<int, Baggable[]> _worldBaggedArray = new Dictionary<int, Baggable[]>();
+        private static readonly List<Baggable> _allBaggedList = new List<Baggable>();
+        private static Baggable[] _allBaggedArray = Array.Empty<Baggable>();
 
         private static void EnsureCellArray()
         {
@@ -66,6 +68,12 @@ namespace OmniMod.Ranching.Registries
                     list.Add(bag);
                 }
                 _worldBaggedArray[world] = list.ToArray();
+
+                if (!_allBaggedList.Contains(bag))
+                {
+                    _allBaggedList.Add(bag);
+                    _allBaggedArray = _allBaggedList.ToArray();
+                }
             }
 
             bag.Subscribe((int)GameHashes.ObjectDestroyed, (data) =>
@@ -90,10 +98,25 @@ namespace OmniMod.Ranching.Registries
                 }
 
                 int world = bag.GetMyWorldId();
-                if (_worldBagged.TryGetValue(world, out var list))
+                if (_worldBagged.TryGetValue(world, out var list) && list.Remove(bag))
                 {
-                    list.Remove(bag);
                     _worldBaggedArray[world] = list.ToArray();
+                }
+                else
+                {
+                    foreach (var kvp in _worldBagged)
+                    {
+                        if (kvp.Value.Remove(bag))
+                        {
+                            _worldBaggedArray[kvp.Key] = kvp.Value.ToArray();
+                            break;
+                        }
+                    }
+                }
+
+                if (_allBaggedList.Remove(bag))
+                {
+                    _allBaggedArray = _allBaggedList.ToArray();
                 }
             }
         }
@@ -116,8 +139,42 @@ namespace OmniMod.Ranching.Registries
                         _baggedCellCount[newCell]++;
                     }
                     _baggedToCell[bag] = newCell;
+
+                    int oldWorld = (Grid.WorldIdx != null && (uint)oldCell < (uint)Grid.WorldIdx.Length) ? Grid.WorldIdx[oldCell] : -1;
+                    int newWorld = (Grid.WorldIdx != null && (uint)newCell < (uint)Grid.WorldIdx.Length) ? Grid.WorldIdx[newCell] : -1;
+                    if (oldWorld != newWorld)
+                    {
+                        if (_worldBagged.TryGetValue(oldWorld, out var oldList))
+                        {
+                            oldList.Remove(bag);
+                            _worldBaggedArray[oldWorld] = oldList.ToArray();
+                        }
+                        if (newWorld >= 0)
+                        {
+                            if (!_worldBagged.TryGetValue(newWorld, out var newList))
+                            {
+                                newList = new List<Baggable>();
+                                _worldBagged[newWorld] = newList;
+                            }
+                            if (!newList.Contains(bag))
+                            {
+                                newList.Add(bag);
+                            }
+                            _worldBaggedArray[newWorld] = newList.ToArray();
+                        }
+                    }
                 }
             }
+        }
+
+        /// <summary>
+        /// 全星系（跨星球与火箭舱内）极速判断目标格子是否有袋装小动物
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool HasBaggedCreatureAtCell(int cell)
+        {
+            var counts = _baggedCellCount;
+            return counts != null && (uint)cell < (uint)counts.Length && counts[cell] > 0;
         }
 
         /// <summary>
@@ -136,7 +193,7 @@ namespace OmniMod.Ranching.Registries
         }
 
         /// <summary>
-        /// 供机械臂 FindFetchTarget 在主线程匹配袋装动物时获取本星球袋装动物快照。
+        /// 供机械臂 FindFetchTarget 在主线程匹配袋装动物时获取指定星球袋装动物快照。
         /// </summary>
         public static Baggable[] GetBaggedCreatures(int worldId)
         {
@@ -150,6 +207,14 @@ namespace OmniMod.Ranching.Registries
             }
         }
 
+        /// <summary>
+        /// 获取全星系所有星球/火箭舱内的袋装小动物快照（0 GC、O(1) 数组返回）。
+        /// </summary>
+        public static Baggable[] GetAllBaggedCreatures()
+        {
+            return _allBaggedArray;
+        }
+
         public static void Clear()
         {
             lock (_lock)
@@ -157,6 +222,8 @@ namespace OmniMod.Ranching.Registries
                 _baggedToCell.Clear();
                 _worldBagged.Clear();
                 _worldBaggedArray.Clear();
+                _allBaggedList.Clear();
+                _allBaggedArray = Array.Empty<Baggable>();
                 if (_baggedCellCount != null)
                 {
                     Array.Clear(_baggedCellCount, 0, _baggedCellCount.Length);
