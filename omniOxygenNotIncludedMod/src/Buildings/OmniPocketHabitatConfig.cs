@@ -53,13 +53,13 @@ namespace OmniMod.Buildings
             def.RequiresPowerOutput = true;
             def.UseWhitePowerOutputConnectorColour = true;
 
-            // 外部液体管网接口：
-            // - 输入口（绿口）位于 (1, 0)，支持将外部液体（如咸乳）通入生态舱内部
-            // - 输出口（白口）位于 (3, 0)，支持将舱内液体排回外部基地管网
+            // 外部液体管网接口（建筑宽 5 格，合法 X 偏移为 -2..2，电源口占据正中 (0, 0)）：
+            // - 输入口（绿口）位于 (-1, 0)，电源口左侧，支持将外部液体（如咸乳）通入生态舱内部
+            // - 输出口（白口）位于 (1, 0)，电源口右侧，支持将舱内液体排回外部基地管网
             def.InputConduitType = ConduitType.Liquid;
-            def.UtilityInputOffset = new CellOffset(1, 0);
+            def.UtilityInputOffset = new CellOffset(-1, 0);
             def.OutputConduitType = ConduitType.Liquid;
-            def.UtilityOutputOffset = new CellOffset(3, 0);
+            def.UtilityOutputOffset = new CellOffset(1, 0);
 
             GeneratedBuildings.RegisterWithOverlay(OverlayScreen.WireIDs, ID);
             GeneratedBuildings.RegisterWithOverlay(OverlayScreen.LiquidVentIDs, ID);
