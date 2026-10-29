@@ -7,13 +7,13 @@ namespace OmniMod.Collection
 {
     /// <summary>
     /// 虚拟固体资源池（OmniPool）与物理聚合箱缓冲管理器：
-    /// 维持各星球杂物箱 20000kg (20吨) 散装固体物化缓冲，充分满足多台机械臂并发抓取与小人搬运需求，
+    /// 维持各星球杂物箱 4000kg (4吨) 散装固体物化缓冲，充分满足多台机械臂并发抓取与小人搬运需求，
     /// 杜绝单臂独占导致其余机械臂停转，溢出自动退回虚拟池，实现物理材料与虚拟池的双向无感平滑兑换。
     /// </summary>
     public static class BulkBufferManager
     {
-        public const float LocalBufferTargetPerElementKg = 20000f;
-        public const float ReturnToPoolThresholdKg = 5000f;
+        public const float LocalBufferTargetPerElementKg = 4000f;
+        public const float ReturnToPoolThresholdKg = 3000f;
         public const byte NoDisease = byte.MaxValue;
 
         private static readonly HashSet<SimHashes> _elementScratch = new HashSet<SimHashes>();
@@ -111,7 +111,7 @@ namespace OmniMod.Collection
                 }
             }
 
-            bool changed = false;
+            bool newChunkSpawned = false;
             foreach (SimHashes element in _elementScratch)
             {
                 Element e = ElementLoader.FindElementByHash(element);
@@ -185,9 +185,9 @@ namespace OmniMod.Collection
                             }
                             e.substance.ActivateSubstanceGameObject(go, NoDisease, 0);
                             storage.Store(go, hide_popups: true, block_events: true, do_disease_transfer: false);
+                            newChunkSpawned = true;
                         }
                         _localBulkMass[element] = totalHave + taken;
-                        changed = true;
                     }
                 }
                 else if (unreservedHave > target + ReturnToPoolThresholdKg ||
@@ -199,7 +199,7 @@ namespace OmniMod.Collection
                 }
             }
 
-            if (changed)
+            if (newChunkSpawned)
             {
                 storage.Trigger(-1697596308, storage.gameObject);
                 storage.OnStorageChange?.Invoke(storage.gameObject);
@@ -215,7 +215,7 @@ namespace OmniMod.Collection
             }
 
             float remaining = amount;
-            bool modifiedAny = false;
+            bool itemRemoved = false;
             for (int i = storage.items.Count - 1; i >= 0 && remaining > 0.001f; i--)
             {
                 GameObject go = storage.items[i];
@@ -236,16 +236,16 @@ namespace OmniMod.Collection
                 OmniPool.Instance.AddSolid(element, canTake, pe.Temperature);
                 pe.Mass -= canTake;
                 remaining -= canTake;
-                modifiedAny = true;
 
                 if (pe.Mass <= 0.001f && p.ReservedAmount <= 0.001f)
                 {
                     storage.Remove(go);
                     Util.KDestroyGameObject(go);
+                    itemRemoved = true;
                 }
             }
 
-            if (modifiedAny)
+            if (itemRemoved)
             {
                 storage.Trigger(-1697596308, storage.gameObject);
                 storage.OnStorageChange?.Invoke(storage.gameObject);
@@ -311,9 +311,6 @@ namespace OmniMod.Collection
                     float finalTemp = GameUtil.GetFinalTemperature(chunk.Temperature, chunk.Mass, tempK, taken);
                     chunk.Mass += taken;
                     chunk.Temperature = finalTemp;
-                    storage.Trigger(-1697596308, chunk.gameObject);
-                    storage.OnStorageChange?.Invoke(chunk.gameObject);
-                    AggregateBoxRegistry.MarkWorldDirty(collector.GetMyWorldId());
                 }
                 return chunk.GetComponent<Pickupable>();
             }

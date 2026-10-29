@@ -354,7 +354,7 @@ namespace OmniMod.Collection
                 }
                 _rocketRefreshTime[worldId] = now;
             }
-            RefreshWorldBoxItems(worldId);
+            RefreshWorldBoxItems(worldId, force: true);
         }
 
         private static void AddTagToIndex(Dictionary<Tag, List<Pickupable>> index, Dictionary<Tag, float> massIndex, Tag tag, Pickupable p, float mass)
@@ -593,6 +593,21 @@ namespace OmniMod.Collection
             if (OmniPool.Instance == null) return null;
 
             GlobalItemCollector localJunk = GetActiveBoxForWorld(worldId, GlobalItemCollector.CollectMode.Debris);
+            if (localJunk == null || localJunk.BoxStorage == null)
+            {
+                if (ClusterManager.Instance != null)
+                {
+                    WorldContainer wc = ClusterManager.Instance.GetWorld(worldId);
+                    if (wc != null && wc.ParentWorldId >= 0 && wc.ParentWorldId != 255 && wc.ParentWorldId != worldId)
+                    {
+                        localJunk = GetActiveBoxForWorld(wc.ParentWorldId, GlobalItemCollector.CollectMode.Debris);
+                    }
+                }
+                if (localJunk == null || localJunk.BoxStorage == null)
+                {
+                    localJunk = DiscreteHome;
+                }
+            }
             if (localJunk == null || localJunk.BoxStorage == null) return null;
 
             float needed = chore.originalAmount > 0f ? chore.originalAmount : chore.amount;
@@ -609,7 +624,6 @@ namespace OmniMod.Collection
                             Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
                             if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
                             {
-                                RefreshWorldBoxItems(worldId, force: true);
                                 ModLog.Throttle($"mat_{e.name}", $"隔空取物即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)", 5f);
                                 return p;
                             }
@@ -628,7 +642,6 @@ namespace OmniMod.Collection
                         Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
                         if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
                         {
-                            RefreshWorldBoxItems(worldId, force: true);
                             ModLog.Throttle($"mat_req_{e.name}", $"隔空取物即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)", 5f);
                             return p;
                         }
@@ -643,7 +656,6 @@ namespace OmniMod.Collection
                         Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
                         if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
                         {
-                            RefreshWorldBoxItems(worldId, force: true);
                             ModLog.Throttle($"mat_first_{e.name}", $"隔空取物即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)", 5f);
                             return p;
                         }
@@ -660,7 +672,6 @@ namespace OmniMod.Collection
                             Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
                             if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
                             {
-                                RefreshWorldBoxItems(worldId, force: true);
                                 ModLog.Throttle($"mat_tag_{e.name}", $"隔空取物即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)", 5f);
                                 return p;
                             }
@@ -717,7 +728,6 @@ namespace OmniMod.Collection
                         Pickupable p = BulkBufferManager.MaterializeSolidFromPool(localJunk, e.id, needed);
                         if (p != null && FetchManager.IsFetchablePickup(p, chore, destination))
                         {
-                            RefreshWorldBoxItems(worldId, force: true);
                             ModLog.Throttle($"mat_tag_{e.name}", $"隔空取物按标签即时物化固体: {e.name} (Chore需要 {needed:0.#} kg)", 5f);
                             return p;
                         }

@@ -104,6 +104,22 @@ namespace OmniMod.Logistics.RemoteFetch
                     {
                         choreConsumer.SetPermittedByUser(Db.Get().ChoreGroups.Ranching, true);
                     }
+
+                    // 火箭舱内机械臂：覆盖整舱开敞空间（设置 range=8，ChoreConsumer.stationaryReach=8），
+                    // 确保机械臂能感知舱内任意角落的储物箱与放生点
+                    int myWorld = __instance.GetMyWorldId();
+                    if (ClusterManager.Instance != null)
+                    {
+                        WorldContainer wc = ClusterManager.Instance.GetWorld(myWorld);
+                        if (wc != null && wc.IsModuleInterior)
+                        {
+                            __instance.pickupRange = 8;
+                            if (choreConsumer != null)
+                            {
+                                choreConsumer.SetReach(8);
+                            }
+                        }
+                    }
                 }
             });
         }
@@ -258,6 +274,30 @@ namespace OmniMod.Logistics.RemoteFetch
                 __result = true;
                 return;
             }
+
+            // 3. 火箭舱内视线物理可达：若机械臂在火箭舱内，且目标也在同一个火箭舱内，
+            //    检查直线视线（Grid.IsPhysicallyAccessible），允许机械臂覆盖整个开敞舱室，
+            //    但严格禁止穿透实体砖墙（Solid Walls）或跨入封闭隔断房间，完全遵循物理逻辑。
+            int myCell = Grid.PosToCell(__instance);
+            if ((uint)myCell < (uint)Grid.WorldIdx.Length)
+            {
+                int myWorld = Grid.WorldIdx[myCell];
+                int cellWorld = Grid.WorldIdx[cell];
+                if (myWorld == cellWorld && ClusterManager.Instance != null)
+                {
+                    WorldContainer wc = ClusterManager.Instance.GetWorld(myWorld);
+                    if (wc != null && wc.IsModuleInterior)
+                    {
+                        Grid.CellToXY(myCell, out int myX, out int myY);
+                        Grid.CellToXY(cell, out int cellX, out int cellY);
+                        if (Grid.IsPhysicallyAccessible(myX, myY, cellX, cellY, blocking_tile_visible: true))
+                        {
+                            __result = true;
+                            return;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -363,8 +403,55 @@ namespace OmniMod.Logistics.RemoteFetch
                 return matched;
             }
 
-            // 1.5 若本星球聚合箱未匹配到目标，检查是否有其它星球聚合箱（主杂物箱 DiscreteHome 或 主食物箱 FoodHome）中的闲置离散物品/食物满足需求，
-            //     若有，立即按需调拨 1 件到本星球的对应箱子，并直接锁定供机械臂抓取！
+            // 1.1 若为火箭舱内机械臂，检索母星（着陆星球表面）的聚合箱！
+            if (isRocket && ClusterManager.Instance != null)
+            {
+                WorldContainer wc = ClusterManager.Instance.GetWorld(world);
+                if (wc != null && wc.ParentWorldId >= 0 && wc.ParentWorldId != 255 && wc.ParentWorldId != world)
+                {
+                    matched = AggregateBoxRegistry.FindMatchInWorldBox(wc.ParentWorldId, chore, destination);
+                    if (matched != null)
+                    {
+                        ModLog.DebugLog($"隔空取物：舱内机械臂从母星 (World {wc.ParentWorldId}) 聚合箱锁定目标: {matched.name}");
+                        return matched;
+                    }
+                }
+            }
+
+            // 1.2 若仍未匹配，且为火箭舱内或无杂物箱，检索全星系主箱（DiscreteHome 或 FoodHome）
+            if (matched == null)
+            {
+                if (IsFoodRelatedChore(chore))
+                {
+                    GlobalItemCollector foodHome = AggregateBoxRegistry.FoodHome;
+                    if (foodHome != null && foodHome.BoxStorage != null && foodHome.GetMyWorldId() != world)
+                    {
+                        int foodWorld = foodHome.GetMyWorldId();
+                        matched = AggregateBoxRegistry.FindMatchInWorldBox(foodWorld, chore, destination);
+                        if (matched != null)
+                        {
+                            ModLog.DebugLog("隔空取物：机械臂从全星系食物主箱锁定目标: " + matched.name);
+                            return matched;
+                        }
+                    }
+                }
+                else
+                {
+                    GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
+                    if (home != null && home.BoxStorage != null && home.GetMyWorldId() != world)
+                    {
+                        int homeWorld = home.GetMyWorldId();
+                        matched = AggregateBoxRegistry.FindMatchInWorldBox(homeWorld, chore, destination);
+                        if (matched != null)
+                        {
+                            ModLog.DebugLog("隔空取物：机械臂从全星系主杂物箱锁定目标: " + matched.name);
+                            return matched;
+                        }
+                    }
+                }
+            }
+
+            // 1.5 若常规世界聚合箱未匹配到离散目标，检查主杂物箱调拨
             GlobalItemCollector localJunk = AggregateBoxRegistry.GetActiveJunkBoxForWorld(world);
             if (localJunk != null && localJunk.BoxStorage != null)
             {
@@ -407,6 +494,14 @@ namespace OmniMod.Logistics.RemoteFetch
             if (ChoreRequestsLiquidOrGas(chore))
             {
                 List<Bottler> bottlers = BottlerRegistry.GetWorldBottlers(world);
+                if ((bottlers == null || bottlers.Count == 0) && isRocket && ClusterManager.Instance != null)
+                {
+                    WorldContainer wc = ClusterManager.Instance.GetWorld(world);
+                    if (wc != null && wc.ParentWorldId >= 0 && wc.ParentWorldId != 255)
+                    {
+                        bottlers = BottlerRegistry.GetWorldBottlers(wc.ParentWorldId);
+                    }
+                }
                 if (bottlers != null)
                 {
                     for (int b = 0; b < bottlers.Count; b++)
