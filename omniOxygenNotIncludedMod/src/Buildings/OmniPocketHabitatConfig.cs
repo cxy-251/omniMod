@@ -53,7 +53,16 @@ namespace OmniMod.Buildings
             def.RequiresPowerOutput = true;
             def.UseWhitePowerOutputConnectorColour = true;
 
+            // 外部液体管网接口：
+            // - 输入口（绿口）位于 (1, 0)，支持将外部液体（如咸乳）通入生态舱内部
+            // - 输出口（白口）位于 (3, 0)，支持将舱内液体排回外部基地管网
+            def.InputConduitType = ConduitType.Liquid;
+            def.UtilityInputOffset = new CellOffset(1, 0);
+            def.OutputConduitType = ConduitType.Liquid;
+            def.UtilityOutputOffset = new CellOffset(3, 0);
+
             GeneratedBuildings.RegisterWithOverlay(OverlayScreen.WireIDs, ID);
+            GeneratedBuildings.RegisterWithOverlay(OverlayScreen.LiquidVentIDs, ID);
 
             return def;
         }
@@ -79,7 +88,37 @@ namespace OmniMod.Buildings
             Prioritizable.AddRef(go);
             go.AddOrGet<Operational>();
             go.AddOrGet<LoopingSounds>();
-            go.AddComponent<RequireInputs>();
+
+            // 液体储罐与管线消费者/分配器（支持舱内外液体互通，如输送咸乳）
+            Storage liquidInStorage = BuildingTemplates.CreateDefaultStorage(go, forceCreate: false);
+            liquidInStorage.capacityKg = 1000f;
+            liquidInStorage.showInUI = true;
+            liquidInStorage.allowItemRemoval = false;
+            liquidInStorage.storageFilters = STORAGEFILTERS.LIQUIDS;
+            liquidInStorage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
+
+            Storage liquidOutStorage = BuildingTemplates.CreateDefaultStorage(go, forceCreate: true);
+            liquidOutStorage.capacityKg = 1000f;
+            liquidOutStorage.showInUI = true;
+            liquidOutStorage.allowItemRemoval = false;
+            liquidOutStorage.storageFilters = STORAGEFILTERS.LIQUIDS;
+            liquidOutStorage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
+
+            ConduitConsumer consumer = go.AddOrGet<ConduitConsumer>();
+            consumer.conduitType = ConduitType.Liquid;
+            consumer.consumptionRate = 10f;
+            consumer.capacityKG = 1000f;
+            consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
+            consumer.forceAlwaysSatisfied = true;
+            consumer.storage = liquidInStorage;
+
+            ConduitDispenser dispenser = go.AddOrGet<ConduitDispenser>();
+            dispenser.conduitType = ConduitType.Liquid;
+            dispenser.alwaysDispense = true;
+            dispenser.storage = liquidOutStorage;
+
+            RequireInputs requireInputs = go.AddOrGet<RequireInputs>();
+            requireInputs.SetRequirements(power: false, conduit: false);
 
             AssignmentGroupController agc = go.AddOrGet<AssignmentGroupController>();
             agc.generateGroupOnStart = true;

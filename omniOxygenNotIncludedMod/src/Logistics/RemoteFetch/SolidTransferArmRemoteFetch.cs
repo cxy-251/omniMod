@@ -242,7 +242,89 @@ namespace OmniMod.Logistics.RemoteFetch
     }
 
     /// <summary>
-    /// 仅限机械臂（SolidTransferArm）隔空取物：允许机械臂无视距离抓取【本星球】生效聚合箱、装瓶器与袋装小动物。
+    /// 维护当前各机械臂（SolidTransferArm）在隔空抓取过程中锁定的有效目标源物品，
+    /// 确保 IsCellReachable 仅对真实的隔空来源格放行，绝不越界放大送货目标格（Destination）的到达范围。
+    /// </summary>
+    internal static class SolidTransferArmActiveTargets
+    {
+        private static readonly Dictionary<SolidTransferArm, Pickupable> _activeArmFetchTargets = new Dictionary<SolidTransferArm, Pickupable>();
+
+        internal static void SetActiveFetchTarget(SolidTransferArm arm, Pickupable target)
+        {
+            if (arm == null) return;
+            lock (_activeArmFetchTargets)
+            {
+                if (target != null) _activeArmFetchTargets[arm] = target;
+                else _activeArmFetchTargets.Remove(arm);
+            }
+        }
+
+        internal static void ClearActiveFetchTarget(SolidTransferArm arm)
+        {
+            if (arm == null) return;
+            lock (_activeArmFetchTargets)
+            {
+                _activeArmFetchTargets.Remove(arm);
+            }
+        }
+
+        internal static bool IsActiveTargetCell(SolidTransferArm arm, int cell)
+        {
+            if (arm == null) return false;
+            lock (_activeArmFetchTargets)
+            {
+                if (_activeArmFetchTargets.TryGetValue(arm, out Pickupable target) && target != null && target.gameObject != null)
+                {
+                    if (cell == target.cachedCell || cell == Grid.PosToCell(target))
+                    {
+                        return true;
+                    }
+                    if (target.storage != null)
+                    {
+                        OccupyArea area = target.storage.GetComponent<OccupyArea>();
+                        if (area != null)
+                        {
+                            int[] occCells = area.GetOccupiedGridCells();
+                            if (occCells != null)
+                            {
+                                for (int i = 0; i < occCells.Length; i++)
+                                {
+                                    if (occCells[i] == cell) return true;
+                                }
+                            }
+                        }
+                        else if (Grid.PosToCell(target.storage) == cell)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(SolidTransferArm), "OnEndChore")]
+    internal static class SolidTransferArm_OnEndChore_TargetCleanup_Patch
+    {
+        private static void Postfix(SolidTransferArm __instance)
+        {
+            SolidTransferArmActiveTargets.ClearActiveFetchTarget(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(SolidTransferArm), "OnCleanUp")]
+    internal static class SolidTransferArm_OnCleanUp_TargetCleanup_Patch
+    {
+        private static void Prefix(SolidTransferArm __instance)
+        {
+            SolidTransferArmActiveTargets.ClearActiveFetchTarget(__instance);
+        }
+    }
+
+    /// <summary>
+    /// 仅限机械臂（SolidTransferArm）隔空取物：允许机械臂无视距离抓取【本星球】生效聚合箱、装瓶器、袋装小动物及已锁定的储物箱物品。
+    /// 配送目的地（Destination）严格遵循机械臂本体物理工作范围，禁止越界跨区域送货。
     /// </summary>
     [HarmonyPatch(typeof(SolidTransferArm), nameof(SolidTransferArm.IsCellReachable))]
     internal static class SolidTransferArm_IsCellReachable_Patch
@@ -275,35 +357,18 @@ namespace OmniMod.Logistics.RemoteFetch
                 return;
             }
 
-            // 3. 火箭舱内视线物理可达：若机械臂在火箭舱内，且目标也在同一个火箭舱内，
-            //    检查直线视线（Grid.IsPhysicallyAccessible），允许机械臂覆盖整个开敞舱室，
-            //    但严格禁止穿透实体砖墙（Solid Walls）或跨入封闭隔断房间，完全遵循物理逻辑。
-            int myCell = Grid.PosToCell(__instance);
-            if ((uint)myCell < (uint)Grid.WorldIdx.Length)
+            // 3. 当前机械臂隔空取物已匹配锁定的来源格子（如舱内/星球上任意储物箱内的物品）
+            if (SolidTransferArmActiveTargets.IsActiveTargetCell(__instance, cell))
             {
-                int myWorld = Grid.WorldIdx[myCell];
-                int cellWorld = Grid.WorldIdx[cell];
-                if (myWorld == cellWorld && ClusterManager.Instance != null)
-                {
-                    WorldContainer wc = ClusterManager.Instance.GetWorld(myWorld);
-                    if (wc != null && wc.IsModuleInterior)
-                    {
-                        Grid.CellToXY(myCell, out int myX, out int myY);
-                        Grid.CellToXY(cell, out int cellX, out int cellY);
-                        if (Grid.IsPhysicallyAccessible(myX, myY, cellX, cellY, blocking_tile_visible: true))
-                        {
-                            __result = true;
-                            return;
-                        }
-                    }
-                }
+                __result = true;
+                return;
             }
         }
     }
 
     /// <summary>
     /// 主线程上寻找搬运目标：如果机械臂身边的物品列表没找到匹配物，
-    /// 依次在本星球聚合箱物品快照和本星球液体/气体装瓶器（Bottler）中查找。
+    /// 依次在本星球聚合箱物品快照、舱内储物箱、袋装小动物和液体/气体装瓶器（Bottler）中查找。
     /// </summary>
     [HarmonyPatch(typeof(SolidTransferArm), nameof(SolidTransferArm.FindFetchTarget))]
     internal static class SolidTransferArm_FindFetchTarget_Patch
@@ -318,6 +383,10 @@ namespace OmniMod.Logistics.RemoteFetch
             try
             {
                 __result = FindTargetInternal(__instance, destination, chore);
+                if (__result != null)
+                {
+                    SolidTransferArmActiveTargets.SetActiveFetchTarget(__instance, __result);
+                }
             }
             catch (Exception ex)
             {
@@ -341,10 +410,9 @@ namespace OmniMod.Logistics.RemoteFetch
             }
 
             // 目标建筑过滤：
-            // 禁止机械臂从聚合箱/装瓶器取物送去聚合箱自身、装瓶器自身、或自动分配器（ObjectDispenser 会把物品直接清倒到地面导致死循环）。
+            // 禁止机械臂从聚合箱/装瓶器取物送去聚合箱自身或装瓶器自身。
             if (AggregateBoxRegistry.IsBoxStorage(destination) ||
-                destination.GetComponent<Bottler>() != null ||
-                destination.GetComponent<ObjectDispenser>() != null)
+                destination.GetComponent<Bottler>() != null)
             {
                 return null;
             }
@@ -357,6 +425,8 @@ namespace OmniMod.Logistics.RemoteFetch
 
             // 0. 全星系袋装小动物：当搬运需求为小动物交付（放生点 CreatureDeliveryPoint 或 CreatureFetch/RanchingFetch）时快速匹配
             bool isCreatureChore = destination.GetComponent<CreatureDeliveryPoint>() != null ||
+                                   (chore.requiredTag.IsValid && (chore.requiredTag == GameTags.Creatures.Deliverable || chore.requiredTag == GameTags.BagableCreature)) ||
+                                   (chore.tags != null && (chore.tags.Contains(GameTags.Creatures.Deliverable) || chore.tags.Contains(GameTags.BagableCreature))) ||
                                    (Db.Get() != null && (chore.choreType == Db.Get().ChoreTypes.CreatureFetch ||
                                                          chore.choreType == Db.Get().ChoreTypes.RanchingFetch));
             if (isCreatureChore)
@@ -599,8 +669,12 @@ namespace OmniMod.Logistics.RemoteFetch
                 Baggable bag = baggedList[i];
                 if (bag == null || bag.gameObject == null || !bag.wrangled) continue;
                 Pickupable p = bag.GetComponent<Pickupable>();
-                if (p != null && p.storage == null && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
+                if (p != null && (p.storage == null || p.storage.allowItemRemoval) && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
                 {
+                    if (p.storage != null)
+                    {
+                        p.storage.ignoreSourcePriority = true;
+                    }
                     if (FetchManager.IsFetchablePickup(p, chore, destination)) return p;
                 }
             }
@@ -617,8 +691,12 @@ namespace OmniMod.Logistics.RemoteFetch
                 if (bag == null || bag.gameObject == null || !bag.wrangled) continue;
                 if (bag.GetMyWorldId() == excludeWorldId) continue;
                 Pickupable p = bag.GetComponent<Pickupable>();
-                if (p != null && p.storage == null && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
+                if (p != null && (p.storage == null || p.storage.allowItemRemoval) && p.KPrefabID != null && p.UnreservedFetchAmount > 0f)
                 {
+                    if (p.storage != null)
+                    {
+                        p.storage.ignoreSourcePriority = true;
+                    }
                     if (FetchManager.IsFetchablePickup(p, chore, destination)) return p;
                 }
             }

@@ -337,6 +337,45 @@ namespace OmniMod.Collection
                     {
                         continue;
                     }
+                    p.storage.ignoreSourcePriority = true;
+                }
+
+                dst.Add(p);
+            }
+        }
+
+        internal static void AppendWorldStorageItems(int worldId, List<Pickupable> dst)
+        {
+            if (Components.Pickupables == null || worldId < 0 || worldId == 255)
+            {
+                return;
+            }
+
+            List<Pickupable> pickups = Components.Pickupables.GetWorldItems(worldId);
+            if (pickups == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < pickups.Count; i++)
+            {
+                Pickupable p = pickups[i];
+                if (p == null || p.gameObject == null || p.UnreservedFetchAmount <= 0f)
+                {
+                    continue;
+                }
+
+                if (p.storage != null)
+                {
+                    if (!p.storage.allowItemRemoval)
+                    {
+                        continue;
+                    }
+                    if (p.storage.GetComponent<SolidConduitInbox>() != null)
+                    {
+                        continue;
+                    }
+                    p.storage.ignoreSourcePriority = true;
                 }
 
                 dst.Add(p);
@@ -401,13 +440,17 @@ namespace OmniMod.Collection
                 AppendStoragePickupables(localFood.BoxStorage, _refreshScratch);
             }
 
-            // 火箭内部（IsModuleInterior）：自动收集舱内所有储物箱/冰箱/地面的物品，使机械手能隔空抓取舱内任意可用物品
+            // 自动收集储物箱/冰箱/地面的可用物品（包括火箭舱内、生态舱内、或未放置聚合箱的星球世界）
             if (ClusterManager.Instance != null)
             {
                 WorldContainer wc = ClusterManager.Instance.GetWorld(worldId);
                 if (wc != null && wc.IsModuleInterior)
                 {
                     AppendRocketInteriorItems(worldId, _refreshScratch);
+                }
+                else if (localJunk == null)
+                {
+                    AppendWorldStorageItems(worldId, _refreshScratch);
                 }
             }
 
@@ -747,9 +790,14 @@ namespace OmniMod.Collection
                 {
                     continue;
                 }
-                if (p.storage != null && p.storage == destination)
+                if (p.storage != null)
                 {
-                    continue;
+                    if (p.storage == destination)
+                    {
+                        continue;
+                    }
+                    p.storage.allowItemRemoval = true;
+                    p.storage.ignoreSourcePriority = true;
                 }
                 if (isCrossPlanetDiscrete)
                 {

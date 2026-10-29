@@ -25,6 +25,20 @@ namespace OmniMod.Buildings
         [Serialize]
         public int targetWorldId = -1;
 
+        public Storage LiquidInStorage { get; private set; }
+        public Storage LiquidOutStorage { get; private set; }
+
+        private static readonly Dictionary<int, OmniPocketHabitat> HabitatsByWorld = new Dictionary<int, OmniPocketHabitat>();
+
+        public static OmniPocketHabitat GetHabitatForWorld(int worldId)
+        {
+            if (worldId >= 0 && HabitatsByWorld.TryGetValue(worldId, out var hab) && hab != null && !Util.IsNullOrDestroyed(hab))
+            {
+                return hab;
+            }
+            return null;
+        }
+
 #pragma warning disable CS0649
         [MyCmpReq]
         private NavTeleporter navTeleporter;
@@ -90,6 +104,18 @@ namespace OmniMod.Buildings
         {
             base.OnSpawn();
 
+            // 绑定外部液体输入与输出储罐，供内部 RocketConduitStorageAccess 跨维管线传输液体（如咸乳）
+            ConduitConsumer consumer = GetComponent<ConduitConsumer>();
+            if (consumer != null && consumer.storage != null)
+            {
+                LiquidInStorage = consumer.storage;
+            }
+            ConduitDispenser dispenser = GetComponent<ConduitDispenser>();
+            if (dispenser != null && dispenser.storage != null)
+            {
+                LiquidOutStorage = dispenser.storage;
+            }
+
             // 确保使用火箭舱体动画（rocket_habitat_medium_module_kanim）时播放 grounded 常驻状态，防止因默认 off 状态缺失导致建筑隐形
             KBatchedAnimController kbac = GetComponent<KBatchedAnimController>();
             if (kbac != null)
@@ -99,6 +125,11 @@ namespace OmniMod.Buildings
             }
 
             EnsurePocketWorldInitialized();
+
+            if (targetWorldId >= 0)
+            {
+                HabitatsByWorld[targetWorldId] = this;
+            }
         }
 
         /// <summary>
@@ -215,6 +246,7 @@ namespace OmniMod.Buildings
                 }
 
                 targetWorldId = world.id;
+                HabitatsByWorld[targetWorldId] = this;
                 int parentWorldId = ClusterUtil.GetMyWorldId(this);
                 if (parentWorldId != -1)
                 {
@@ -513,6 +545,11 @@ namespace OmniMod.Buildings
 
         protected override void OnCleanUp()
         {
+            if (targetWorldId >= 0)
+            {
+                HabitatsByWorld.Remove(targetWorldId);
+            }
+
             // 仅在游戏正常运行期间拆除建筑时销毁口袋世界；退出游戏或读档销毁场景对象时不执行
             if (!App.IsExiting && Game.Instance != null && !Game.IsQuitting() && targetWorldId >= 0 && ClusterManager.Instance != null)
             {
@@ -1064,6 +1101,115 @@ namespace OmniMod.Buildings
                     }
                 }
                 return true;
+            }
+        }
+
+        // ==========================================
+        // 4. 舱内外液体管网直通补丁（RocketConduitStorageAccess 跨维管线桥接）
+        // ==========================================
+        [HarmonyPatch(typeof(RocketConduitStorageAccess), nameof(RocketConduitStorageAccess.Sim200ms))]
+        public static class RocketConduitStorageAccess_Sim200ms_Patch
+        {
+            public static bool Prefix(RocketConduitStorageAccess __instance, float dt)
+            {
+                if (__instance == null) return false;
+
+                int worldId = __instance.GetMyWorldId();
+                OmniPocketHabitat habitat = OmniPocketHabitat.GetHabitatForWorld(worldId);
+                if (habitat == null)
+                {
+                    WorldContainer myWorld = __instance.GetMyWorld();
+                    if (myWorld != null && myWorld.GetComponent<CraftModuleInterface>() == null)
+                    {
+                        return false; // 防止非火箭世界因缺失 CraftModuleInterface 抛出 NRE
+                    }
+                    return true;
+                }
+
+                Operational op = __instance.GetComponent<Operational>();
+                if (op != null && !op.IsOperational)
+                {
+                    return false;
+                }
+
+                Storage cabinPortStorage = __instance.storage;
+                if (cabinPortStorage == null) return false;
+
+                float currentMass = cabinPortStorage.MassStored();
+                float targetLevel = __instance.targetLevel;
+                if (Mathf.Abs(currentMass - targetLevel) <= 0.01f)
+                {
+                    return false;
+                }
+
+                if (op != null)
+                {
+                    op.SetActive(true);
+                }
+
+                float needed = targetLevel - currentMass;
+                Filterable filterable = __instance.GetComponent<Filterable>();
+                Tag selectedTag = filterable != null ? filterable.SelectedTag : Tag.Invalid;
+
+                if (needed > 0f)
+                {
+                    // 舱内接口 RocketInteriorLiquidOutput（targetLevel = 10f）：
+                    // 从舱外建筑输入储罐 LiquidInStorage 提取液体（支持过滤，如咸乳），送入舱内管道接口
+                    Storage extIn = habitat.LiquidInStorage;
+                    if (extIn != null && extIn.MassStored() > 0f)
+                    {
+                        for (int i = extIn.items.Count - 1; i >= 0; i--)
+                        {
+                            GameObject go = extIn.items[i];
+                            if (go == null) continue;
+                            if (selectedTag.IsValid && selectedTag != GameTags.Void && go.PrefabID() != selectedTag)
+                            {
+                                continue;
+                            }
+
+                            Pickupable p = go.GetComponent<Pickupable>();
+                            if (p != null)
+                            {
+                                Pickupable taken = p.Take(needed);
+                                if (taken != null)
+                                {
+                                    needed -= taken.PrimaryElement.Mass;
+                                    cabinPortStorage.Store(taken.gameObject, hide_popups: true);
+                                }
+                            }
+                            if (needed <= 0f) break;
+                        }
+                    }
+                }
+                else if (needed < 0f)
+                {
+                    // 舱内接口 RocketInteriorLiquidInput（targetLevel = 0f）：
+                    // 将舱内回收的液体送入舱外输出储罐 LiquidOutStorage，供外部管网排出
+                    float toTransfer = -needed;
+                    Storage extOut = habitat.LiquidOutStorage;
+                    if (extOut != null && extOut.RemainingCapacity() > 0f)
+                    {
+                        float availableCap = Mathf.Min(toTransfer, extOut.RemainingCapacity());
+                        for (int i = cabinPortStorage.items.Count - 1; i >= 0; i--)
+                        {
+                            GameObject go = cabinPortStorage.items[i];
+                            if (go == null) continue;
+                            Pickupable p = go.GetComponent<Pickupable>();
+                            if (p != null)
+                            {
+                                Pickupable taken = p.Take(availableCap);
+                                if (taken != null)
+                                {
+                                    availableCap -= taken.PrimaryElement.Mass;
+                                    extOut.Store(taken.gameObject, hide_popups: true);
+                                }
+                            }
+                            if (availableCap <= 0f) break;
+                        }
+                    }
+                }
+
+                return false; // 跳过原版依赖 CraftModuleInterface 的逻辑
             }
         }
     }
