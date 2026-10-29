@@ -7,12 +7,13 @@ namespace OmniMod.Collection
 {
     /// <summary>
     /// 虚拟固体资源池（OmniPool）与物理聚合箱缓冲管理器：
-    /// 维持各星球杂物箱 1000kg 散装固体物化缓冲，溢出自动退回虚拟池，实现物理材料与虚拟池的双向无感兑换。
+    /// 维持各星球杂物箱 20000kg (20吨) 散装固体物化缓冲，充分满足多台机械臂并发抓取与小人搬运需求，
+    /// 杜绝单臂独占导致其余机械臂停转，溢出自动退回虚拟池，实现物理材料与虚拟池的双向无感平滑兑换。
     /// </summary>
     public static class BulkBufferManager
     {
-        public const float LocalBufferTargetPerElementKg = 1000f;
-        public const float ReturnToPoolThresholdKg = 200f;
+        public const float LocalBufferTargetPerElementKg = 20000f;
+        public const float ReturnToPoolThresholdKg = 5000f;
         public const byte NoDisease = byte.MaxValue;
 
         private static readonly HashSet<SimHashes> _elementScratch = new HashSet<SimHashes>();

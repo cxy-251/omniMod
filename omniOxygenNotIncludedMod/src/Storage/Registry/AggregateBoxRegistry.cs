@@ -270,6 +270,16 @@ namespace OmniMod.Collection
             return (uint)workerCell < (uint)Grid.WorldIdx.Length && Grid.WorldIdx[workerCell] == boxWorld;
         }
 
+        /// <summary>
+        /// 全星系判断目标格是否为生效聚合箱所在格（供全星系机械臂隔空取物，0 GC、O(1) 极速判定）。
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static bool IsActiveBoxCell(int cell)
+        {
+            short[] arr = _activeBoxCellWorld;
+            return arr != null && (uint)cell < (uint)arr.Length && arr[cell] >= 0;
+        }
+
         // —— 机械臂"本星球隔空取物"用：主线程每秒刷新每个星球自身聚合箱内物品的快照，
         //    机械臂的扫描补丁使用基于 Tag 索引的字典进行 O(1) 匹配，杜绝全量线性扫描引起的卡顿。——
         private static readonly Dictionary<int, Pickupable[]> _worldBoxItems = new Dictionary<int, Pickupable[]>();

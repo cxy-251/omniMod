@@ -213,22 +213,27 @@ namespace OmniMod.Ranching
                     __instance.SetRancherIsAvailableForCapturing();
                     __instance.isCurrentlyCapturingCreature = true;
 
-                    // 2. 唤醒小动物大脑，立即触发前往行为
-                    CreatureBrain brain = target.GetComponent<CreatureBrain>();
-                    if (brain != null)
-                    {
-                        Game.BrainScheduler?.PrioritizeBrain(brain);
-                    }
-                    target.Trigger((int)GameHashes.RancherReadyAtCapturePoint);
-                    target.GetComponent<ChoreConsumer>()?.Trigger((int)GameHashes.ChoreInterrupt);
-
-                    // 3. 记录或检查行走耗时
+                    // 2. 记录或检查行走耗时与单次唤醒
                     if (stationId != 0)
                     {
+                        bool isNewTarget = false;
                         if (!_captureStartTimes.TryGetValue(stationId, out float startTime))
                         {
                             startTime = Time.time;
                             _captureStartTimes[stationId] = startTime;
+                            isNewTarget = true;
+                        }
+
+                        // 仅在首次锁定目标时触发唤醒与中断，避免每帧反复打断小动物 Chore 引发严重卡顿
+                        if (isNewTarget)
+                        {
+                            CreatureBrain brain = target.GetComponent<CreatureBrain>();
+                            if (brain != null)
+                            {
+                                Game.BrainScheduler?.PrioritizeBrain(brain);
+                            }
+                            target.Trigger((int)GameHashes.RancherReadyAtCapturePoint);
+                            target.GetComponent<ChoreConsumer>()?.Trigger((int)GameHashes.ChoreInterrupt);
                         }
 
                         int creatureCell = Grid.PosToCell(target.transform.GetPosition());

@@ -231,29 +231,6 @@ namespace OmniMod.Logistics.RemoteFetch
     [HarmonyPatch(typeof(SolidTransferArm), nameof(SolidTransferArm.IsCellReachable))]
     internal static class SolidTransferArm_IsCellReachable_Patch
     {
-        private static readonly bool[] _isModuleInteriorCache = new bool[256];
-        private static readonly bool[] _isModuleInteriorChecked = new bool[256];
-
-        internal static void ClearInteriorCache()
-        {
-            Array.Clear(_isModuleInteriorChecked, 0, _isModuleInteriorChecked.Length);
-        }
-
-        private static bool IsRocketInterior(int worldId)
-        {
-            if ((uint)worldId >= (uint)_isModuleInteriorCache.Length) return false;
-            if (!_isModuleInteriorChecked[worldId])
-            {
-                if (ClusterManager.Instance != null)
-                {
-                    WorldContainer wc = ClusterManager.Instance.GetWorld(worldId);
-                    _isModuleInteriorCache[worldId] = (wc != null && wc.IsModuleInterior);
-                    _isModuleInteriorChecked[worldId] = true;
-                }
-            }
-            return _isModuleInteriorCache[worldId];
-        }
-
         private static void Postfix(SolidTransferArm __instance, int cell, ref bool __result)
         {
             if (__result || __instance == null || (uint)cell >= (uint)Grid.WorldIdx.Length)
@@ -261,39 +238,22 @@ namespace OmniMod.Logistics.RemoteFetch
                 return;
             }
 
-            // 0. 袋装小动物：全星系（跨星球、火箭舱内与地面）只要该格有打包好的小动物，机械臂均可隔空抓取！
+            // 0. 袋装小动物：全星系只要该格有打包好的小动物，机械臂均可隔空抓取！
             if (BaggedCreatureRegistry.HasBaggedCreatureAtCell(cell))
             {
                 __result = true;
                 return;
             }
 
-            int myCell = Grid.PosToCell(__instance);
-            if ((uint)myCell >= (uint)Grid.WorldIdx.Length)
-            {
-                return;
-            }
-
-            int myWorld = Grid.WorldIdx[myCell];
-            int cellWorld = Grid.WorldIdx[cell];
-
-            // 1. 如果在火箭舱内部且目标也在舱内：整舱内所有格子均视为可达（无视舱内距离与死角）
-            if (myWorld == cellWorld && IsRocketInterior(myWorld))
+            // 1. 生效聚合箱：全星系生效聚合箱（包括本星球、所属母星、火箭舱内）均视为可达，允许机械臂隔空取物！
+            if (AggregateBoxRegistry.IsActiveBoxCell(cell))
             {
                 __result = true;
                 return;
             }
 
-            // 2. 跨世界限制：对于普通箱子、装瓶器与放生点，仍遵循同世界限制
-            if (myWorld != cellWorld)
-            {
-                return;
-            }
-
-            // 3. 常规世界：纯 O(1) 数组查找聚合箱、装瓶器与本世界动物放生点，零遍历、零 GC、零延迟
-            if (AggregateBoxRegistry.IsSameWorldActiveBoxCell(cell, myCell) ||
-                BottlerRegistry.IsSameWorldActiveBottlerCell(cell, myCell) ||
-                CreatureDeliveryRegistry.IsDeliveryCell(cell, myWorld))
+            // 2. 生效装瓶器：全星系生效装瓶器均视为可达，允许机械臂隔空取水！
+            if (BottlerRegistry.IsActiveBottlerCell(cell))
             {
                 __result = true;
                 return;

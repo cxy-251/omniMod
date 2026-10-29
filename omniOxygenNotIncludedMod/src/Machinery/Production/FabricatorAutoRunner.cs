@@ -198,11 +198,7 @@ namespace OmniMod.Machinery.Production
                         __instance.CompleteWorkingOrder();
                     }
 
-                    ModLog.Throttle(
-                        $"fab_run_{__instance.PrefabID().Name}",
-                        $"机械自动运行中：{__instance.name} 正在全自动加工",
-                        15f
-                    );
+                    ModLog.DebugLog($"机械自动运行中：{__instance.name} 正在全自动加工");
                 }
                 else
                 {

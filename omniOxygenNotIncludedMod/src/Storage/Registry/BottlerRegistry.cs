@@ -136,6 +136,16 @@ namespace OmniMod.Collection
             return (uint)workerCell < (uint)Grid.WorldIdx.Length && Grid.WorldIdx[workerCell] == cellWorld;
         }
 
+        /// <summary>
+        /// 全星系判断目标格是否为生效装瓶器所在格（供全星系机械臂隔空取水，0 GC、O(1) 极速判定）。
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static bool IsActiveBottlerCell(int cell)
+        {
+            short[] arr = _bottlerCellWorld;
+            return arr != null && (uint)cell < (uint)arr.Length && arr[cell] >= 0;
+        }
+
         internal static List<Bottler> GetWorldBottlers(int worldId)
         {
             if (WorldBottlers.TryGetValue(worldId, out List<Bottler> list))
