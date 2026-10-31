@@ -109,6 +109,8 @@ namespace OmniMod.Buildings
         private bool isInitializingWorld;
         private bool hasInitializedWorld;
         private bool isStampingTemplate;
+        [Serialize]
+        private bool hasCleanedLegacyWalls;
         private OverlayScreen overlayScreen;
         private KBatchedAnimController habitatAnim;
 
@@ -245,11 +247,14 @@ namespace OmniMod.Buildings
             if (targetWorldId < 0 || ClusterManager.Instance == null) return false;
 
             // 1. 原版火箭管线接收器（RocketConduitReceiver，例如 RocketInteriorLiquidOutputPort）
+            // 直接索引内部 Items 列表，零堆内存分配，瞬间完成
             if (Components.RocketConduitReceivers != null)
             {
-                foreach (RocketConduitReceiver receiver in Components.RocketConduitReceivers.GetWorldItems(targetWorldId))
+                for (int i = 0; i < Components.RocketConduitReceivers.Count; i++)
                 {
+                    RocketConduitReceiver receiver = Components.RocketConduitReceivers[i];
                     if (receiver != null && !Util.IsNullOrDestroyed(receiver) &&
+                        receiver.GetMyWorldId() == targetWorldId &&
                         receiver.conduitPortInfo != null && receiver.conduitPortInfo.conduitType == type)
                     {
                         return true;
@@ -258,14 +263,14 @@ namespace OmniMod.Buildings
             }
 
             // 2. 舱内货仓存取接口（RocketConduitStorageAccess，例如 RocketInteriorLiquidOutput）
-            if (Components.BuildingCompletes != null)
+            // 从常驻静态集合检索，彻底告别每秒遍历全图上万建筑与高频 GC 垃圾堆积
+            if (OmniPocketHabitatPatches.ActiveStorageAccesses.Count > 0)
             {
                 var targetCargo = type == ConduitType.Liquid ? CargoBay.CargoType.Liquids : CargoBay.CargoType.Gasses;
-                foreach (BuildingComplete building in Components.BuildingCompletes.GetWorldItems(targetWorldId))
+                OmniPocketHabitatPatches.ActiveStorageAccesses.RemoveWhere(a => a == null || Util.IsNullOrDestroyed(a));
+                foreach (RocketConduitStorageAccess access in OmniPocketHabitatPatches.ActiveStorageAccesses)
                 {
-                    if (building == null || Util.IsNullOrDestroyed(building)) continue;
-                    RocketConduitStorageAccess access = building.GetComponent<RocketConduitStorageAccess>();
-                    if (access != null && access.cargoType == targetCargo && access.targetLevel > 0.01f)
+                    if (access.GetMyWorldId() == targetWorldId && access.cargoType == targetCargo && access.targetLevel > 0.01f)
                     {
                         return true;
                     }
@@ -374,7 +379,7 @@ namespace OmniMod.Buildings
                             existingWorld.SetParentIdx(parentWorldId);
                         }
 
-                        OmniPocketHabitatPatches.EnsureWorldDiagnosticsRegistered(targetWorldId);
+                        OmniPocketHabitatPatches.PurgePocketWorldDiagnostics(targetWorldId);
                         ConfigurePocketWorldZoneAndSunlight(existingWorld);
                         CleanupLegacyWallsAndDuplicateDoors(existingWorld);
                         PairWithInteriorDoor();
@@ -401,7 +406,7 @@ namespace OmniMod.Buildings
                         {
                             world.SetParentIdx(myWorldId);
                         }
-                        OmniPocketHabitatPatches.EnsureWorldDiagnosticsRegistered(world.id);
+                        OmniPocketHabitatPatches.PurgePocketWorldDiagnostics(world.id);
                         ConfigurePocketWorldZoneAndSunlight(world);
                         CleanupLegacyWallsAndDuplicateDoors(world);
                     }
@@ -462,7 +467,7 @@ namespace OmniMod.Buildings
                 StampPocketTemplate(world);
 
                 ClusterManager.Instance.BoxingTrigger((int)GameHashes.WorldAdded, world.id);
-                OmniPocketHabitatPatches.EnsureWorldDiagnosticsRegistered(world.id);
+                OmniPocketHabitatPatches.PurgePocketWorldDiagnostics(world.id);
 
                 ModLog.Info($"[折叠生态舱] 成功创建内部纯净空间 (World ID: {targetWorldId}, Offset: {offset}, Size: {size})。");
             }
@@ -576,7 +581,7 @@ namespace OmniMod.Buildings
         /// </summary>
         private void CleanupLegacyWallsAndDuplicateDoors(WorldContainer world)
         {
-            if (world == null)
+            if (world == null || hasCleanedLegacyWalls)
             {
                 return;
             }
@@ -626,6 +631,8 @@ namespace OmniMod.Buildings
                 Components.ClusterCraftInteriorDoors.Remove(extra);
                 Util.KDestroyGameObject(extra.gameObject);
             }
+
+            hasCleanedLegacyWalls = true;
         }
 
         private IEnumerator DelayedPairDoor()
@@ -912,9 +919,20 @@ namespace OmniMod.Buildings
         [ThreadStatic]
         private static int suppressModuleInteriorDepth;
 
-        private static bool IsPocketHabitatWorld(WorldContainer world)
+        public static readonly HashSet<RocketConduitStorageAccess> ActiveStorageAccesses =
+            new HashSet<RocketConduitStorageAccess>();
+
+        public static bool IsPocketHabitatWorld(int worldId)
         {
-            return world != null && world.GetComponent<OmniPocketHabitat>() != null && world.GetComponent<Clustercraft>() == null;
+            if (worldId < 0) return false;
+            return OmniPocketHabitat.GetHabitatForWorld(worldId) != null;
+        }
+
+        public static bool IsPocketHabitatWorld(WorldContainer world)
+        {
+            if (world == null) return false;
+            if (world.GetComponent<Clustercraft>() != null) return false;
+            return world.GetComponent<OmniPocketHabitat>() != null || OmniPocketHabitat.GetHabitatForWorld(world.id) != null;
         }
 
         // ==========================================
@@ -1124,9 +1142,6 @@ namespace OmniMod.Buildings
         private static readonly Func<ClusterManager, int> GetNextWorldIdDelegate =
             AccessTools.MethodDelegate<Func<ClusterManager, int>>(AccessTools.Method(typeof(ClusterManager), "GetNextWorldId"));
 
-        private static readonly Action<TrackerTool, int> AddNewWorldTrackersDelegate =
-            AccessTools.MethodDelegate<Action<TrackerTool, int>>(AccessTools.Method(typeof(TrackerTool), "AddNewWorldTrackers"));
-
         private static readonly Func<TimeOfDay, float> UpdateSunlightIntensityDelegate =
             AccessTools.MethodDelegate<Func<TimeOfDay, float>>(AccessTools.Method(typeof(TimeOfDay), "UpdateSunlightIntensity"));
 
@@ -1152,59 +1167,14 @@ namespace OmniMod.Buildings
             }
         }
 
-        public static void EnsureWorldDiagnosticsRegistered(int worldId)
-        {
-            if (worldId < 0 || ClusterManager.Instance == null || ClusterManager.Instance.GetWorld(worldId) == null)
-            {
-                return;
-            }
-
-            if (TrackerTool.Instance != null && TrackerTool.Instance.GetWorldTracker<BreathabilityTracker>(worldId) == null)
-            {
-                AddNewWorldTrackersDelegate(TrackerTool.Instance, worldId);
-            }
-
-            if (ColonyDiagnosticUtility.Instance != null)
-            {
-                Dictionary<int, List<ColonyDiagnostic>> worldDiagnostics = WorldDiagnosticsRef(ColonyDiagnosticUtility.Instance);
-                if (worldDiagnostics != null)
-                {
-                    if (!worldDiagnostics.ContainsKey(worldId))
-                    {
-                        // 抑制 IsModuleInterior，防止 AddWorld 将口袋生态舱误判为真实火箭并挂载火箭专属诊断项
-                        suppressModuleInteriorDepth++;
-                        try
-                        {
-                            ColonyDiagnosticUtility.Instance.AddWorld(worldId);
-                        }
-                        finally
-                        {
-                            suppressModuleInteriorDepth--;
-                        }
-                    }
-                    else if (worldDiagnostics.TryGetValue(worldId, out List<ColonyDiagnostic> existingDiags) && existingDiags != null)
-                    {
-                        // 容灾与复用：如果该 worldId 曾被注销过调度，重新唤醒加入调度器
-                        foreach (ColonyDiagnostic diag in existingDiags)
-                        {
-                            if (diag != null && SimAndRenderScheduler.instance != null)
-                            {
-                                SimAndRenderScheduler.instance.Add(diag, load_balance: true);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        public static void CleanupDestroyedWorldTrackersAndDiagnostics(int worldId)
+        public static void PurgePocketWorldDiagnostics(int worldId)
         {
             if (worldId < 0)
             {
                 return;
             }
 
-            // 1. 清理 TrackerTool 中的世界追踪器，防止更新已销毁的世界
+            // 1. 清理 TrackerTool 中的世界追踪器，防止每帧轮询更新生态舱无用追踪数据
             if (TrackerTool.Instance != null)
             {
                 List<WorldTracker> trackers = WorldTrackersRef(TrackerTool.Instance);
@@ -1215,24 +1185,36 @@ namespace OmniMod.Buildings
                 }
             }
 
-            // 2. 从调度器（SimAndRenderScheduler）中注销诊断实例，防止已销毁世界继续轮询
+            // 2. 彻底注销并移除调度器中的所有诊断实例，从根源消除每4秒主线程全图卡顿
             if (ColonyDiagnosticUtility.Instance != null)
             {
                 Dictionary<int, List<ColonyDiagnostic>> worldDiagnostics = WorldDiagnosticsRef(ColonyDiagnosticUtility.Instance);
-                if (worldDiagnostics != null && worldDiagnostics.TryGetValue(worldId, out List<ColonyDiagnostic> diags) && diags != null)
+                if (worldDiagnostics != null && worldDiagnostics.TryGetValue(worldId, out List<ColonyDiagnostic> diags))
                 {
-                    foreach (ColonyDiagnostic diag in diags)
+                    if (diags != null)
                     {
-                        if (diag != null && SimAndRenderScheduler.instance != null)
+                        foreach (ColonyDiagnostic diag in diags)
                         {
-                            SimAndRenderScheduler.instance.Remove(diag);
+                            if (diag != null)
+                            {
+                                diag.OnCleanUp();
+                            }
                         }
                     }
+                    worldDiagnostics.Remove(worldId);
                 }
+
+                ColonyDiagnosticUtility.Instance.diagnosticDisplaySettings?.Remove(worldId);
+                ColonyDiagnosticUtility.Instance.diagnosticCriteriaDisabled?.Remove(worldId);
             }
         }
 
-        // 防御性拦截：若诊断所属世界已被销毁或注销，直接跳过并移出调度器，防止后续调用 Evaluate 触发 NRE
+        public static void CleanupDestroyedWorldTrackersAndDiagnostics(int worldId)
+        {
+            PurgePocketWorldDiagnostics(worldId);
+        }
+
+        // 防御性拦截：若诊断所属世界是生态舱或已被销毁，直接注销并跳过，防止任何诊断实例在生态舱内执行计算
         [HarmonyPatch(typeof(ColonyDiagnostic), nameof(ColonyDiagnostic.Sim4000ms))]
         public static class ColonyDiagnostic_Sim4000ms_Patch
         {
@@ -1242,13 +1224,28 @@ namespace OmniMod.Buildings
                 {
                     return false;
                 }
+                if (IsPocketHabitatWorld(__instance.worldID))
+                {
+                    __instance.OnCleanUp();
+                    return false;
+                }
                 WorldContainer world = ClusterManager.Instance.GetWorld(__instance.worldID);
                 if (world == null)
                 {
-                    if (SimAndRenderScheduler.instance != null)
-                    {
-                        SimAndRenderScheduler.instance.Remove(__instance);
-                    }
+                    __instance.OnCleanUp();
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.AddWorld))]
+        public static class ColonyDiagnosticUtility_AddWorld_Patch
+        {
+            public static bool Prefix(int worldID)
+            {
+                if (IsPocketHabitatWorld(worldID))
+                {
                     return false;
                 }
                 return true;
@@ -1258,19 +1255,188 @@ namespace OmniMod.Buildings
         [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.GetWorldDiagnosticResult))]
         public static class ColonyDiagnosticUtility_GetWorldDiagnosticResult_Patch
         {
-            public static void Prefix(int worldID) => EnsureWorldDiagnosticsRegistered(worldID);
+            public static bool Prefix(int worldID, ref ColonyDiagnostic.DiagnosticResult.Opinion __result)
+            {
+                if (IsPocketHabitatWorld(worldID))
+                {
+                    __result = ColonyDiagnostic.DiagnosticResult.Opinion.Normal;
+                    return false;
+                }
+                return true;
+            }
         }
 
         [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.GetWorldDiagnosticResultStatus))]
         public static class ColonyDiagnosticUtility_GetWorldDiagnosticResultStatus_Patch
         {
-            public static void Prefix(int worldID) => EnsureWorldDiagnosticsRegistered(worldID);
+            public static bool Prefix(int worldID, ref string __result)
+            {
+                if (IsPocketHabitatWorld(worldID))
+                {
+                    __result = string.Empty;
+                    return false;
+                }
+                return true;
+            }
         }
 
         [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.GetWorldDiagnosticResultTooltip))]
         public static class ColonyDiagnosticUtility_GetWorldDiagnosticResultTooltip_Patch
         {
-            public static void Prefix(int worldID) => EnsureWorldDiagnosticsRegistered(worldID);
+            public static bool Prefix(int worldID, ref string __result)
+            {
+                if (IsPocketHabitatWorld(worldID))
+                {
+                    __result = string.Empty;
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.GetDiagnostic), new Type[] { typeof(string), typeof(int) })]
+        public static class ColonyDiagnosticUtility_GetDiagnostic_Patch
+        {
+            public static bool Prefix(string id, int worldID, ref ColonyDiagnostic __result)
+            {
+                if (IsPocketHabitatWorld(worldID))
+                {
+                    __result = null;
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.IsCriteriaEnabled))]
+        public static class ColonyDiagnosticUtility_IsCriteriaEnabled_Patch
+        {
+            public static bool Prefix(int worldID, ref bool __result)
+            {
+                if (IsPocketHabitatWorld(worldID))
+                {
+                    __result = false;
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.SetCriteriaEnabled))]
+        public static class ColonyDiagnosticUtility_SetCriteriaEnabled_Patch
+        {
+            public static bool Prefix(int worldID)
+            {
+                if (IsPocketHabitatWorld(worldID))
+                {
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.GetChoreGroupDiagnostic))]
+        public static class ColonyDiagnosticUtility_GetChoreGroupDiagnostic_Patch
+        {
+            public static bool Prefix(int worldID, ref ChoreGroupDiagnostic __result)
+            {
+                if (IsPocketHabitatWorld(worldID))
+                {
+                    __result = null;
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(ColonyDiagnosticUtility), nameof(ColonyDiagnosticUtility.GetWorkTimeDiagnostic))]
+        public static class ColonyDiagnosticUtility_GetWorkTimeDiagnostic_Patch
+        {
+            public static bool Prefix(int worldID, ref WorkTimeDiagnostic __result)
+            {
+                if (IsPocketHabitatWorld(worldID))
+                {
+                    __result = null;
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(TrackerTool), "AddNewWorldTrackers")]
+        public static class TrackerTool_AddNewWorldTrackers_Patch
+        {
+            public static bool Prefix(int worldID)
+            {
+                if (IsPocketHabitatWorld(worldID))
+                {
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(SkillsScreen), "AddWorldDivider")]
+        public static class SkillsScreen_AddWorldDivider_Patch
+        {
+            public static bool Prefix(int worldId)
+            {
+                if (IsPocketHabitatWorld(worldId))
+                {
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(ClusterManager), "MinionsByWorld", MethodType.Getter)]
+        public static class ClusterManager_MinionsByWorld_Patch
+        {
+            public static void Postfix(Dictionary<int, List<IAssignableIdentity>> __result)
+            {
+                if (__result == null || __result.Count == 0) return;
+
+                List<int> pocketWorldIds = null;
+                foreach (int worldId in __result.Keys)
+                {
+                    if (IsPocketHabitatWorld(worldId))
+                    {
+                        if (pocketWorldIds == null) pocketWorldIds = new List<int>();
+                        pocketWorldIds.Add(worldId);
+                    }
+                }
+
+                if (pocketWorldIds != null)
+                {
+                    foreach (int pocketId in pocketWorldIds)
+                    {
+                        List<IAssignableIdentity> minions = __result[pocketId];
+                        __result.Remove(pocketId);
+
+                        WorldContainer world = ClusterManager.Instance?.GetWorld(pocketId);
+                        int parentId = world != null ? world.ParentWorldId : -1;
+                        if (parentId < 0) parentId = 0;
+
+                        if (!__result.ContainsKey(parentId))
+                        {
+                            __result[parentId] = new List<IAssignableIdentity>();
+                        }
+                        __result[parentId].AddRange(minions);
+                    }
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(RocketConduitStorageAccess), "OnSpawn")]
+        public static class RocketConduitStorageAccess_OnSpawn_Patch
+        {
+            public static void Postfix(RocketConduitStorageAccess __instance)
+            {
+                if (__instance != null)
+                {
+                    ActiveStorageAccesses.Add(__instance);
+                }
+            }
         }
 
         // 防止点击生态舱内部门时触发原版 RocketInteriorSectionSideScreen（该界面强依赖 Clustercraft）
