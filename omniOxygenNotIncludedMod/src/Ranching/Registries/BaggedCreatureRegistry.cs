@@ -31,7 +31,11 @@ namespace OmniMod.Ranching.Registries
 
         public static void Register(Baggable bag)
         {
-            if (bag == null || bag.gameObject == null || !bag.wrangled) return;
+            if (bag == null || bag.gameObject == null) return;
+            if (!bag.wrangled && !bag.HasTag(GameTags.Creatures.Bagged) && !bag.HasTag(GameTags.Trapped) && !bag.HasTag(GameTags.Creatures.Deliverable))
+            {
+                return;
+            }
 
             int cell = Grid.PosToCell(bag);
             if (!Grid.IsValidCell(cell)) return;

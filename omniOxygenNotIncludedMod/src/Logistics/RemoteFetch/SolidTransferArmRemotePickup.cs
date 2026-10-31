@@ -32,12 +32,27 @@ namespace OmniMod.Logistics.RemoteFetch
                 id.HasTag(GameTags.StoredPrivate) || id.HasTag(GameTags.MarkedForMove) ||
                 id.HasTag(GameTags.Creatures.ReservedByCreature)) return false;
 
-            // 活物仅允许已打包、可交付的小动物；不能从复制人或其他机械臂手中抢取。
+            // 活物允许：已打包/可交付/陷阱捕获的小动物；绝不能从复制人手中抢取
             Baggable bag = pickup.GetComponent<Baggable>();
             if (bag != null || id.HasTag(GameTags.Creature))
             {
-                return bag != null && bag.wrangled && id.HasTag(GameTags.Creatures.Deliverable) &&
-                       (pickup.storage == null || IsRemoteStorage(pickup.storage));
+                bool isDeliverable = id.HasTag(GameTags.Creatures.Deliverable) ||
+                                     id.HasTag(GameTags.Creatures.Bagged) ||
+                                     id.HasTag(GameTags.Trapped) ||
+                                     (bag != null && bag.wrangled);
+                if (!isDeliverable) return false;
+
+                // 绝不能从复制人手上抢取
+                if (pickup.storage != null && (pickup.storage.HasTag(GameTags.BaseMinion) || pickup.storage.GetComponent<MinionIdentity>() != null))
+                {
+                    return false;
+                }
+
+                bool validStorage = pickup.storage == null ||
+                                    IsRemoteStorage(pickup.storage) ||
+                                    pickup.storage.GetComponent<Trap>() != null ||
+                                    pickup.storage.GetComponent<ReusableTrap>() != null;
+                return validStorage;
             }
 
             // 已经落地的瓶装液气也是来源；仍排除正在搬运和机器内部的私有库存。

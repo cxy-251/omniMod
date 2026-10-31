@@ -245,7 +245,7 @@ namespace OmniMod.Logistics.RemoteFetch
 
         internal static void InvalidateFailedCache()
         {
-            // 冷却仅随时间正常到期，避免容器微小变动导致数十条机械臂同帧失效重扫引发百毫秒卡顿
+            _failedTagTimes.Clear();
         }
 
         internal static void InvalidateFailedCacheForTag(Tag tag)
@@ -256,14 +256,26 @@ namespace OmniMod.Logistics.RemoteFetch
             }
         }
 
+        private static bool IsBroadCategoryTag(Tag tag)
+        {
+            return !tag.IsValid ||
+                   tag == GameTags.Creatures.Deliverable ||
+                   tag == GameTags.BagableCreature ||
+                   tag == GameTags.Creature ||
+                   tag == GameTags.Edible ||
+                   tag == GameTags.CookingIngredient ||
+                   tag == GameTags.Seed ||
+                   tag == GameTags.CropSeed ||
+                   tag == GameTags.IndustrialIngredient ||
+                   tag == GameTags.IndustrialProduct ||
+                   tag == GameTags.Compostable;
+        }
+
         private static bool IsRecentlyFailed(FetchChore chore)
         {
             float now = Time.unscaledTime;
-            if (chore.tagsFirst.IsValid && _failedTagTimes.TryGetValue(chore.tagsFirst, out float t1) && now - t1 < FailedTagCooldownSeconds)
-            {
-                return true;
-            }
-            if (chore.requiredTag.IsValid && _failedTagTimes.TryGetValue(chore.requiredTag, out float t2) && now - t2 < FailedTagCooldownSeconds)
+            if (chore.tagsFirst.IsValid && !IsBroadCategoryTag(chore.tagsFirst) &&
+                _failedTagTimes.TryGetValue(chore.tagsFirst, out float t1) && now - t1 < FailedTagCooldownSeconds)
             {
                 return true;
             }
@@ -273,13 +285,18 @@ namespace OmniMod.Logistics.RemoteFetch
         private static void RecordFailure(FetchChore chore)
         {
             float now = Time.unscaledTime;
-            if (chore.tagsFirst.IsValid) _failedTagTimes[chore.tagsFirst] = now;
-            if (chore.requiredTag.IsValid) _failedTagTimes[chore.requiredTag] = now;
+            if (chore.tagsFirst.IsValid && !IsBroadCategoryTag(chore.tagsFirst))
+            {
+                _failedTagTimes[chore.tagsFirst] = now;
+            }
             if (chore.tags != null)
             {
                 foreach (Tag t in chore.tags)
                 {
-                    _failedTagTimes[t] = now;
+                    if (t.IsValid && !IsBroadCategoryTag(t))
+                    {
+                        _failedTagTimes[t] = now;
+                    }
                 }
             }
         }
@@ -304,12 +321,6 @@ namespace OmniMod.Logistics.RemoteFetch
         private static Pickupable FindTargetInternal(SolidTransferArm arm, Storage destination, FetchChore chore)
         {
             SolidTransferArmTagsHelper.EnsureInitialized();
-
-            // 失败节流：若该 Tag 在全星系刚经历过全面检索未果，冷却期内直接跳过，杜绝数十条机械臂高频重叠遍历引发的数百毫秒卡顿
-            if (IsRecentlyFailed(chore))
-            {
-                return null;
-            }
 
             int world = arm.GetMyWorldId();
             bool isRocket = false;
@@ -347,6 +358,7 @@ namespace OmniMod.Logistics.RemoteFetch
                                    (Db.Get() != null && chore.choreType == Db.Get().ChoreTypes.CreatureFetch);
             if (isCreatureChore)
             {
+                // 小动物属于特种高优逻辑，全星系仅极少数投放点，绝不应用普通杂物的冷却节流！
                 // 1. 本世界优先（例如舱内已有袋装小动物，或本星球地面已有袋装小动物）
                 Pickupable matchedBag = FindMatchingBaggedCreature(world, chore, destination);
                 if (matchedBag != null)
@@ -355,7 +367,7 @@ namespace OmniMod.Logistics.RemoteFetch
                     return matchedBag;
                 }
 
-                // 2. 所属母星表面优先（例如机械臂位于火箭舱内，检索着陆所在的母星星球表面）
+                // 2. 所属母星表面优先（例如机械臂位于火箭舱或生态舱内，检索着陆所在的母星星球表面）
                 if (parentWorld >= 0)
                 {
                     matchedBag = FindMatchingBaggedCreature(parentWorld, chore, destination);
@@ -363,6 +375,23 @@ namespace OmniMod.Logistics.RemoteFetch
                     {
                         ModLog.Throttle("arm_bag_parent_" + matchedBag.name, $"隔空取物：舱内机械臂锁定所属星球表面 (World {parentWorld}) 袋装小动物: {matchedBag.name}", 3f);
                         return matchedBag;
+                    }
+
+                    // 2.0 检索同母星下的其他生态巨舱！
+                    List<int> siblingInteriors = new List<int>();
+                    OmniPocketHabitat.CollectInteriorWorldsOf(parentWorld, siblingInteriors);
+                    for (int iw = 0; iw < siblingInteriors.Count; iw++)
+                    {
+                        int sibWorld = siblingInteriors[iw];
+                        if (sibWorld != world)
+                        {
+                            matchedBag = FindMatchingBaggedCreature(sibWorld, chore, destination);
+                            if (matchedBag != null)
+                            {
+                                ModLog.Throttle("arm_bag_sibling_" + matchedBag.name, $"隔空取物：舱内机械臂锁定同母星其他生态舱 (World {sibWorld}) 袋装小动物: {matchedBag.name}", 3f);
+                                return matchedBag;
+                            }
+                        }
                     }
                 }
 
@@ -390,7 +419,13 @@ namespace OmniMod.Logistics.RemoteFetch
                     return matchedBag;
                 }
 
-                RecordFailure(chore);
+                // 注意：绝不调用 RecordFailure(chore)，防止活物任务被错误节流锁定！
+                return null;
+            }
+
+            // 失败节流：仅针对普通矿物/杂物/建材，且只按具体物品标签节流，杜绝数十条机械臂高频重叠遍历引发卡顿
+            if (IsRecentlyFailed(chore))
+            {
                 return null;
             }
 
@@ -596,13 +631,14 @@ namespace OmniMod.Logistics.RemoteFetch
                 for (int i = 0; i < baggedList.Length; i++)
                 {
                     Baggable bag = baggedList[i];
-                    if (bag == null || bag.gameObject == null || !bag.wrangled) continue;
-                    if (!bag.HasTag(GameTags.Creatures.Deliverable))
-                    {
-                        bag.gameObject.AddTag(GameTags.Creatures.Deliverable);
-                    }
+                    if (bag == null || bag.gameObject == null) continue;
                     Pickupable p = bag.GetComponent<Pickupable>();
-                    if (SolidTransferArmRemotePickup.IsRemoteSource(p) && p.storage != destination && p.UnreservedFetchAmount > 0f)
+                    if (p == null || p.storage == destination || p.UnreservedFetchAmount <= 0f) continue;
+                    if (!p.HasTag(GameTags.Creatures.Deliverable))
+                    {
+                        p.gameObject.AddTag(GameTags.Creatures.Deliverable);
+                    }
+                    if (SolidTransferArmRemotePickup.IsRemoteSource(p))
                     {
                         if (p.storage != null)
                         {
@@ -624,20 +660,52 @@ namespace OmniMod.Logistics.RemoteFetch
                 for (int i = 0; i < allBagged.Length; i++)
                 {
                     Baggable bag = allBagged[i];
-                    if (bag == null || bag.gameObject == null || !bag.wrangled) continue;
+                    if (bag == null || bag.gameObject == null) continue;
                     if (bag.GetMyWorldId() == excludeWorldId) continue;
-                    if (!bag.HasTag(GameTags.Creatures.Deliverable))
-                    {
-                        bag.gameObject.AddTag(GameTags.Creatures.Deliverable);
-                    }
                     Pickupable p = bag.GetComponent<Pickupable>();
-                    if (SolidTransferArmRemotePickup.IsRemoteSource(p) && p.storage != destination && p.UnreservedFetchAmount > 0f)
+                    if (p == null || p.storage == destination || p.UnreservedFetchAmount <= 0f) continue;
+                    if (!p.HasTag(GameTags.Creatures.Deliverable))
+                    {
+                        p.gameObject.AddTag(GameTags.Creatures.Deliverable);
+                    }
+                    if (SolidTransferArmRemotePickup.IsRemoteSource(p))
                     {
                         if (p.storage != null)
                         {
                             p.storage.ignoreSourcePriority = true;
                         }
                         if (FetchManager.IsFetchablePickup(p, chore, destination)) return p;
+                    }
+                }
+            }
+
+            // 兜底扫描：若注册表快照未命中，全图检索一次可交付小动物（杜绝刚被陷阱捕捉或新刷出动物未及时同步导致无法抓取）
+            if (Components.Pickupables != null && Components.Pickupables.Count > 0)
+            {
+                for (int i = 0; i < Components.Pickupables.Count; i++)
+                {
+                    Pickupable p = Components.Pickupables[i];
+                    if (p == null || p.gameObject == null || p.storage == destination || p.UnreservedFetchAmount <= 0f) continue;
+                    if (p.GetMyWorldId() == excludeWorldId) continue;
+                    KPrefabID id = p.KPrefabID;
+                    if (id == null) continue;
+                    if (!id.HasTag(GameTags.Creature) && p.GetComponent<Baggable>() == null) continue;
+                    if (!p.HasTag(GameTags.Creatures.Deliverable))
+                    {
+                        p.gameObject.AddTag(GameTags.Creatures.Deliverable);
+                    }
+                    if (SolidTransferArmRemotePickup.IsRemoteSource(p))
+                    {
+                        if (p.storage != null)
+                        {
+                            p.storage.ignoreSourcePriority = true;
+                        }
+                        if (FetchManager.IsFetchablePickup(p, chore, destination))
+                        {
+                            var b = p.GetComponent<Baggable>();
+                            if (b != null) BaggedCreatureRegistry.Register(b);
+                            return p;
+                        }
                     }
                 }
             }

@@ -16,7 +16,7 @@ namespace OmniMod.Ranching
     {
         private static void Postfix(Baggable __instance)
         {
-            if (__instance != null && __instance.wrangled)
+            if (__instance != null && (__instance.wrangled || __instance.HasTag(GameTags.Creatures.Bagged) || __instance.HasTag(GameTags.Trapped)))
             {
                 __instance.gameObject.AddTag(GameTags.Creatures.Deliverable);
                 BaggedCreatureRegistry.Register(__instance);
@@ -56,10 +56,11 @@ namespace OmniMod.Ranching
         {
             try
             {
-                if (__instance != null && __instance.cachedCell != cell && __instance.KPrefabID != null && __instance.KPrefabID.HasTag(GameTags.Creatures.Bagged))
+                if (__instance != null && __instance.cachedCell != cell && __instance.KPrefabID != null &&
+                    (__instance.KPrefabID.HasTag(GameTags.Creatures.Bagged) || __instance.KPrefabID.HasTag(GameTags.Trapped)))
                 {
                     var bag = __instance.GetComponent<Baggable>();
-                    if (bag != null && bag.wrangled)
+                    if (bag != null)
                     {
                         BaggedCreatureRegistry.OnCellChanged(bag, __instance.cachedCell, cell);
                     }
