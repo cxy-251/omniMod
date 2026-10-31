@@ -73,7 +73,7 @@ namespace OmniMod.Pool
             if (AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParent, GlobalItemCollector.CollectMode.Debris, isPocket) ||
                 AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParent, GlobalItemCollector.CollectMode.Edibles, isPocket))
             {
-                __result = inventory.GetAmount(tag, false);
+                __result = inventory.GetTotalAmount(tag, false);
                 return false;
             }
 
@@ -86,6 +86,23 @@ namespace OmniMod.Pool
     {
         private static void Postfix(WorldInventory inventory, Tag tag, ref List<Pickupable> __result)
         {
+            if (inventory == null || inventory.WorldContainer == null || !tag.IsValid) return;
+
+            WorldContainer world = inventory.WorldContainer;
+            bool isPocket = OmniPocketHabitat.IsPocketHabitatWorld(world);
+            int effectiveParent = isPocket ? OmniPocketHabitat.GetExteriorWorldId(world.id) : world.ParentWorldId;
+
+            if (AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParent, GlobalItemCollector.CollectMode.Debris, isPocket) ||
+                AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParent, GlobalItemCollector.CollectMode.Edibles, isPocket))
+            {
+                ICollection<Pickupable> col = __result;
+                AggregateBoxRegistry.AppendPlanetBoxPickupables(world.id, effectiveParent, tag, ref col, isPocket);
+                if (col != null && !ReferenceEquals(col, __result))
+                {
+                    __result = col as List<Pickupable> ?? new List<Pickupable>(col);
+                }
+            }
+
             if (__result == null || __result.Count <= 1) return;
             HashSet<Pickupable> seen = new HashSet<Pickupable>();
             for (int i = __result.Count - 1; i >= 0; i--)
@@ -111,11 +128,6 @@ namespace OmniMod.Pool
             }
 
             bool isPocket = OmniPocketHabitat.IsPocketHabitatWorld(world);
-            if (includeRelatedWorlds)
-            {
-                return;
-            }
-
             int effectiveParentWorld = isPocket ? OmniPocketHabitat.GetExteriorWorldId(world.id) : world.ParentWorldId;
             AggregateBoxRegistry.AppendPlanetBoxPickupables(world.id, effectiveParentWorld, tag, ref __result, isPocket);
         }

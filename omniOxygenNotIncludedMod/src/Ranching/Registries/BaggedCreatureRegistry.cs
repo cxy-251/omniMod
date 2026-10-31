@@ -20,6 +20,15 @@ namespace OmniMod.Ranching.Registries
         private static readonly List<Baggable> _allBaggedList = new List<Baggable>();
         private static Baggable[] _allBaggedArray = Array.Empty<Baggable>();
 
+        public static int TotalCount
+        {
+            get
+            {
+                var arr = _allBaggedArray;
+                return arr != null ? arr.Length : 0;
+            }
+        }
+
         private static void EnsureCellArray()
         {
             if (_baggedCellCount == null || _baggedCellCount.Length < Grid.CellCount)

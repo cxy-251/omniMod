@@ -189,12 +189,6 @@ namespace OmniMod.Collection
                         continue;
                     }
 
-                    // 检查所属母星箱是否有
-                    if (myParentWorld >= 0 && AggregateBoxRegistry.TryGetWorldBoxMass(myParentWorld, targetTag, out float parentMass) && parentMass > 0.001f)
-                    {
-                        continue;
-                    }
-
                     // 按需调拨该离散物资至本地杂物箱
                     AggregateBoxRegistry.EnsureDiscreteTagInWorldJunkBox(targetTag, Tag.Invalid, myWorld, 1f);
                 }

@@ -261,14 +261,7 @@ namespace OmniMod.Logistics.RemoteFetch
             return !tag.IsValid ||
                    tag == GameTags.Creatures.Deliverable ||
                    tag == GameTags.BagableCreature ||
-                   tag == GameTags.Creature ||
-                   tag == GameTags.Edible ||
-                   tag == GameTags.CookingIngredient ||
-                   tag == GameTags.Seed ||
-                   tag == GameTags.CropSeed ||
-                   tag == GameTags.IndustrialIngredient ||
-                   tag == GameTags.IndustrialProduct ||
-                   tag == GameTags.Compostable;
+                   tag == GameTags.Creature;
         }
 
         private static bool IsRecentlyFailed(FetchChore chore)
@@ -358,7 +351,11 @@ namespace OmniMod.Logistics.RemoteFetch
                                    (Db.Get() != null && chore.choreType == Db.Get().ChoreTypes.CreatureFetch);
             if (isCreatureChore)
             {
-                // 小动物属于特种高优逻辑，全星系仅极少数投放点，绝不应用普通杂物的冷却节流！
+                // 小动物属于特种高优逻辑；若全星系当前没有任何袋装小动物，O(1) 瞬时退出，绝无开销
+                if (BaggedCreatureRegistry.TotalCount == 0)
+                {
+                    return null;
+                }
                 // 1. 本世界优先（例如舱内已有袋装小动物，或本星球地面已有袋装小动物）
                 Pickupable matchedBag = FindMatchingBaggedCreature(world, chore, destination);
                 if (matchedBag != null)
@@ -471,6 +468,7 @@ namespace OmniMod.Logistics.RemoteFetch
             // 普通物品 / 杂物 / 种子 / 建材 / 食物：
             // 箱子是入口，所有箱子共享资源！
             // 机械手通过本世界的箱子入口取物（若本世界无箱子，则无权访问共享池）
+            // 绝不直接返回外部世界的 Pickupable 实体；所有远端共享物品均通过箱子入口瞬移入本地箱取用！
             // =========================================================================
             bool hasAccess = AggregateBoxRegistry.WorldHasAccessToSharedBox(world, parentWorld, GlobalItemCollector.CollectMode.Debris, isPocket: parentWorld >= 0) ||
                              AggregateBoxRegistry.WorldHasAccessToSharedBox(world, parentWorld, GlobalItemCollector.CollectMode.Edibles, isPocket: parentWorld >= 0);
@@ -480,66 +478,32 @@ namespace OmniMod.Logistics.RemoteFetch
                 return null;
             }
 
-            // 1. 优先从本世界聚合箱取用
+            // 1. 优先从本世界聚合箱取用（若未直接命中，从虚拟池 OmniPool 按需物化至本地箱）
             Pickupable matched = AggregateBoxRegistry.FindMatchInWorldBox(world, chore, destination);
             if (matched != null)
             {
                 return matched;
             }
 
-            // 1.1 若机械臂位于火箭舱或生态舱内部，检索所属母星表面聚合箱及同母星其他生态舱
-            if (parentWorld >= 0)
-            {
-                matched = AggregateBoxRegistry.FindMatchInWorldBox(parentWorld, chore, destination);
-                if (matched != null)
-                {
-                    return matched;
-                }
-
-                List<int> siblingInteriors = new List<int>();
-                OmniPocketHabitat.CollectInteriorWorldsOf(parentWorld, siblingInteriors);
-                for (int iw = 0; iw < siblingInteriors.Count; iw++)
-                {
-                    int sibWorld = siblingInteriors[iw];
-                    if (sibWorld != world)
-                    {
-                        matched = AggregateBoxRegistry.FindMatchInWorldBox(sibWorld, chore, destination);
-                        if (matched != null) return matched;
-                    }
-                }
-            }
-
-            // 1.2 若机械臂位于母星地表，检索建造在该星球上的所有生态舱内部聚合箱
-            if (!isRocket)
-            {
-                List<int> interiorWorlds = new List<int>();
-                OmniPocketHabitat.CollectInteriorWorldsOf(world, interiorWorlds);
-                for (int iw = 0; iw < interiorWorlds.Count; iw++)
-                {
-                    matched = AggregateBoxRegistry.FindMatchInWorldBox(interiorWorlds[iw], chore, destination);
-                    if (matched != null)
-                    {
-                        return matched;
-                    }
-                }
-            }
-
-            // 1.3 若本世界箱内未直接命中实体（例如种子存在于其它星球的箱子入口中）：
-            // 因为所有箱子共享资源，将该物品通过箱子入口瞬移至本地箱子，供机械手就地取用！
+            // 2. 若本地箱未命中且虚拟池未命中：
+            // 因为所有箱子共享资源，检查全星系其它箱子入口中是否有该实体（如离散种子/离散食物）；
+            // 只要找到，立即通过箱子入口调拨（Transfer）至本世界的本地箱，供本地机械手就地取用！
             for (int b = 0; b < AggregateBoxRegistry.BoxesCount; b++)
             {
                 GlobalItemCollector box = AggregateBoxRegistry.GetBox(b);
                 if (box == null || box.BoxStorage == null || box.IsRedundant) continue;
                 int bw = box.GetMyWorldId();
-                if (bw == world || bw == parentWorld) continue;
+                if (bw == world) continue;
 
                 Pickupable remoteMatch = AggregateBoxRegistry.FindMatchInWorldBox(bw, chore, destination, isCrossPlanetDiscrete: true);
                 if (remoteMatch != null)
                 {
                     GlobalItemCollector.CollectMode m = (remoteMatch.GetComponent<Edible>() != null || (remoteMatch.KPrefabID != null && remoteMatch.KPrefabID.HasTag(GameTags.Edible)))
                         ? GlobalItemCollector.CollectMode.Edibles : GlobalItemCollector.CollectMode.Debris;
-                    AggregateBoxRegistry.TransferItemToWorldBox(remoteMatch.gameObject, world, m);
-                    return remoteMatch;
+                    if (AggregateBoxRegistry.TransferItemToWorldBox(remoteMatch.gameObject, world, m))
+                    {
+                        return remoteMatch;
+                    }
                 }
             }
 
@@ -675,37 +639,6 @@ namespace OmniMod.Logistics.RemoteFetch
                             p.storage.ignoreSourcePriority = true;
                         }
                         if (FetchManager.IsFetchablePickup(p, chore, destination)) return p;
-                    }
-                }
-            }
-
-            // 兜底扫描：若注册表快照未命中，全图检索一次可交付小动物（杜绝刚被陷阱捕捉或新刷出动物未及时同步导致无法抓取）
-            if (Components.Pickupables != null && Components.Pickupables.Count > 0)
-            {
-                for (int i = 0; i < Components.Pickupables.Count; i++)
-                {
-                    Pickupable p = Components.Pickupables[i];
-                    if (p == null || p.gameObject == null || p.storage == destination || p.UnreservedFetchAmount <= 0f) continue;
-                    if (p.GetMyWorldId() == excludeWorldId) continue;
-                    KPrefabID id = p.KPrefabID;
-                    if (id == null) continue;
-                    if (!id.HasTag(GameTags.Creature) && p.GetComponent<Baggable>() == null) continue;
-                    if (!p.HasTag(GameTags.Creatures.Deliverable))
-                    {
-                        p.gameObject.AddTag(GameTags.Creatures.Deliverable);
-                    }
-                    if (SolidTransferArmRemotePickup.IsRemoteSource(p))
-                    {
-                        if (p.storage != null)
-                        {
-                            p.storage.ignoreSourcePriority = true;
-                        }
-                        if (FetchManager.IsFetchablePickup(p, chore, destination))
-                        {
-                            var b = p.GetComponent<Baggable>();
-                            if (b != null) BaggedCreatureRegistry.Register(b);
-                            return p;
-                        }
                     }
                 }
             }
