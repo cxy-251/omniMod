@@ -241,11 +241,19 @@ namespace OmniMod.Logistics.RemoteFetch
     internal static class SolidTransferArm_FindFetchTarget_Patch
     {
         private static readonly Dictionary<Tag, float> _failedTagTimes = new Dictionary<Tag, float>();
-        private const float FailedTagCooldownSeconds = 1.0f;
+        private const float FailedTagCooldownSeconds = 3.0f;
 
         internal static void InvalidateFailedCache()
         {
-            _failedTagTimes.Clear();
+            // 冷却仅随时间正常到期，避免容器微小变动导致数十条机械臂同帧失效重扫引发百毫秒卡顿
+        }
+
+        internal static void InvalidateFailedCacheForTag(Tag tag)
+        {
+            if (tag.IsValid)
+            {
+                _failedTagTimes.Remove(tag);
+            }
         }
 
         private static bool IsRecentlyFailed(FetchChore chore)
@@ -332,21 +340,6 @@ namespace OmniMod.Logistics.RemoteFetch
                 return null;
             }
 
-            // 特殊优先通道：农田/种植箱选种搬运（FarmFetch）
-            // 种子均由离散物品之家（DiscreteHome）集中归档管理，直接快速检索 DiscreteHome，
-            // 彻底杜绝因分片索引延迟或星球隔离导致的【没有可用种子】与机械臂无法隔空取种问题！
-            bool isFarmFetch = (Db.Get() != null && chore.choreType == Db.Get().ChoreTypes.FarmFetch) ||
-                               destination.GetComponent<PlantablePlot>() != null;
-            if (isFarmFetch)
-            {
-                Pickupable seed = FindMatchingSeed(chore, destination);
-                if (seed != null)
-                {
-                    ModLog.DebugLog("隔空取种：机械臂锁定种子: " + seed.name);
-                    return seed;
-                }
-            }
-
             // 0. 仅对明确的小动物交付查袋装动物。RanchingFetch 也用于喂食器补料，必须走普通物资查找。
             bool isCreatureChore = destination.GetComponent<CreatureDeliveryPoint>() != null ||
                                    (chore.requiredTag.IsValid && (chore.requiredTag == GameTags.Creatures.Deliverable || chore.requiredTag == GameTags.BagableCreature)) ||
@@ -397,6 +390,7 @@ namespace OmniMod.Logistics.RemoteFetch
                     return matchedBag;
                 }
 
+                RecordFailure(chore);
                 return null;
             }
 
@@ -432,30 +426,46 @@ namespace OmniMod.Logistics.RemoteFetch
                 // 2.4 全星系所有装瓶器检索
                 bottle = BottlePickupRegistry.FindMatch(-1, chore, destination) ??
                          SearchBottlers(BottlerRegistry.GetAllBottlers(), chore, destination);
-                return bottle;
+                if (bottle != null) return bottle;
+
+                RecordFailure(chore);
+                return null;
             }
 
+            // =========================================================================
+            // 普通物品 / 杂物 / 种子 / 建材 / 食物：严格遵循用户规则，仅限取星球内的箱子！绝不跨星！
+            // =========================================================================
 
-            // 1. 本星球聚合箱及火箭舱内储物（基于 Tag 字典 O(1) 索引查找）
+            // 1. 本世界聚合箱（舱内聚合箱，或本星球表面聚合箱）
             Pickupable matched = AggregateBoxRegistry.FindMatchInWorldBox(world, chore, destination);
             if (matched != null)
             {
-                ModLog.DebugLog("隔空取物：机械臂锁定目标: " + matched.name);
                 return matched;
             }
 
-            // 1.1 若为火箭舱内机械臂，检索母星（着陆星球表面）的聚合箱！
+            // 1.1 若机械臂位于火箭舱或生态舱内部，检索所属母星表面聚合箱及同母星其他生态舱
             if (parentWorld >= 0)
             {
                 matched = AggregateBoxRegistry.FindMatchInWorldBox(parentWorld, chore, destination);
                 if (matched != null)
                 {
-                    ModLog.DebugLog($"隔空取物：舱内机械臂从母星 (World {parentWorld}) 聚合箱锁定目标: {matched.name}");
                     return matched;
+                }
+
+                List<int> siblingInteriors = new List<int>();
+                OmniPocketHabitat.CollectInteriorWorldsOf(parentWorld, siblingInteriors);
+                for (int iw = 0; iw < siblingInteriors.Count; iw++)
+                {
+                    int sibWorld = siblingInteriors[iw];
+                    if (sibWorld != world)
+                    {
+                        matched = AggregateBoxRegistry.FindMatchInWorldBox(sibWorld, chore, destination);
+                        if (matched != null) return matched;
+                    }
                 }
             }
 
-            // 1.2 若为舱外母星机械臂，检索建造在该星球上的所有生态巨舱内部储物！
+            // 1.2 若机械臂位于母星地表，检索建造在该星球上的所有生态舱内部聚合箱
             if (!isRocket)
             {
                 List<int> interiorWorlds = new List<int>();
@@ -465,181 +475,12 @@ namespace OmniMod.Logistics.RemoteFetch
                     matched = AggregateBoxRegistry.FindMatchInWorldBox(interiorWorlds[iw], chore, destination);
                     if (matched != null)
                     {
-                        ModLog.DebugLog($"隔空取物：舱外机械臂从生态舱 (World {interiorWorlds[iw]}) 储物锁定目标: {matched.name}");
                         return matched;
                     }
                 }
             }
 
-            // 1.3 若仍未匹配，且为火箭舱内或无杂物箱，检索全星系主箱（DiscreteHome 或 FoodHome）
-            if (matched == null)
-            {
-                if (IsFoodRelatedChore(chore))
-                {
-                    GlobalItemCollector foodHome = AggregateBoxRegistry.FoodHome;
-                    if (foodHome != null && foodHome.BoxStorage != null && foodHome.GetMyWorldId() != world)
-                    {
-                        int foodWorld = foodHome.GetMyWorldId();
-                        matched = AggregateBoxRegistry.FindMatchInWorldBox(foodWorld, chore, destination);
-                        if (matched != null)
-                        {
-                            ModLog.DebugLog("隔空取物：机械臂从全星系食物主箱锁定目标: " + matched.name);
-                            return matched;
-                        }
-                    }
-                }
-                else
-                {
-                    GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
-                    if (home != null && home.BoxStorage != null && home.GetMyWorldId() != world)
-                    {
-                        int homeWorld = home.GetMyWorldId();
-                        matched = AggregateBoxRegistry.FindMatchInWorldBox(homeWorld, chore, destination);
-                        if (matched != null)
-                        {
-                            ModLog.DebugLog("隔空取物：机械臂从全星系主杂物箱锁定目标: " + matched.name);
-                            return matched;
-                        }
-                    }
-                }
-            }
-
-            // 1.4 若全星系主箱仍未匹配到，检索全星系所有生效的杂物箱！
-            if (matched == null)
-            {
-                for (int i = 0; i < AggregateBoxRegistry.BoxesCount; i++)
-                {
-                    var box = AggregateBoxRegistry.GetBox(i);
-                    if (box != null && box.BoxStorage != null && !box.IsRedundant)
-                    {
-                        int boxWorld = box.GetMyWorldId();
-                        if (boxWorld != world && boxWorld != parentWorld)
-                        {
-                            matched = AggregateBoxRegistry.FindMatchInWorldBox(boxWorld, chore, destination);
-                            if (matched != null)
-                            {
-                                ModLog.DebugLog($"隔空取物：机械臂从 World {boxWorld} 聚合箱锁定目标: {matched.name}");
-                                return matched;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 1.5 若常规世界聚合箱未匹配到离散目标，检查主杂物箱调拨
-            GlobalItemCollector localJunk = AggregateBoxRegistry.GetActiveJunkBoxForWorld(world);
-            if (localJunk != null && localJunk.BoxStorage != null)
-            {
-                GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
-                if (home != null && home != localJunk && home.BoxStorage != null)
-                {
-                    int homeWorld = home.GetMyWorldId();
-                    Pickupable homeMatched = AggregateBoxRegistry.FindMatchInWorldBox(homeWorld, chore, destination, isCrossPlanetDiscrete: true);
-                    if (homeMatched != null)
-                    {
-                        AggregateBoxRegistry.TransferItemToWorldJunkBox(homeMatched.gameObject, world);
-                        ModLog.DebugLog("隔空取物：跨星调拨离散物品并锁定: " + homeMatched.name);
-                        return homeMatched;
-                    }
-                }
-            }
-
-            // 1.6 仅当需求涉及食物或烹饪原料时，且本星聚合箱无匹配时，才跨星检索食物主箱 FoodHome
-            if (IsFoodRelatedChore(chore))
-            {
-                GlobalItemCollector localFood = AggregateBoxRegistry.GetActiveBoxForWorld(world, GlobalItemCollector.CollectMode.Edibles);
-                if (localFood != null && localFood.BoxStorage != null)
-                {
-                    GlobalItemCollector foodHome = AggregateBoxRegistry.FoodHome;
-                    if (foodHome != null && foodHome != localFood && foodHome.BoxStorage != null)
-                    {
-                        int foodWorld = foodHome.GetMyWorldId();
-                        Pickupable foodMatched = AggregateBoxRegistry.FindMatchInWorldBox(foodWorld, chore, destination, isCrossPlanetDiscrete: true);
-                        if (foodMatched != null)
-                        {
-                            localFood.BoxStorage.Store(foodMatched.gameObject, hide_popups: true);
-                            ModLog.DebugLog("隔空取物：跨星调拨食物并锁定: " + foodMatched.name);
-                            return foodMatched;
-                        }
-                    }
-                }
-            }
-
-
             RecordFailure(chore);
-            return null;
-        }
-
-        private static Pickupable FindMatchingSeed(FetchChore chore, Storage destination)
-        {
-            // 1. 优先直接检查离散物品之家 DiscreteHome.BoxStorage
-            GlobalItemCollector discreteHome = AggregateBoxRegistry.DiscreteHome;
-            if (discreteHome != null && discreteHome.BoxStorage != null)
-            {
-                List<GameObject> items = discreteHome.BoxStorage.items;
-                for (int i = 0; i < items.Count; i++)
-                {
-                    GameObject go = items[i];
-                    if (go == null) continue;
-                    Pickupable p = go.GetComponent<Pickupable>();
-                    if (p == null || p.UnreservedFetchAmount <= 0f) continue;
-                    if (!SolidTransferArmRemotePickup.IsRemoteSource(p)) continue;
-                    p.storage.allowItemRemoval = true;
-                    p.storage.ignoreSourcePriority = true;
-                    if (FetchManager.IsFetchablePickup(p, chore, destination))
-                    {
-                        return p;
-                    }
-                }
-            }
-
-            // 2. 如果 DiscreteHome 中暂时没有实体，但 OmniPool 中存有该种子，即时物化一个种子进 DiscreteHome 并交付
-            if (OmniPool.Instance != null && discreteHome != null && discreteHome.BoxStorage != null && chore.tags != null)
-            {
-                foreach (Tag t in chore.tags)
-                {
-                    if (OmniPool.Instance.GetSeedCount(t) > 0 && OmniPool.Instance.RemoveSeed(t, 1))
-                    {
-                        GameObject prefab = Assets.TryGetPrefab(t);
-                        if (prefab != null)
-                        {
-                            GameObject inst = GameUtil.KInstantiate(prefab, discreteHome.transform.GetPosition(), Grid.SceneLayer.Ore);
-                            inst.SetActive(true);
-                            discreteHome.BoxStorage.Store(inst, hide_popups: true);
-                            Pickupable p = inst.GetComponent<Pickupable>();
-                            if (p != null)
-                            {
-                                p.storage.allowItemRemoval = true;
-                                p.storage.ignoreSourcePriority = true;
-                                return p;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 3. 检查全星系所有生效聚合箱
-            for (int b = 0; b < AggregateBoxRegistry.BoxesCount; b++)
-            {
-                GlobalItemCollector box = AggregateBoxRegistry.GetBox(b);
-                if (box == null || box == discreteHome || box.BoxStorage == null || box.IsRedundant) continue;
-                List<GameObject> items = box.BoxStorage.items;
-                for (int i = 0; i < items.Count; i++)
-                {
-                    GameObject go = items[i];
-                    if (go == null) continue;
-                    Pickupable p = go.GetComponent<Pickupable>();
-                    if (p == null || p.UnreservedFetchAmount <= 0f) continue;
-                    if (!SolidTransferArmRemotePickup.IsRemoteSource(p)) continue;
-                    p.storage.allowItemRemoval = true;
-                    p.storage.ignoreSourcePriority = true;
-                    if (FetchManager.IsFetchablePickup(p, chore, destination))
-                    {
-                        return p;
-                    }
-                }
-            }
-
             return null;
         }
 

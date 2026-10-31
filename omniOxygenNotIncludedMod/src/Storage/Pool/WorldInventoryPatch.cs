@@ -51,10 +51,10 @@ namespace OmniMod.Pool
                 }
             }
 
-            float sharedBoxMass = AggregateBoxRegistry.GetSharedRemoteBoxMass(world.id, effectiveParentWorld, tag, isPocket);
-            if (sharedBoxMass > 0f)
+            float planetBoxMass = AggregateBoxRegistry.GetPlanetBoxMass(world.id, effectiveParentWorld, tag, isPocket);
+            if (planetBoxMass > 0f)
             {
-                __result += sharedBoxMass;
+                __result += planetBoxMass;
             }
         }
     }
@@ -82,7 +82,7 @@ namespace OmniMod.Pool
             }
 
             int effectiveParentWorld = isPocket ? OmniPocketHabitat.GetExteriorWorldId(world.id) : world.ParentWorldId;
-            AggregateBoxRegistry.AppendSharedRemoteBoxPickupables(world.id, effectiveParentWorld, tag, ref __result, isPocket);
+            AggregateBoxRegistry.AppendPlanetBoxPickupables(world.id, effectiveParentWorld, tag, ref __result, isPocket);
         }
     }
 

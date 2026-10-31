@@ -113,7 +113,6 @@ namespace OmniMod.Collection
             }
 
             bool storageChanged = false;
-            bool otherMassCollected = false;
             foreach (SimHashes element in _elementScratch)
             {
                 Element e = ElementLoader.FindElementByHash(element);
@@ -148,19 +147,8 @@ namespace OmniMod.Collection
 
                 float inPool = pool.GetMass(element);
                 float target = Mathf.Min(inPool + unreservedHave, LocalBufferTargetPerElementKg);
-                if (boxCount > 1 && inPool + unreservedHave < LocalBufferTargetPerElementKg)
-                {
-                    if (!otherMassCollected)
-                    {
-                        AggregateBoxRegistry.CollectOtherBoxesBulkMass(collector, _otherBoxesBulkMass);
-                        otherMassCollected = true;
-                    }
-                    _otherBoxesBulkMass.TryGetValue(element, out float otherHave);
-                    float fairShare = (inPool + unreservedHave + otherHave) / boxCount;
-                    target = Mathf.Min(fairShare, LocalBufferTargetPerElementKg);
-                }
 
-                if (target > unreservedHave + 1f && inPool > 0.001f)
+                if (target > unreservedHave + 50f && inPool > 0.001f)
                 {
                     float need = target - unreservedHave;
                     PrimaryElement chunk = _localBulkChunk.TryGetValue(element, out PrimaryElement peChunk) ? peChunk : null;
@@ -198,10 +186,9 @@ namespace OmniMod.Collection
                         _localBulkMass[element] = totalHave + taken;
                     }
                 }
-                else if (unreservedHave > target + ReturnToPoolThresholdKg ||
-                         (boxCount > 1 && target < LocalBufferTargetPerElementKg - 10f && unreservedHave > target + 50f))
+                else if (unreservedHave > LocalBufferTargetPerElementKg + 500f)
                 {
-                    float ret = unreservedHave - target;
+                    float ret = unreservedHave - LocalBufferTargetPerElementKg;
                     storageChanged |= MoveBufferElementToPool(collector, storage, element, ret);
                     _localBulkMass[element] = Mathf.Max(0f, totalHave - ret);
                 }

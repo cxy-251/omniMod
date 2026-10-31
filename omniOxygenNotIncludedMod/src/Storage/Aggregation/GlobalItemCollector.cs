@@ -138,7 +138,7 @@ namespace OmniMod.Collection
                             DiscreteDemandManager.ServeDiscreteDemand(this, _storage);
                         }
 
-                        if (_restockTimer >= 3f)
+                        if (_restockTimer >= 8f)
                         {
                             _restockTimer = 0f;
                             BulkBufferManager.RestockFromPool(this, _storage, _treeFilterable);
@@ -259,11 +259,17 @@ namespace OmniMod.Collection
                         if (mode == CollectMode.Debris)
                         {
                             Assignable assignable = pickup.GetComponent<Assignable>();
-                            if (assignable == null || !assignable.IsAssigned() ||
-                                AggregateBoxRegistry.GetAssigneeWorldId(assignable.assignee) != this.GetMyWorldId())
+                            if (assignable != null && assignable.IsAssigned())
                             {
-                                GlobalItemCollector home = AggregateBoxRegistry.DiscreteHome;
-                                if (home != null && home.BoxStorage != null) destination = home.BoxStorage;
+                                int assigneeWorld = AggregateBoxRegistry.GetAssigneeWorldId(assignable.assignee);
+                                if (assigneeWorld >= 0 && assigneeWorld != this.GetMyWorldId())
+                                {
+                                    GlobalItemCollector targetBox = AggregateBoxRegistry.GetActiveJunkBoxForWorld(assigneeWorld);
+                                    if (targetBox != null && targetBox.BoxStorage != null)
+                                    {
+                                        destination = targetBox.BoxStorage;
+                                    }
+                                }
                             }
                         }
                         _changedStorages.Add(destination);

@@ -147,15 +147,25 @@ namespace OmniMod.Collection
                     AggregateBoxRegistry.EnsureDiscreteTagInWorldJunkBox(GameTags.ChargedPortableBattery, Tag.Invalid, myWorld, 2f);
                 }
 
-                // 3. 响应本星球活跃 FetchChore
+                // 3. 响应本世界活跃 FetchChore
+                List<FetchChore> chores = null;
                 if (GlobalChoreProvider.Instance == null ||
-                    !GlobalChoreProvider.Instance.fetchMap.TryGetValue(myParentWorld, out List<FetchChore> chores) ||
+                    (!GlobalChoreProvider.Instance.fetchMap.TryGetValue(myWorld, out chores) &&
+                     (myParentWorld < 0 || !GlobalChoreProvider.Instance.fetchMap.TryGetValue(myParentWorld, out chores))) ||
                     chores == null)
                 {
                     return;
                 }
 
-                GlobalItemCollector donor = AggregateBoxRegistry.DiscreteHome;
+                GlobalItemCollector donor = null;
+                if (myParentWorld >= 0 && myParentWorld != myWorld)
+                {
+                    donor = AggregateBoxRegistry.GetActiveJunkBoxForWorld(myParentWorld);
+                }
+                if (donor == null)
+                {
+                    donor = AggregateBoxRegistry.DiscreteHome;
+                }
                 if (donor == null || donor == collector || donor.BoxStorage == null || donor.BoxStorage.items == null)
                 {
                     return;

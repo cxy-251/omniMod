@@ -151,10 +151,14 @@ namespace OmniMod.Machinery.Farming
 
             if (noneAvailable != null && awaiting != null && selectable.HasStatusItem(noneAvailable))
             {
+                int worldId = __instance.GetMyWorldId();
+                bool isPocket = OmniMod.Buildings.OmniPocketHabitat.IsPocketHabitatWorld(worldId);
+                int parentWorldId = isPocket ? OmniMod.Buildings.OmniPocketHabitat.GetExteriorWorldId(worldId) : -1;
+
                 bool hasSeed = false;
                 foreach (Tag tag in fetchChore.tags)
                 {
-                    if (AggregateBoxRegistry.HasColonyItem(tag))
+                    if (AggregateBoxRegistry.HasPlanetItem(worldId, parentWorldId, tag, isPocket))
                     {
                         hasSeed = true;
                         break;
