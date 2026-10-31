@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using HarmonyLib;
+using OmniMod.Collection;
 using UnityEngine;
 
 namespace OmniMod.Machinery.Farming
@@ -122,6 +123,49 @@ namespace OmniMod.Machinery.Farming
                 return null;
             }
             return null;
+        }
+    }
+
+    /// <summary>
+    /// 确保种植箱、种植砖、水培砖在请求种子时，如果全星系（离散物品之家 DiscreteHome、OmniPool 或任意星球聚合箱）
+    /// 存有该种子，状态项绝对不会被误标为【没有可用种子】（NoAvailableSeed），而是正确显示【等待种子运送】（AwaitingSeedDelivery）。
+    /// </summary>
+    [HarmonyPatch(typeof(SingleEntityReceptacle), "UpdateStatusItem", typeof(KSelectable))]
+    internal static class SingleEntityReceptacle_UpdateStatusItem_Patch
+    {
+        private static void Postfix(SingleEntityReceptacle __instance, KSelectable selectable)
+        {
+            if (__instance == null || selectable == null || __instance.Occupant != null)
+            {
+                return;
+            }
+
+            FetchChore fetchChore = __instance.GetActiveRequest;
+            if (fetchChore == null || fetchChore.tags == null)
+            {
+                return;
+            }
+
+            StatusItem noneAvailable = Db.Get()?.BuildingStatusItems?.NoAvailableSeed;
+            StatusItem awaiting = Db.Get()?.BuildingStatusItems?.AwaitingSeedDelivery;
+
+            if (noneAvailable != null && awaiting != null && selectable.HasStatusItem(noneAvailable))
+            {
+                bool hasSeed = false;
+                foreach (Tag tag in fetchChore.tags)
+                {
+                    if (AggregateBoxRegistry.HasColonyItem(tag))
+                    {
+                        hasSeed = true;
+                        break;
+                    }
+                }
+
+                if (hasSeed)
+                {
+                    selectable.SetStatusItem(Db.Get().StatusItemCategories.EntityReceptacle, awaiting);
+                }
+            }
         }
     }
 }

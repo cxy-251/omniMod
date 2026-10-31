@@ -25,6 +25,7 @@ namespace OmniMod.Collection
             if (storage == null) return;
             storage.items.RemoveAll(item => item == null);
             AggregateBoxRegistry.MarkWorldDirty(storage.GetMyWorldId());
+            OmniMod.Logistics.RemoteFetch.SolidTransferArm_FindFetchTarget_Patch.InvalidateFailedCache();
             storage.Trigger((int)GameHashes.OnStorageChange, storage.gameObject);
             storage.OnStorageChange?.Invoke(storage.gameObject);
             storage.Trigger((int)GameHashes.OnStorageInteracted, storage);

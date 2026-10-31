@@ -179,6 +179,7 @@ namespace OmniMod.Pool
         {
             if (!tag.IsValid || count <= 0) return;
             _seeds[tag] = _seeds.TryGetValue(tag, out int c) ? c + count : count;
+            OmniMod.Logistics.RemoteFetch.SolidTransferArm_FindFetchTarget_Patch.InvalidateFailedCache();
         }
 
         public bool RemoveSeed(Tag tag, int count = 1)
@@ -262,6 +263,7 @@ namespace OmniMod.Pool
                 return;
             }
             AddRaw((int)element, BucketKey(temperatureK), massKg, massKg * temperatureK);
+            OmniMod.Logistics.RemoteFetch.SolidTransferArm_FindFetchTarget_Patch.InvalidateFailedCache();
         }
 
         public float GetMass(SimHashes element)

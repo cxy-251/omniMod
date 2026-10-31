@@ -5,6 +5,7 @@ using OmniMod.Buildings;
 using OmniMod.Collection;
 using OmniMod.Core.Logging;
 using OmniMod.Core.Safety;
+using OmniMod.Pool;
 using OmniMod.Ranching.Registries;
 using UnityEngine;
 
@@ -239,6 +240,42 @@ namespace OmniMod.Logistics.RemoteFetch
     [HarmonyPatch(typeof(SolidTransferArm), nameof(SolidTransferArm.FindFetchTarget))]
     internal static class SolidTransferArm_FindFetchTarget_Patch
     {
+        private static readonly Dictionary<Tag, float> _failedTagTimes = new Dictionary<Tag, float>();
+        private const float FailedTagCooldownSeconds = 1.0f;
+
+        internal static void InvalidateFailedCache()
+        {
+            _failedTagTimes.Clear();
+        }
+
+        private static bool IsRecentlyFailed(FetchChore chore)
+        {
+            float now = Time.unscaledTime;
+            if (chore.tagsFirst.IsValid && _failedTagTimes.TryGetValue(chore.tagsFirst, out float t1) && now - t1 < FailedTagCooldownSeconds)
+            {
+                return true;
+            }
+            if (chore.requiredTag.IsValid && _failedTagTimes.TryGetValue(chore.requiredTag, out float t2) && now - t2 < FailedTagCooldownSeconds)
+            {
+                return true;
+            }
+            return false;
+        }
+
+        private static void RecordFailure(FetchChore chore)
+        {
+            float now = Time.unscaledTime;
+            if (chore.tagsFirst.IsValid) _failedTagTimes[chore.tagsFirst] = now;
+            if (chore.requiredTag.IsValid) _failedTagTimes[chore.requiredTag] = now;
+            if (chore.tags != null)
+            {
+                foreach (Tag t in chore.tags)
+                {
+                    _failedTagTimes[t] = now;
+                }
+            }
+        }
+
         private static void Postfix(SolidTransferArm __instance, Storage destination, FetchChore chore, ref Pickupable __result)
         {
             if (__result != null || __instance == null || destination == null || chore == null)
@@ -259,6 +296,12 @@ namespace OmniMod.Logistics.RemoteFetch
         private static Pickupable FindTargetInternal(SolidTransferArm arm, Storage destination, FetchChore chore)
         {
             SolidTransferArmTagsHelper.EnsureInitialized();
+
+            // 失败节流：若该 Tag 在全星系刚经历过全面检索未果，冷却期内直接跳过，杜绝数十条机械臂高频重叠遍历引发的数百毫秒卡顿
+            if (IsRecentlyFailed(chore))
+            {
+                return null;
+            }
 
             int world = arm.GetMyWorldId();
             bool isRocket = false;
@@ -287,6 +330,21 @@ namespace OmniMod.Logistics.RemoteFetch
                 destination.GetComponent<Bottler>() != null)
             {
                 return null;
+            }
+
+            // 特殊优先通道：农田/种植箱选种搬运（FarmFetch）
+            // 种子均由离散物品之家（DiscreteHome）集中归档管理，直接快速检索 DiscreteHome，
+            // 彻底杜绝因分片索引延迟或星球隔离导致的【没有可用种子】与机械臂无法隔空取种问题！
+            bool isFarmFetch = (Db.Get() != null && chore.choreType == Db.Get().ChoreTypes.FarmFetch) ||
+                               destination.GetComponent<PlantablePlot>() != null;
+            if (isFarmFetch)
+            {
+                Pickupable seed = FindMatchingSeed(chore, destination);
+                if (seed != null)
+                {
+                    ModLog.DebugLog("隔空取种：机械臂锁定种子: " + seed.name);
+                    return seed;
+                }
             }
 
             // 0. 仅对明确的小动物交付查袋装动物。RanchingFetch 也用于喂食器补料，必须走普通物资查找。
@@ -507,6 +565,80 @@ namespace OmniMod.Logistics.RemoteFetch
                 }
             }
 
+
+            RecordFailure(chore);
+            return null;
+        }
+
+        private static Pickupable FindMatchingSeed(FetchChore chore, Storage destination)
+        {
+            // 1. 优先直接检查离散物品之家 DiscreteHome.BoxStorage
+            GlobalItemCollector discreteHome = AggregateBoxRegistry.DiscreteHome;
+            if (discreteHome != null && discreteHome.BoxStorage != null)
+            {
+                List<GameObject> items = discreteHome.BoxStorage.items;
+                for (int i = 0; i < items.Count; i++)
+                {
+                    GameObject go = items[i];
+                    if (go == null) continue;
+                    Pickupable p = go.GetComponent<Pickupable>();
+                    if (p == null || p.UnreservedFetchAmount <= 0f) continue;
+                    if (!SolidTransferArmRemotePickup.IsRemoteSource(p)) continue;
+                    p.storage.allowItemRemoval = true;
+                    p.storage.ignoreSourcePriority = true;
+                    if (FetchManager.IsFetchablePickup(p, chore, destination))
+                    {
+                        return p;
+                    }
+                }
+            }
+
+            // 2. 如果 DiscreteHome 中暂时没有实体，但 OmniPool 中存有该种子，即时物化一个种子进 DiscreteHome 并交付
+            if (OmniPool.Instance != null && discreteHome != null && discreteHome.BoxStorage != null && chore.tags != null)
+            {
+                foreach (Tag t in chore.tags)
+                {
+                    if (OmniPool.Instance.GetSeedCount(t) > 0 && OmniPool.Instance.RemoveSeed(t, 1))
+                    {
+                        GameObject prefab = Assets.TryGetPrefab(t);
+                        if (prefab != null)
+                        {
+                            GameObject inst = GameUtil.KInstantiate(prefab, discreteHome.transform.GetPosition(), Grid.SceneLayer.Ore);
+                            inst.SetActive(true);
+                            discreteHome.BoxStorage.Store(inst, hide_popups: true);
+                            Pickupable p = inst.GetComponent<Pickupable>();
+                            if (p != null)
+                            {
+                                p.storage.allowItemRemoval = true;
+                                p.storage.ignoreSourcePriority = true;
+                                return p;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. 检查全星系所有生效聚合箱
+            for (int b = 0; b < AggregateBoxRegistry.BoxesCount; b++)
+            {
+                GlobalItemCollector box = AggregateBoxRegistry.GetBox(b);
+                if (box == null || box == discreteHome || box.BoxStorage == null || box.IsRedundant) continue;
+                List<GameObject> items = box.BoxStorage.items;
+                for (int i = 0; i < items.Count; i++)
+                {
+                    GameObject go = items[i];
+                    if (go == null) continue;
+                    Pickupable p = go.GetComponent<Pickupable>();
+                    if (p == null || p.UnreservedFetchAmount <= 0f) continue;
+                    if (!SolidTransferArmRemotePickup.IsRemoteSource(p)) continue;
+                    p.storage.allowItemRemoval = true;
+                    p.storage.ignoreSourcePriority = true;
+                    if (FetchManager.IsFetchablePickup(p, chore, destination))
+                    {
+                        return p;
+                    }
+                }
+            }
 
             return null;
         }

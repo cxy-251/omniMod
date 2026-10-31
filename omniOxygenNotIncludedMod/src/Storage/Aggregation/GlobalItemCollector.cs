@@ -33,6 +33,7 @@ namespace OmniMod.Collection
         private const float MaxCollectTemperatureK = 673.15f; // 400°C
 
         private float _timer;
+        private float _restockTimer;
         private Storage _storage;
         private TreeFilterable _treeFilterable;
         private bool _isRedundant;
@@ -66,6 +67,7 @@ namespace OmniMod.Collection
             StorageBatchHelper.RepairStoredItems(_storage);
             // 分散各箱的全图扫描时刻，避免读档后每隔 6 秒集中到同一帧。
             _timer = (Mathf.Abs(GetInstanceID() % 600) / 600f) * ScanIntervalSeconds;
+            _restockTimer = (Mathf.Abs(GetInstanceID() % 300) / 100f);
             BulkBufferManager.InsulateStoredItems(_storage);
             BulkBufferManager.MigrateOwnStorageToPool(this, _storage);
 
@@ -121,6 +123,7 @@ namespace OmniMod.Collection
                 AggregateBoxRegistry.RefreshWorldBoxItems(this.GetMyWorldId());
 
                 _timer += dt;
+                _restockTimer += dt;
 
                 ExceptionShield.Execute("GlobalItemCollector.Sim1000ms", () =>
                 {
@@ -134,7 +137,12 @@ namespace OmniMod.Collection
                         {
                             DiscreteDemandManager.ServeDiscreteDemand(this, _storage);
                         }
-                        BulkBufferManager.RestockFromPool(this, _storage, _treeFilterable);
+
+                        if (_restockTimer >= 3f)
+                        {
+                            _restockTimer = 0f;
+                            BulkBufferManager.RestockFromPool(this, _storage, _treeFilterable);
+                        }
                     }
                     else if (mode == CollectMode.Edibles)
                     {

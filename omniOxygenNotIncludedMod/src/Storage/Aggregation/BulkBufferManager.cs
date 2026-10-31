@@ -199,7 +199,7 @@ namespace OmniMod.Collection
                     }
                 }
                 else if (unreservedHave > target + ReturnToPoolThresholdKg ||
-                         (boxCount > 1 && target < LocalBufferTargetPerElementKg - 1f && unreservedHave > target + 2f))
+                         (boxCount > 1 && target < LocalBufferTargetPerElementKg - 10f && unreservedHave > target + 50f))
                 {
                     float ret = unreservedHave - target;
                     storageChanged |= MoveBufferElementToPool(collector, storage, element, ret);

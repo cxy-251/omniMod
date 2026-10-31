@@ -811,14 +811,56 @@ namespace OmniMod.Collection
         }
 
         /// <summary>
-        /// 供 WorldInventory.GetTotalAmount 补丁调用：当本星球建有杂物箱/食物箱时，
+        /// 检查全星系（OmniPool、DiscreteHome、FoodHome 以及所有生效聚合箱）是否拥有指定 Tag 的物品（如某种子、某资源）。
+        /// </summary>
+        internal static bool HasColonyItem(Tag tag)
+        {
+            if (!tag.IsValid) return false;
+
+            if (OmniPool.Instance != null)
+            {
+                if (OmniPool.Instance.GetSeedCount(tag) > 0) return true;
+                if (OmniPool.Instance.GetMassMatchingTag(tag) > 0.001f) return true;
+            }
+
+            GlobalItemCollector discreteHome = DiscreteHome;
+            if (discreteHome != null && discreteHome.BoxStorage != null)
+            {
+                if (discreteHome.BoxStorage.GetAmountAvailable(tag) > 0f) return true;
+            }
+
+            GlobalItemCollector foodHome = FoodHome;
+            if (foodHome != null && foodHome.BoxStorage != null)
+            {
+                if (foodHome.BoxStorage.GetAmountAvailable(tag) > 0f) return true;
+            }
+
+            for (int i = 0; i < Boxes.Count; i++)
+            {
+                GlobalItemCollector b = Boxes[i];
+                if (b != null && b.BoxStorage != null && !b.IsRedundant)
+                {
+                    if (TryGetWorldBoxMass(b.GetMyWorldId(), tag, out float mass) && mass > 0.001f)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 供 WorldInventory.GetTotalAmount 补丁调用：当本星球建有杂物箱/食物箱或属于生态舱时，
         /// 将其它星球生效聚合箱 Storage 内对应 tag 的存量计入本星球可用量，使全星系面板与选种/建造界面 100% 共享。
         /// 基于按星球 Tag 索引字典进行 O(1) 查询，彻底杜绝线性扫描成千上万件物品引起的严重卡顿！
         /// </summary>
-        internal static float GetSharedRemoteBoxMass(int worldId, int parentWorldId, Tag tag)
+        internal static float GetSharedRemoteBoxMass(int worldId, int parentWorldId, Tag tag, bool isPocket = false)
         {
-            bool hasJunk = WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Debris);
-            bool hasFood = WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Edibles);
+            bool hasJunk = isPocket || WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Debris) ||
+                           (parentWorldId >= 0 && WorldHasActiveBox(parentWorldId, GlobalItemCollector.CollectMode.Debris));
+            bool hasFood = isPocket || WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Edibles) ||
+                           (parentWorldId >= 0 && WorldHasActiveBox(parentWorldId, GlobalItemCollector.CollectMode.Edibles));
             if (!hasJunk && !hasFood)
             {
                 return 0f;
@@ -832,17 +874,25 @@ namespace OmniMod.Collection
                 {
                     continue;
                 }
-                if (b.GetMyParentWorldId() == parentWorldId)
+                int boxWorld = b.GetMyWorldId();
+                if (boxWorld == worldId)
+                {
+                    continue;
+                }
+                if (!isPocket && b.GetMyParentWorldId() == parentWorldId && b != DiscreteHome && b != FoodHome)
                 {
                     continue;
                 }
                 if ((b.mode == GlobalItemCollector.CollectMode.Debris && hasJunk) ||
                     (b.mode == GlobalItemCollector.CollectMode.Edibles && hasFood))
                 {
-                    int boxWorld = b.GetMyWorldId();
                     if (TryGetWorldBoxMass(boxWorld, tag, out float m))
                     {
                         sum += m;
+                    }
+                    else if (b == DiscreteHome || b == FoodHome)
+                    {
+                        sum += b.BoxStorage.GetAmountAvailable(tag);
                     }
                 }
             }
@@ -850,15 +900,17 @@ namespace OmniMod.Collection
         }
 
         /// <summary>
-        /// 供 WorldInventory.GetPickupables 补丁调用：当本星球建有杂物箱/食物箱时，
+        /// 供 WorldInventory.GetPickupables 补丁调用：当本星球建有杂物箱/食物箱或属于生态舱时，
         /// 将其它星球生效聚合箱 Storage 内匹配 tag 的 Pickupable 列表追加给本星球，使种植砖选种、孵化器选蛋、展台选神器、
         /// 卡路里统计等界面在所有星球 100% 共享全部物品。
         /// 使用 O(1) Tag 索引字典以及 HashSet 去重合并，杜绝线性扫描与 O(N^2) 集合去重造成的界面冻结。
         /// </summary>
-        internal static void AppendSharedRemoteBoxPickupables(int worldId, int parentWorldId, Tag tag, ref ICollection<Pickupable> result)
+        internal static void AppendSharedRemoteBoxPickupables(int worldId, int parentWorldId, Tag tag, ref ICollection<Pickupable> result, bool isPocket = false)
         {
-            bool hasJunk = WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Debris);
-            bool hasFood = WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Edibles);
+            bool hasJunk = isPocket || WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Debris) ||
+                           (parentWorldId >= 0 && WorldHasActiveBox(parentWorldId, GlobalItemCollector.CollectMode.Debris));
+            bool hasFood = isPocket || WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Edibles) ||
+                           (parentWorldId >= 0 && WorldHasActiveBox(parentWorldId, GlobalItemCollector.CollectMode.Edibles));
             if (!hasJunk && !hasFood)
             {
                 return;
@@ -872,27 +924,44 @@ namespace OmniMod.Collection
                 {
                     continue;
                 }
-                if (b.GetMyParentWorldId() == parentWorldId)
+                int boxWorld = b.GetMyWorldId();
+                if (boxWorld == worldId)
+                {
+                    continue;
+                }
+                if (!isPocket && b.GetMyParentWorldId() == parentWorldId && b != DiscreteHome && b != FoodHome)
                 {
                     continue;
                 }
                 if ((b.mode == GlobalItemCollector.CollectMode.Debris && hasJunk) ||
                     (b.mode == GlobalItemCollector.CollectMode.Edibles && hasFood))
                 {
-                    int boxWorld = b.GetMyWorldId();
                     if (TryGetWorldBoxPickupables(boxWorld, tag, out List<Pickupable> list) && list != null && list.Count > 0)
                     {
                         for (int k = 0; k < list.Count; k++)
                         {
                             Pickupable p = list[k];
-                            // 严密校验存活状态与组件完整性，彻底杜绝已销毁 Unity 对象的虚假指针传入下游界面导致 NullReferenceException
                             if (p != null && p.gameObject != null && p.KPrefabID != null && !p.KPrefabID.HasTag(GameTags.StoredPrivate))
                             {
-                                if (extra == null)
-                                {
-                                    extra = new List<Pickupable>(list.Count);
-                                }
+                                if (extra == null) extra = new List<Pickupable>(list.Count);
                                 extra.Add(p);
+                            }
+                        }
+                    }
+                    else if (b == DiscreteHome || b == FoodHome)
+                    {
+                        List<GameObject> items = b.BoxStorage.items;
+                        for (int j = 0; j < items.Count; j++)
+                        {
+                            GameObject go = items[j];
+                            if (go != null && go.HasTag(tag))
+                            {
+                                Pickupable p = go.GetComponent<Pickupable>();
+                                if (p != null && p.gameObject != null && p.KPrefabID != null && !p.KPrefabID.HasTag(GameTags.StoredPrivate))
+                                {
+                                    if (extra == null) extra = new List<Pickupable>();
+                                    extra.Add(p);
+                                }
                             }
                         }
                     }

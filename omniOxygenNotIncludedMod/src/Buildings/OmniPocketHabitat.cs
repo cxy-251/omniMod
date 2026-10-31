@@ -80,6 +80,16 @@ namespace OmniMod.Buildings
                 : -1;
         }
 
+        public static bool IsPocketHabitatWorld(WorldContainer world)
+        {
+            return OmniPocketHabitatPatches.IsPocketHabitatWorld(world);
+        }
+
+        public static bool IsPocketHabitatWorld(int worldId)
+        {
+            return OmniPocketHabitatPatches.IsPocketHabitatWorld(worldId);
+        }
+
         /// <summary>收集建造在指定外部世界上的所有生态舱的内部世界 ID。</summary>
         public static void CollectInteriorWorldsOf(int exteriorWorldId, List<int> dst)
         {
