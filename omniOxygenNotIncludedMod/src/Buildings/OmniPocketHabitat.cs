@@ -282,14 +282,18 @@ namespace OmniMod.Buildings
 
         /// <summary>
         /// 动态刷新管道流体需求：
-        /// 内部无出口需求时：容量与速率置 0，零截留，外部液体/气体直接路过；
-        /// 内部有出口需求时：对齐原版火箭标准（液 10kg，气 1kg），按需抽取引流。
+        /// 内部无出口需求时：禁用 Consumer，容量与速率置 0，零截留，外部液体/气体直接路过；
+        /// 内部有出口需求时：启用 Consumer，对齐原版火箭标准（液 10kg，气 1kg），按需抽取引流。
         /// </summary>
         public void RefreshConduitDemandState()
         {
             if (LiquidConsumer != null)
             {
                 bool hasLiquid = HasInteriorFluidOutlet(ConduitType.Liquid);
+                if (LiquidConsumer.enabled != hasLiquid)
+                {
+                    LiquidConsumer.enabled = hasLiquid;
+                }
                 float targetRate = hasLiquid ? 10f : 0f;
                 float targetCap = hasLiquid ? 10f : 0f;
                 if (LiquidConsumer.consumptionRate != targetRate || LiquidConsumer.capacityKG != targetCap)
@@ -301,11 +305,34 @@ namespace OmniMod.Buildings
                 {
                     LiquidInStorage.capacityKg = targetCap;
                 }
+
+                // 容灾回吐：如果舱内没有出水口，但 LiquidInStorage 滞留了旧版吞噬的液体，自动安全转移回吐至 LiquidOutStorage 排回管网
+                if (!hasLiquid && LiquidInStorage != null && LiquidInStorage.MassStored() > 0.01f && LiquidOutStorage != null)
+                {
+                    for (int i = LiquidInStorage.items.Count - 1; i >= 0; i--)
+                    {
+                        GameObject go = LiquidInStorage.items[i];
+                        if (go == null) continue;
+                        Pickupable p = go.GetComponent<Pickupable>();
+                        if (p != null)
+                        {
+                            Pickupable taken = p.Take(LiquidOutStorage.RemainingCapacity());
+                            if (taken != null)
+                            {
+                                LiquidOutStorage.Store(taken.gameObject, hide_popups: true);
+                            }
+                        }
+                    }
+                }
             }
 
             if (GasConsumer != null)
             {
                 bool hasGas = HasInteriorFluidOutlet(ConduitType.Gas);
+                if (GasConsumer.enabled != hasGas)
+                {
+                    GasConsumer.enabled = hasGas;
+                }
                 float targetRate = hasGas ? 1f : 0f;
                 float targetCap = hasGas ? 1f : 0f;
                 if (GasConsumer.consumptionRate != targetRate || GasConsumer.capacityKG != targetCap)
@@ -316,6 +343,24 @@ namespace OmniMod.Buildings
                 if (GasInStorage != null && GasInStorage.capacityKg != targetCap)
                 {
                     GasInStorage.capacityKg = targetCap;
+                }
+
+                if (!hasGas && GasInStorage != null && GasInStorage.MassStored() > 0.01f && GasOutStorage != null)
+                {
+                    for (int i = GasInStorage.items.Count - 1; i >= 0; i--)
+                    {
+                        GameObject go = GasInStorage.items[i];
+                        if (go == null) continue;
+                        Pickupable p = go.GetComponent<Pickupable>();
+                        if (p != null)
+                        {
+                            Pickupable taken = p.Take(GasOutStorage.RemainingCapacity());
+                            if (taken != null)
+                            {
+                                GasOutStorage.Store(taken.gameObject, hide_popups: true);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1117,6 +1162,11 @@ namespace OmniMod.Buildings
         [HarmonyPatch(typeof(RocketConduitSender), "FindPartner")]
         public static class RocketConduitSender_FindPartner_Patch
         {
+            private static readonly Type NestedPortType =
+                AccessTools.Inner(typeof(RocketConduitSender), "ConduitPort");
+            private static readonly System.Reflection.FieldInfo ConduitPortField =
+                AccessTools.Field(typeof(RocketConduitSender), "conduitPort");
+
             public static bool Prefix(RocketConduitSender __instance)
             {
                 if (__instance == null) return true;
@@ -1124,6 +1174,15 @@ namespace OmniMod.Buildings
                 OmniPocketHabitat habitat = OmniPocketHabitat.GetHabitatForWorld(worldId);
                 if (habitat != null)
                 {
+                    bool isLiquid = __instance.conduitPortInfo != null && __instance.conduitPortInfo.conduitType == ConduitType.Liquid;
+                    Storage storage = isLiquid ? habitat.LiquidOutStorage : habitat.GasOutStorage;
+                    if (storage != null && NestedPortType != null && ConduitPortField != null)
+                    {
+                        object port = Activator.CreateInstance(NestedPortType, __instance.gameObject, __instance.conduitPortInfo, storage);
+                        ConduitPortField.SetValue(__instance, port);
+                        __instance.AddConduitPortToNetwork();
+                        return false;
+                    }
                     return false;
                 }
                 suppressModuleInteriorDepth++;

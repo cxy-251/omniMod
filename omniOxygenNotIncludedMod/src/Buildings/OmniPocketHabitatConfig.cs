@@ -152,6 +152,7 @@ namespace OmniMod.Buildings
             liquidConsumer.forceAlwaysSatisfied = true;
             liquidConsumer.alwaysConsume = true; // 气液接口独立工作，不要求其他输出管全部接好
             liquidConsumer.storage = liquidInStorage;
+            liquidConsumer.enabled = false; // 默认禁用，舱内有出水需求时才动态启用，实现 100% 直通零截留
 
             ConduitDispenser liquidDispenser = go.AddOrGet<ConduitDispenser>();
             liquidDispenser.conduitType = ConduitType.Liquid;
@@ -182,6 +183,7 @@ namespace OmniMod.Buildings
             gasConsumer.alwaysConsume = true;
             gasConsumer.storage = gasInStorage;
             gasConsumer.useSecondaryInput = true;
+            gasConsumer.enabled = false; // 默认禁用，舱内有出气需求时才动态启用，实现 100% 直通零截留
 
             ConduitDispenser gasDispenser = go.AddComponent<ConduitDispenser>();
             gasDispenser.conduitType = ConduitType.Gas;

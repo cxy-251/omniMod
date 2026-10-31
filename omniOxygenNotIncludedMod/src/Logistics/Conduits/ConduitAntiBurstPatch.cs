@@ -90,5 +90,69 @@ namespace OmniMod.Conduits
                 return true;
             }
         }
+
+        [HarmonyPatch(typeof(Conduit), "OnConduitFrozen")]
+        public static class Conduit_OnConduitFrozen_Patch
+        {
+            public static bool Prefix(Conduit __instance)
+            {
+                try
+                {
+                    if (__instance == null) return true;
+                    int cell = Grid.PosToCell(__instance);
+                    ConduitFlow flow = __instance.GetFlowManager();
+                    if (flow != null && Grid.IsValidCell(cell))
+                    {
+                        ConduitFlow.ConduitContents contents = flow.GetContents(cell);
+                        if (contents.mass > 0.001f && contents.element != SimHashes.Void)
+                        {
+                            Element element = ElementLoader.FindElementByHash(contents.element);
+                            if (element != null)
+                            {
+                                float safeTemp = element.lowTemp + 3.0f;
+                                contents.temperature = Mathf.Max(contents.temperature, safeTemp);
+                                flow.SetContents(cell, contents);
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                }
+                return false; // 拦截原版爆管倾倒流体逻辑，流体永不被排空丢失
+            }
+        }
+
+        [HarmonyPatch(typeof(Conduit), "OnConduitBoiling")]
+        public static class Conduit_OnConduitBoiling_Patch
+        {
+            public static bool Prefix(Conduit __instance)
+            {
+                try
+                {
+                    if (__instance == null) return true;
+                    int cell = Grid.PosToCell(__instance);
+                    ConduitFlow flow = __instance.GetFlowManager();
+                    if (flow != null && Grid.IsValidCell(cell))
+                    {
+                        ConduitFlow.ConduitContents contents = flow.GetContents(cell);
+                        if (contents.mass > 0.001f && contents.element != SimHashes.Void)
+                        {
+                            Element element = ElementLoader.FindElementByHash(contents.element);
+                            if (element != null)
+                            {
+                                float safeTemp = element.highTemp - 3.0f;
+                                contents.temperature = Mathf.Min(contents.temperature, safeTemp);
+                                flow.SetContents(cell, contents);
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                }
+                return false; // 拦截原版沸腾倾倒流体逻辑，流体永不被排空丢失
+            }
+        }
     }
 }
