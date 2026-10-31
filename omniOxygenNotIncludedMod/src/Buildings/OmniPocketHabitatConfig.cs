@@ -129,16 +129,16 @@ namespace OmniMod.Buildings
             go.AddOrGet<Operational>();
             go.AddOrGet<LoopingSounds>();
 
-            // 1. 液体储罐与管线消费者/分配器（支持舱内外液体互通，如输送咸乳）
+            // 1. 液体储罐与管线消费者/分配器（对齐原版火箭 10 kg 微容量缓冲，初始 0 直通零截留，舱内建有出水口时动态按需启用）
             Storage liquidInStorage = BuildingTemplates.CreateDefaultStorage(go, forceCreate: false);
-            liquidInStorage.capacityKg = 1000f;
+            liquidInStorage.capacityKg = 0f;
             liquidInStorage.showInUI = true;
             liquidInStorage.allowItemRemoval = false;
             liquidInStorage.storageFilters = STORAGEFILTERS.LIQUIDS;
             liquidInStorage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
 
             Storage liquidOutStorage = BuildingTemplates.CreateDefaultStorage(go, forceCreate: true);
-            liquidOutStorage.capacityKg = 1000f;
+            liquidOutStorage.capacityKg = 10f;
             liquidOutStorage.showInUI = true;
             liquidOutStorage.allowItemRemoval = false;
             liquidOutStorage.storageFilters = STORAGEFILTERS.LIQUIDS;
@@ -146,8 +146,8 @@ namespace OmniMod.Buildings
 
             ConduitConsumer liquidConsumer = go.AddOrGet<ConduitConsumer>();
             liquidConsumer.conduitType = ConduitType.Liquid;
-            liquidConsumer.consumptionRate = 10f;
-            liquidConsumer.capacityKG = 1000f;
+            liquidConsumer.consumptionRate = 0f;
+            liquidConsumer.capacityKG = 0f;
             liquidConsumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
             liquidConsumer.forceAlwaysSatisfied = true;
             liquidConsumer.alwaysConsume = true; // 气液接口独立工作，不要求其他输出管全部接好
@@ -158,17 +158,16 @@ namespace OmniMod.Buildings
             liquidDispenser.alwaysDispense = true;
             liquidDispenser.storage = liquidOutStorage;
 
-            // 2. 气体储罐与副端口消费者/分配器（支持舱内外气体互通，如输送氧气、天然气等）
-            // - 底格 (0,0) 输入，顶格 (0,2) 输出，与液管使用不同占格层。
+            // 2. 气体储罐与副端口消费者/分配器（对齐原版火箭 1 kg 微容量缓冲，初始 0 直通零截留，舱内建有出气口时动态按需启用）
             Storage gasInStorage = BuildingTemplates.CreateDefaultStorage(go, forceCreate: true);
-            gasInStorage.capacityKg = 100f;
+            gasInStorage.capacityKg = 0f;
             gasInStorage.showInUI = true;
             gasInStorage.allowItemRemoval = false;
             gasInStorage.storageFilters = STORAGEFILTERS.GASES;
             gasInStorage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
 
             Storage gasOutStorage = BuildingTemplates.CreateDefaultStorage(go, forceCreate: true);
-            gasOutStorage.capacityKg = 100f;
+            gasOutStorage.capacityKg = 1f;
             gasOutStorage.showInUI = true;
             gasOutStorage.allowItemRemoval = false;
             gasOutStorage.storageFilters = STORAGEFILTERS.GASES;
@@ -176,8 +175,8 @@ namespace OmniMod.Buildings
 
             ConduitConsumer gasConsumer = go.AddComponent<ConduitConsumer>();
             gasConsumer.conduitType = ConduitType.Gas;
-            gasConsumer.consumptionRate = 1f;
-            gasConsumer.capacityKG = 100f;
+            gasConsumer.consumptionRate = 0f;
+            gasConsumer.capacityKG = 0f;
             gasConsumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
             gasConsumer.forceAlwaysSatisfied = true;
             gasConsumer.alwaysConsume = true;

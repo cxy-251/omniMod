@@ -20,7 +20,7 @@ namespace OmniMod.Buildings
     /// 4. 舱外底部电源接口与舱内玩家建造的任意原版【电源插座】（RocketInteriorPowerPlug）通过虚拟电路键直连，实现舱内外电网无缝互通。
     /// </summary>
     [SerializationConfig(MemberSerialization.OptIn)]
-    public class OmniPocketHabitat : KMonoBehaviour, ISaveLoadable, ISidescreenButtonControl
+    public class OmniPocketHabitat : KMonoBehaviour, ISaveLoadable, ISidescreenButtonControl, ISim1000ms
     {
         [Serialize]
         public int targetWorldId = -1;
@@ -29,14 +29,30 @@ namespace OmniMod.Buildings
         public Storage LiquidOutStorage { get; private set; }
         public Storage GasInStorage { get; private set; }
         public Storage GasOutStorage { get; private set; }
+        public ConduitConsumer LiquidConsumer { get; private set; }
+        public ConduitConsumer GasConsumer { get; private set; }
 
         private static readonly Dictionary<int, OmniPocketHabitat> HabitatsByWorld = new Dictionary<int, OmniPocketHabitat>();
 
         public static OmniPocketHabitat GetHabitatForWorld(int worldId)
         {
-            if (worldId >= 0 && HabitatsByWorld.TryGetValue(worldId, out var hab) && hab != null && !Util.IsNullOrDestroyed(hab))
+            if (worldId < 0) return null;
+            if (HabitatsByWorld.TryGetValue(worldId, out var hab) && hab != null && !Util.IsNullOrDestroyed(hab))
             {
                 return hab;
+            }
+            if (ClusterManager.Instance != null)
+            {
+                WorldContainer world = ClusterManager.Instance.GetWorld(worldId);
+                if (world != null)
+                {
+                    hab = world.GetComponent<OmniPocketHabitat>();
+                    if (hab != null && !Util.IsNullOrDestroyed(hab))
+                    {
+                        HabitatsByWorld[worldId] = hab;
+                        return hab;
+                    }
+                }
             }
             return null;
         }
@@ -50,7 +66,18 @@ namespace OmniMod.Buildings
                 return -1;
             }
             int exterior = ClusterUtil.GetMyWorldId(hab);
-            return (exterior >= 0 && exterior != ClusterManager.INVALID_WORLD_IDX && exterior != interiorWorldId) ? exterior : -1;
+            if (exterior >= 0 && exterior != ClusterManager.INVALID_WORLD_IDX && exterior != interiorWorldId)
+            {
+                return exterior;
+            }
+            WorldContainer targetWorld = hab.GetTargetWorld();
+            if (targetWorld != null && targetWorld.ParentWorldId >= 0 && targetWorld.ParentWorldId != interiorWorldId)
+            {
+                return targetWorld.ParentWorldId;
+            }
+            return (ClusterManager.Instance != null && ClusterManager.Instance.GetStartWorld() != null)
+                ? ClusterManager.Instance.GetStartWorld().id
+                : -1;
         }
 
         /// <summary>收集建造在指定外部世界上的所有生态舱的内部世界 ID。</summary>
@@ -137,12 +164,20 @@ namespace OmniMod.Buildings
         {
             base.OnSpawn();
 
-            // 绑定外部液体/气体输入与输出储罐，供内部 RocketConduitStorageAccess 跨维管线传输液体（如咸乳）与气体
+            // 绑定外部液体/气体输入与输出储罐及管线消费者，供内部 RocketConduitStorageAccess 跨维管线传输液体（如咸乳）与气体
             foreach (ConduitConsumer consumer in GetComponents<ConduitConsumer>())
             {
                 if (consumer == null || consumer.storage == null) continue;
-                if (consumer.conduitType == ConduitType.Liquid) LiquidInStorage = consumer.storage;
-                else if (consumer.conduitType == ConduitType.Gas) GasInStorage = consumer.storage;
+                if (consumer.conduitType == ConduitType.Liquid)
+                {
+                    LiquidInStorage = consumer.storage;
+                    LiquidConsumer = consumer;
+                }
+                else if (consumer.conduitType == ConduitType.Gas)
+                {
+                    GasInStorage = consumer.storage;
+                    GasConsumer = consumer;
+                }
             }
             foreach (ConduitDispenser dispenser in GetComponents<ConduitDispenser>())
             {
@@ -173,6 +208,92 @@ namespace OmniMod.Buildings
             if (targetWorldId >= 0)
             {
                 HabitatsByWorld[targetWorldId] = this;
+            }
+
+            RefreshConduitDemandState();
+        }
+
+        public void Sim1000ms(float dt)
+        {
+            RefreshConduitDemandState();
+        }
+
+        /// <summary>
+        /// 检查生态舱内部是否建造了对应类型的流体出口（RocketConduitReceiver 或 RocketConduitStorageAccess）。
+        /// 若舱内未建造流体出口，则外部管网消费者容量与速率归零，实现 100% 管道无损路过直通。
+        /// </summary>
+        public bool HasInteriorFluidOutlet(ConduitType type)
+        {
+            if (targetWorldId < 0 || ClusterManager.Instance == null) return false;
+
+            // 1. 原版火箭管线接收器（RocketConduitReceiver，例如 RocketInteriorLiquidOutputPort）
+            if (Components.RocketConduitReceivers != null)
+            {
+                foreach (RocketConduitReceiver receiver in Components.RocketConduitReceivers.GetWorldItems(targetWorldId))
+                {
+                    if (receiver != null && !Util.IsNullOrDestroyed(receiver) &&
+                        receiver.conduitPortInfo != null && receiver.conduitPortInfo.conduitType == type)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            // 2. 舱内货仓存取接口（RocketConduitStorageAccess，例如 RocketInteriorLiquidOutput）
+            if (Components.BuildingCompletes != null)
+            {
+                var targetCargo = type == ConduitType.Liquid ? CargoBay.CargoType.Liquids : CargoBay.CargoType.Gasses;
+                foreach (BuildingComplete building in Components.BuildingCompletes.GetWorldItems(targetWorldId))
+                {
+                    if (building == null || Util.IsNullOrDestroyed(building)) continue;
+                    RocketConduitStorageAccess access = building.GetComponent<RocketConduitStorageAccess>();
+                    if (access != null && access.cargoType == targetCargo && access.targetLevel > 0.01f)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 动态刷新管道流体需求：
+        /// 内部无出口需求时：容量与速率置 0，零截留，外部液体/气体直接路过；
+        /// 内部有出口需求时：对齐原版火箭标准（液 10kg，气 1kg），按需抽取引流。
+        /// </summary>
+        public void RefreshConduitDemandState()
+        {
+            if (LiquidConsumer != null)
+            {
+                bool hasLiquid = HasInteriorFluidOutlet(ConduitType.Liquid);
+                float targetRate = hasLiquid ? 10f : 0f;
+                float targetCap = hasLiquid ? 10f : 0f;
+                if (LiquidConsumer.consumptionRate != targetRate || LiquidConsumer.capacityKG != targetCap)
+                {
+                    LiquidConsumer.consumptionRate = targetRate;
+                    LiquidConsumer.capacityKG = targetCap;
+                }
+                if (LiquidInStorage != null && LiquidInStorage.capacityKg != targetCap)
+                {
+                    LiquidInStorage.capacityKg = targetCap;
+                }
+            }
+
+            if (GasConsumer != null)
+            {
+                bool hasGas = HasInteriorFluidOutlet(ConduitType.Gas);
+                float targetRate = hasGas ? 1f : 0f;
+                float targetCap = hasGas ? 1f : 0f;
+                if (GasConsumer.consumptionRate != targetRate || GasConsumer.capacityKG != targetCap)
+                {
+                    GasConsumer.consumptionRate = targetRate;
+                    GasConsumer.capacityKG = targetCap;
+                }
+                if (GasInStorage != null && GasInStorage.capacityKg != targetCap)
+                {
+                    GasInStorage.capacityKg = targetCap;
+                }
             }
         }
 
@@ -928,15 +1049,58 @@ namespace OmniMod.Buildings
         [HarmonyPatch(typeof(RocketConduitReceiver), "FindPartner")]
         public static class RocketConduitReceiver_FindPartner_Patch
         {
-            public static void Prefix() => suppressModuleInteriorDepth++;
-            public static void Finalizer() => suppressModuleInteriorDepth--;
+            public static bool Prefix(RocketConduitReceiver __instance)
+            {
+                if (__instance == null) return true;
+                int worldId = __instance.GetMyWorldId();
+                OmniPocketHabitat habitat = OmniPocketHabitat.GetHabitatForWorld(worldId);
+                if (habitat != null)
+                {
+                    bool isLiquid = __instance.conduitPortInfo != null && __instance.conduitPortInfo.conduitType == ConduitType.Liquid;
+                    Storage storage = isLiquid ? habitat.LiquidInStorage : habitat.GasInStorage;
+                    if (storage != null)
+                    {
+                        __instance.SetStorage(storage);
+                        habitat.RefreshConduitDemandState();
+                        return false;
+                    }
+                }
+                suppressModuleInteriorDepth++;
+                return true;
+            }
+
+            public static void Finalizer()
+            {
+                if (suppressModuleInteriorDepth > 0)
+                {
+                    suppressModuleInteriorDepth--;
+                }
+            }
         }
 
         [HarmonyPatch(typeof(RocketConduitSender), "FindPartner")]
         public static class RocketConduitSender_FindPartner_Patch
         {
-            public static void Prefix() => suppressModuleInteriorDepth++;
-            public static void Finalizer() => suppressModuleInteriorDepth--;
+            public static bool Prefix(RocketConduitSender __instance)
+            {
+                if (__instance == null) return true;
+                int worldId = __instance.GetMyWorldId();
+                OmniPocketHabitat habitat = OmniPocketHabitat.GetHabitatForWorld(worldId);
+                if (habitat != null)
+                {
+                    return false;
+                }
+                suppressModuleInteriorDepth++;
+                return true;
+            }
+
+            public static void Finalizer()
+            {
+                if (suppressModuleInteriorDepth > 0)
+                {
+                    suppressModuleInteriorDepth--;
+                }
+            }
         }
 
         private static readonly Func<ClusterManager, int> GetNextWorldIdDelegate =
