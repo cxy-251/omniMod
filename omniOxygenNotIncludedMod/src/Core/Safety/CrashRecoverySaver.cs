@@ -54,6 +54,7 @@ namespace OmniMod.Core.Safety
         public static bool TriggerEmergencySave(string triggerSource, string details = null)
         {
             if (!Game.IsOnMainThread() || App.isLoading) return false;
+            if (Game.Instance == null || !Game.Instance.isSpawned) return false;
             lock (SaveLock)
             {
                 if (_hasSavedEmergency || _savingEmergency)
