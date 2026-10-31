@@ -25,35 +25,76 @@ namespace OmniMod.Pool
             bool isPocket = OmniPocketHabitat.IsPocketHabitatWorld(world);
             int effectiveParentWorld = isPocket ? OmniPocketHabitat.GetExteriorWorldId(world.id) : world.ParentWorldId;
 
-            // 当 ClusterUtil.GetAmountFromRelatedWorlds 遍历母星及停靠火箭（以 includeRelatedWorlds = false 逐个调用）时，
-            // 只在母星（world.id == world.ParentWorldId）追加一次全局共享存量，防止停靠多艘火箭时重复累加。
-            // 但如果当前属于生态舱内部，始终允许追加！
-            if (!includeRelatedWorlds && !isPocket && world.id != world.ParentWorldId)
+            bool hasAccess = AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParentWorld, GlobalItemCollector.CollectMode.Debris, isPocket) ||
+                             AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParentWorld, GlobalItemCollector.CollectMode.Edibles, isPocket);
+
+            if (!hasAccess)
             {
                 return;
             }
 
-            bool hasAccess = AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParentWorld, GlobalItemCollector.CollectMode.Debris, isPocket);
+            // 扣除本世界已包含在原生 __result 中的本地聚合箱存量，绝不重复计入！
+            float localBoxMass = 0f;
+            AggregateBoxRegistry.TryGetWorldBoxMass(world.id, tag, out localBoxMass);
+            float localNonBoxMass = UnityEngine.Mathf.Max(0f, __result - localBoxMass);
 
-            if (OmniPool.Instance != null && hasAccess)
+            float sharedMass = 0f;
+            if (OmniPool.Instance != null)
             {
-                float poolMass = OmniPool.Instance.GetMassMatchingTag(tag);
-                if (poolMass > 0f)
-                {
-                    __result += poolMass;
-                }
-
-                int seedCount = OmniPool.Instance.GetSeedCount(tag);
-                if (seedCount > 0)
-                {
-                    __result += seedCount;
-                }
+                sharedMass += OmniPool.Instance.GetMassMatchingTag(tag);
+                sharedMass += OmniPool.Instance.GetSeedCount(tag);
             }
 
-            float planetBoxMass = AggregateBoxRegistry.GetPlanetBoxMass(world.id, effectiveParentWorld, tag, isPocket);
-            if (planetBoxMass > 0f)
+            // 获取全星系所有生效聚合箱该 Tag 真实总质量（去重星球，每个星球只算一次）
+            sharedMass += AggregateBoxRegistry.GetSharedBoxMass(world.id, effectiveParentWorld, tag, isPocket);
+
+            __result = localNonBoxMass + sharedMass;
+        }
+    }
+
+    /// <summary>
+    /// 当接入全星系共享箱时，inventory.GetAmount(tag, false) 已经完美包含了全共享池及当前世界库存。
+    /// 拦截原版在母星与关联子世界（生态舱、停靠飞船）之间的重复累加循环，防止总数成倍虚高或舱内外不一致。
+    /// </summary>
+    [HarmonyPatch(typeof(ClusterUtil), nameof(ClusterUtil.GetAmountFromRelatedWorlds), new System.Type[] { typeof(WorldInventory), typeof(Tag) })]
+    internal static class ClusterUtil_GetAmountFromRelatedWorlds_Patch
+    {
+        private static bool Prefix(WorldInventory inventory, Tag tag, ref float __result)
+        {
+            if (inventory == null || inventory.WorldContainer == null || !tag.IsValid)
             {
-                __result += planetBoxMass;
+                return true;
+            }
+
+            WorldContainer world = inventory.WorldContainer;
+            bool isPocket = OmniPocketHabitat.IsPocketHabitatWorld(world);
+            int effectiveParent = isPocket ? OmniPocketHabitat.GetExteriorWorldId(world.id) : world.ParentWorldId;
+
+            if (AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParent, GlobalItemCollector.CollectMode.Debris, isPocket) ||
+                AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParent, GlobalItemCollector.CollectMode.Edibles, isPocket))
+            {
+                __result = inventory.GetAmount(tag, false);
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(ClusterUtil), nameof(ClusterUtil.GetPickupablesFromRelatedWorlds), new System.Type[] { typeof(WorldInventory), typeof(Tag) })]
+    internal static class ClusterUtil_GetPickupablesFromRelatedWorlds_Patch
+    {
+        private static void Postfix(WorldInventory inventory, Tag tag, ref List<Pickupable> __result)
+        {
+            if (__result == null || __result.Count <= 1) return;
+            HashSet<Pickupable> seen = new HashSet<Pickupable>();
+            for (int i = __result.Count - 1; i >= 0; i--)
+            {
+                Pickupable p = __result[i];
+                if (p == null || p.gameObject == null || !seen.Add(p))
+                {
+                    __result.RemoveAt(i);
+                }
             }
         }
     }
@@ -70,12 +111,7 @@ namespace OmniMod.Pool
             }
 
             bool isPocket = OmniPocketHabitat.IsPocketHabitatWorld(world);
-            if (includeRelatedWorlds && !isPocket)
-            {
-                return;
-            }
-
-            if (!isPocket && world.id != world.ParentWorldId)
+            if (includeRelatedWorlds)
             {
                 return;
             }

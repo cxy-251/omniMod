@@ -905,6 +905,7 @@ namespace OmniMod.Collection
                 return 0f;
             }
 
+            HashSet<int> countedWorlds = new HashSet<int>();
             float sum = 0f;
             for (int i = 0; i < Boxes.Count; i++)
             {
@@ -918,9 +919,12 @@ namespace OmniMod.Collection
                     (b.mode == GlobalItemCollector.CollectMode.Edibles && hasFood))
                 {
                     int boxWorld = b.GetMyWorldId();
-                    if (TryGetWorldBoxMass(boxWorld, tag, out float m))
+                    if (countedWorlds.Add(boxWorld))
                     {
-                        sum += m;
+                        if (TryGetWorldBoxMass(boxWorld, tag, out float m))
+                        {
+                            sum += m;
+                        }
                     }
                 }
             }
@@ -951,6 +955,7 @@ namespace OmniMod.Collection
                 return;
             }
 
+            HashSet<int> visitedWorlds = new HashSet<int>();
             List<Pickupable> extra = null;
             for (int i = 0; i < Boxes.Count; i++)
             {
@@ -964,15 +969,18 @@ namespace OmniMod.Collection
                     (b.mode == GlobalItemCollector.CollectMode.Edibles && hasFood))
                 {
                     int boxWorld = b.GetMyWorldId();
-                    if (TryGetWorldBoxPickupables(boxWorld, tag, out List<Pickupable> list) && list != null && list.Count > 0)
+                    if (visitedWorlds.Add(boxWorld))
                     {
-                        for (int k = 0; k < list.Count; k++)
+                        if (TryGetWorldBoxPickupables(boxWorld, tag, out List<Pickupable> list) && list != null && list.Count > 0)
                         {
-                            Pickupable p = list[k];
-                            if (p != null && p.gameObject != null && p.KPrefabID != null && !p.KPrefabID.HasTag(GameTags.StoredPrivate))
+                            for (int k = 0; k < list.Count; k++)
                             {
-                                if (extra == null) extra = new List<Pickupable>(list.Count);
-                                extra.Add(p);
+                                Pickupable p = list[k];
+                                if (p != null && p.gameObject != null && p.KPrefabID != null && !p.KPrefabID.HasTag(GameTags.StoredPrivate))
+                                {
+                                    if (extra == null) extra = new List<Pickupable>(list.Count);
+                                    extra.Add(p);
+                                }
                             }
                         }
                     }
