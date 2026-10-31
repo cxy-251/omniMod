@@ -129,6 +129,10 @@ namespace OmniMod.Collection
                 {
                     if (mode == CollectMode.Debris)
                     {
+                        if (_storage.items.Count > 100)
+                        {
+                            BulkBufferManager.ConsolidateChunksToPool(this, _storage);
+                        }
                         if (AggregateBoxRegistry.DiscreteHome == this)
                         {
                             DiscreteDemandManager.MigratePoolSeedsToHomeStorage(this, _storage);

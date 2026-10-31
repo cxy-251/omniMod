@@ -559,31 +559,6 @@ namespace OmniMod.Collection
                 }
             }
 
-            // 兜底直接检查本地聚合箱内 items（防止索引分片刷新延迟导致刚入库物品无法立即取用）
-            GlobalItemCollector localJunkBox = GetActiveBoxForWorld(worldId, GlobalItemCollector.CollectMode.Debris);
-            if (localJunkBox != null && localJunkBox.BoxStorage != null && localJunkBox.BoxStorage.items != null)
-            {
-                List<GameObject> items = localJunkBox.BoxStorage.items;
-                for (int i = 0; i < items.Count; i++)
-                {
-                    GameObject go = items[i];
-                    if (go == null) continue;
-                    Pickupable p = go.GetComponent<Pickupable>();
-                    if (p == null || p.KPrefabID == null || p.UnreservedFetchAmount <= 0f) continue;
-                    if (!SolidTransferArmRemotePickup.IsRemoteSource(p)) continue;
-                    if (p.storage != null)
-                    {
-                        if (p.storage == destination) continue;
-                        p.storage.allowItemRemoval = true;
-                        p.storage.ignoreSourcePriority = true;
-                    }
-                    if (FetchManager.IsFetchablePickup(p, chore, destination))
-                    {
-                        return p;
-                    }
-                }
-            }
-
             // 容错按需即时物化：如果箱内尚无该固体元素实体（如新炼成的浓缩铀尚未缓冲），直接从 OmniPool 即时物化
             if (!isCrossPlanetDiscrete)
             {
@@ -905,38 +880,26 @@ namespace OmniMod.Collection
         }
 
         /// <summary>
-        /// 判断指定聚合箱是否与目标世界位于同一个星球范围内（包含母星、生态巨舱及停靠火箭内部）。
-        /// 严格遵循用户架构规则：普通物品/杂物/种子/建材/食物仅限本星球内的箱子访问！绝不跨星！
+        /// 判定指定世界是否建有指定模式的生效聚合箱（或属于生态舱/火箭内部）。
+        /// 箱子只是入口，只要世界内建有箱子，该箱子即作为全星系共享池的访问入口（Portal）！
         /// </summary>
-        internal static bool IsBoxOnSamePlanet(GlobalItemCollector b, int worldId, int parentWorldId, bool isPocket)
+        internal static bool WorldHasAccessToSharedBox(int worldId, int parentWorldId, GlobalItemCollector.CollectMode mode, bool isPocket = false)
         {
-            if (b == null || b.gameObject == null || b.IsRedundant || b.BoxStorage == null) return false;
-            int boxWorld = b.GetMyWorldId();
-            if (boxWorld == worldId) return true;
-
-            if (isPocket || parentWorldId >= 0)
-            {
-                if (boxWorld == parentWorldId) return true;
-                if (OmniPocketHabitat.GetExteriorWorldId(boxWorld) == parentWorldId) return true;
-            }
-            else
-            {
-                if (OmniPocketHabitat.GetExteriorWorldId(boxWorld) == worldId) return true;
-            }
-
+            if (isPocket || WorldHasActiveBox(worldId, mode)) return true;
+            if (parentWorldId >= 0 && WorldHasActiveBox(parentWorldId, mode)) return true;
             return false;
         }
 
         /// <summary>
-        /// 供 WorldInventory.GetTotalAmount 补丁调用：统计本星球（包括本地箱、生态舱箱、所属母星箱）
-        /// 内所有生效聚合箱 Storage 中对应 tag 的存量，确保种植砖选种、建造栏统计 100% 准确感知箱内物品。
+        /// 供 WorldInventory.GetTotalAmount 补丁调用：
+        /// 箱子只是入口，所有箱子共享物品资源！
+        /// 只要本世界拥有对应箱子（或属于生态舱），即刻无缝接入全星系所有箱子及虚拟池存量。
+        /// 基于 O(1) 字典快照查询，绝对零线性扫描，彻底杜绝成千上万件物品引发的严重卡顿。
         /// </summary>
-        internal static float GetPlanetBoxMass(int worldId, int parentWorldId, Tag tag, bool isPocket = false)
+        internal static float GetSharedBoxMass(int worldId, int parentWorldId, Tag tag, bool isPocket = false)
         {
-            bool hasJunk = isPocket || WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Debris) ||
-                           (parentWorldId >= 0 && WorldHasActiveBox(parentWorldId, GlobalItemCollector.CollectMode.Debris));
-            bool hasFood = isPocket || WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Edibles) ||
-                           (parentWorldId >= 0 && WorldHasActiveBox(parentWorldId, GlobalItemCollector.CollectMode.Edibles));
+            bool hasJunk = WorldHasAccessToSharedBox(worldId, parentWorldId, GlobalItemCollector.CollectMode.Debris, isPocket);
+            bool hasFood = WorldHasAccessToSharedBox(worldId, parentWorldId, GlobalItemCollector.CollectMode.Edibles, isPocket);
             if (!hasJunk && !hasFood)
             {
                 return 0f;
@@ -946,38 +909,43 @@ namespace OmniMod.Collection
             for (int i = 0; i < Boxes.Count; i++)
             {
                 GlobalItemCollector b = Boxes[i];
-                if (!IsBoxOnSamePlanet(b, worldId, parentWorldId, isPocket))
+                if (b == null || b.gameObject == null || b.IsRedundant || b.BoxStorage == null)
                 {
                     continue;
                 }
-                int boxWorld = b.GetMyWorldId();
-                if (TryGetWorldBoxMass(boxWorld, tag, out float m))
+
+                if ((b.mode == GlobalItemCollector.CollectMode.Debris && hasJunk) ||
+                    (b.mode == GlobalItemCollector.CollectMode.Edibles && hasFood))
                 {
-                    sum += m;
-                }
-                else if (b.BoxStorage != null)
-                {
-                    sum += b.BoxStorage.GetAmountAvailable(tag);
+                    int boxWorld = b.GetMyWorldId();
+                    if (TryGetWorldBoxMass(boxWorld, tag, out float m))
+                    {
+                        sum += m;
+                    }
                 }
             }
             return sum;
         }
 
+        internal static float GetPlanetBoxMass(int worldId, int parentWorldId, Tag tag, bool isPocket = false)
+        {
+            return GetSharedBoxMass(worldId, parentWorldId, tag, isPocket);
+        }
+
         internal static float GetSharedRemoteBoxMass(int worldId, int parentWorldId, Tag tag, bool isPocket = false)
         {
-            return GetPlanetBoxMass(worldId, parentWorldId, tag, isPocket);
+            return GetSharedBoxMass(worldId, parentWorldId, tag, isPocket);
         }
 
         /// <summary>
-        /// 供 WorldInventory.GetPickupables 补丁调用：将本星球（包括本地箱、生态舱箱、所属母星箱）
-        /// 内所有生效聚合箱 Storage 匹配 tag 的 Pickupable 列表追加给本星球 WorldInventory。
+        /// 供 WorldInventory.GetPickupables 补丁调用：
+        /// 箱子只是入口，所有箱子共享物品资源！
+        /// 将全星系所有生效箱子中匹配 tag 的 Pickupable 列表合并呈现，基于 O(1) 索引字典，零线性扫描。
         /// </summary>
-        internal static void AppendPlanetBoxPickupables(int worldId, int parentWorldId, Tag tag, ref ICollection<Pickupable> result, bool isPocket = false)
+        internal static void AppendSharedBoxPickupables(int worldId, int parentWorldId, Tag tag, ref ICollection<Pickupable> result, bool isPocket = false)
         {
-            bool hasJunk = isPocket || WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Debris) ||
-                           (parentWorldId >= 0 && WorldHasActiveBox(parentWorldId, GlobalItemCollector.CollectMode.Debris));
-            bool hasFood = isPocket || WorldHasActiveBox(worldId, GlobalItemCollector.CollectMode.Edibles) ||
-                           (parentWorldId >= 0 && WorldHasActiveBox(parentWorldId, GlobalItemCollector.CollectMode.Edibles));
+            bool hasJunk = WorldHasAccessToSharedBox(worldId, parentWorldId, GlobalItemCollector.CollectMode.Debris, isPocket);
+            bool hasFood = WorldHasAccessToSharedBox(worldId, parentWorldId, GlobalItemCollector.CollectMode.Edibles, isPocket);
             if (!hasJunk && !hasFood)
             {
                 return;
@@ -987,35 +955,23 @@ namespace OmniMod.Collection
             for (int i = 0; i < Boxes.Count; i++)
             {
                 GlobalItemCollector b = Boxes[i];
-                if (!IsBoxOnSamePlanet(b, worldId, parentWorldId, isPocket))
+                if (b == null || b.gameObject == null || b.IsRedundant || b.BoxStorage == null)
                 {
                     continue;
                 }
-                int boxWorld = b.GetMyWorldId();
-                if (TryGetWorldBoxPickupables(boxWorld, tag, out List<Pickupable> list) && list != null && list.Count > 0)
+
+                if ((b.mode == GlobalItemCollector.CollectMode.Debris && hasJunk) ||
+                    (b.mode == GlobalItemCollector.CollectMode.Edibles && hasFood))
                 {
-                    for (int k = 0; k < list.Count; k++)
+                    int boxWorld = b.GetMyWorldId();
+                    if (TryGetWorldBoxPickupables(boxWorld, tag, out List<Pickupable> list) && list != null && list.Count > 0)
                     {
-                        Pickupable p = list[k];
-                        if (p != null && p.gameObject != null && p.KPrefabID != null && !p.KPrefabID.HasTag(GameTags.StoredPrivate))
+                        for (int k = 0; k < list.Count; k++)
                         {
-                            if (extra == null) extra = new List<Pickupable>(list.Count);
-                            extra.Add(p);
-                        }
-                    }
-                }
-                else if (b.BoxStorage != null && b.BoxStorage.items != null)
-                {
-                    List<GameObject> items = b.BoxStorage.items;
-                    for (int j = 0; j < items.Count; j++)
-                    {
-                        GameObject go = items[j];
-                        if (go != null && go.HasTag(tag))
-                        {
-                            Pickupable p = go.GetComponent<Pickupable>();
+                            Pickupable p = list[k];
                             if (p != null && p.gameObject != null && p.KPrefabID != null && !p.KPrefabID.HasTag(GameTags.StoredPrivate))
                             {
-                                if (extra == null) extra = new List<Pickupable>();
+                                if (extra == null) extra = new List<Pickupable>(list.Count);
                                 extra.Add(p);
                             }
                         }
@@ -1050,38 +1006,48 @@ namespace OmniMod.Collection
             result = combined;
         }
 
-        internal static void AppendSharedRemoteBoxPickupables(int worldId, int parentWorldId, Tag tag, ref ICollection<Pickupable> result, bool isPocket = false)
+        internal static void AppendPlanetBoxPickupables(int worldId, int parentWorldId, Tag tag, ref ICollection<Pickupable> result, bool isPocket = false)
         {
-            AppendPlanetBoxPickupables(worldId, parentWorldId, tag, ref result, isPocket);
+            AppendSharedBoxPickupables(worldId, parentWorldId, tag, ref result, isPocket);
         }
 
-        internal static bool HasPlanetItem(int worldId, int parentWorldId, Tag tag, bool isPocket = false)
+        internal static void AppendSharedRemoteBoxPickupables(int worldId, int parentWorldId, Tag tag, ref ICollection<Pickupable> result, bool isPocket = false)
+        {
+            AppendSharedBoxPickupables(worldId, parentWorldId, tag, ref result, isPocket);
+        }
+
+        internal static bool HasSharedItem(int worldId, int parentWorldId, Tag tag, bool isPocket = false)
         {
             if (OmniPool.Instance != null && (OmniPool.Instance.GetMassMatchingTag(tag) > 0f || OmniPool.Instance.GetSeedCount(tag) > 0))
             {
                 return true;
             }
 
+            bool hasJunk = WorldHasAccessToSharedBox(worldId, parentWorldId, GlobalItemCollector.CollectMode.Debris, isPocket);
+            bool hasFood = WorldHasAccessToSharedBox(worldId, parentWorldId, GlobalItemCollector.CollectMode.Edibles, isPocket);
+            if (!hasJunk && !hasFood) return false;
+
             for (int i = 0; i < Boxes.Count; i++)
             {
                 GlobalItemCollector b = Boxes[i];
-                if (!IsBoxOnSamePlanet(b, worldId, parentWorldId, isPocket))
+                if (b == null || b.gameObject == null || b.IsRedundant || b.BoxStorage == null) continue;
+                if ((b.mode == GlobalItemCollector.CollectMode.Debris && hasJunk) ||
+                    (b.mode == GlobalItemCollector.CollectMode.Edibles && hasFood))
                 {
-                    continue;
-                }
-
-                int boxWorld = b.GetMyWorldId();
-                if (TryGetWorldBoxMass(boxWorld, tag, out float mass) && mass > 0.001f)
-                {
-                    return true;
-                }
-                if (b.BoxStorage != null && b.BoxStorage.GetAmountAvailable(tag) > 0f)
-                {
-                    return true;
+                    int boxWorld = b.GetMyWorldId();
+                    if (TryGetWorldBoxMass(boxWorld, tag, out float mass) && mass > 0.001f)
+                    {
+                        return true;
+                    }
                 }
             }
 
             return false;
+        }
+
+        internal static bool HasPlanetItem(int worldId, int parentWorldId, Tag tag, bool isPocket = false)
+        {
+            return HasSharedItem(worldId, parentWorldId, tag, isPocket);
         }
 
         /// <summary>解析 IAssignableIdentity 所属小人/目标所在的 WorldId。</summary>
@@ -1117,10 +1083,10 @@ namespace OmniMod.Collection
         }
 
         /// <summary>
-        /// 按需将指定的单个离散物品（如被分配给 targetWorldId 仿生人的增幅块、或被分配给小人的衣物）
-        /// 立即调拨进 targetWorldId 星球的本地杂物箱，让该星球小人走去自己星球的杂物箱拾取安装。
+        /// 按需将指定的单个离散物品（如被分配给 targetWorldId 仿生人的增幅块、或被分配给小人的衣物、或食物/种子）
+        /// 立即调拨进 targetWorldId 星球的本地聚合箱，让该星球小人/机械手就地取用。
         /// </summary>
-        internal static bool TransferItemToWorldJunkBox(GameObject itemGo, int targetWorldId)
+        internal static bool TransferItemToWorldBox(GameObject itemGo, int targetWorldId, GlobalItemCollector.CollectMode mode)
         {
             if (itemGo == null || targetWorldId < 0 || targetWorldId == 255)
             {
@@ -1129,7 +1095,7 @@ namespace OmniMod.Collection
 
             bool isUpgrade = itemGo.GetComponent<BionicUpgradeComponent>() != null;
             GlobalItemCollector targetBox = isUpgrade
-                ? BionicUpgradeRegistry.GetDestinationBox(targetWorldId) : GetActiveJunkBoxForWorld(targetWorldId);
+                ? BionicUpgradeRegistry.GetDestinationBox(targetWorldId) : GetActiveBoxForWorld(targetWorldId, mode);
             if (targetBox == null || targetBox.BoxStorage == null)
             {
                 return false;
@@ -1164,7 +1130,7 @@ namespace OmniMod.Collection
             }
 
             int itemWorld = itemGo.GetMyWorldId();
-            if (WorldHasActiveJunkBox(itemWorld) || (isUpgrade && BionicUpgradeRegistry.IsDispatchSource(p)))
+            if (WorldHasActiveBox(itemWorld, mode) || (isUpgrade && BionicUpgradeRegistry.IsDispatchSource(p)))
             {
                 targetBox.BoxStorage.Store(itemGo, hide_popups: true);
                 MarkWorldDirty(itemWorld);
@@ -1176,10 +1142,16 @@ namespace OmniMod.Collection
             return false;
         }
 
+        internal static bool TransferItemToWorldJunkBox(GameObject itemGo, int targetWorldId)
+        {
+            return TransferItemToWorldBox(itemGo, targetWorldId, GlobalItemCollector.CollectMode.Debris);
+        }
+
         /// <summary>
         /// 按需确保 targetWorldId 星球的本地杂物箱中有至少 <paramref name="minUnreservedUnits"/> 个未预留的指定离散物品
         /// （如种植砖刚下单的 1 颗种子、孵化器下单的 1 枚蛋、仿生人需要的便携电池）。
-        /// 仅按实际需求从其它星球的杂物箱调拨所需个数，绝不均分剩余库存。
+        /// 仅按实际需求从 OmniPool 或其它星球的杂物箱调拨所需个数，绝不均分剩余库存。
+        /// 全程使用 O(1) 索引字典，杜绝任何全量线性扫描！
         /// </summary>
         internal static bool EnsureDiscreteTagInWorldJunkBox(Tag itemTag, Tag additionalRequiredTag, int targetWorldId, float minUnreservedUnits = 1f)
         {
@@ -1189,7 +1161,7 @@ namespace OmniMod.Collection
             }
 
             GlobalItemCollector targetBox = GetActiveJunkBoxForWorld(targetWorldId);
-            if (targetBox == null || targetBox.BoxStorage == null || targetBox.BoxStorage.items == null)
+            if (targetBox == null || targetBox.BoxStorage == null)
             {
                 return false;
             }
@@ -1197,20 +1169,19 @@ namespace OmniMod.Collection
             bool checkAdditional = additionalRequiredTag.IsValid && additionalRequiredTag != GameTags.Empty;
             float haveUnits = 0f;
 
-            List<GameObject> localItems = targetBox.BoxStorage.items;
-            for (int i = 0; i < localItems.Count; i++)
+            // 1. 先用 O(1) 快照检查本地是否已具备该 Tag
+            if (TryGetWorldBoxPickupables(targetWorldId, itemTag, out List<Pickupable> localList) && localList != null)
             {
-                GameObject go = localItems[i];
-                if (go == null)
+                for (int i = 0; i < localList.Count; i++)
                 {
-                    continue;
-                }
-                KPrefabID id = go.GetComponent<KPrefabID>();
-                Pickupable p = go.GetComponent<Pickupable>();
-                if (id != null && p != null && p.ReservedAmount <= 0f && id.HasTag(itemTag)
-                    && (!checkAdditional || id.HasTag(additionalRequiredTag)))
-                {
-                    haveUnits += p.PrimaryElement != null ? p.PrimaryElement.Units : p.TotalAmount;
+                    Pickupable p = localList[i];
+                    if (p != null && p.storage == targetBox.BoxStorage && p.UnreservedFetchAmount > 0f)
+                    {
+                        if (!checkAdditional || (p.KPrefabID != null && p.KPrefabID.HasTag(additionalRequiredTag)))
+                        {
+                            haveUnits += p.PrimaryElement != null ? p.PrimaryElement.Units : p.TotalAmount;
+                        }
+                    }
                 }
             }
 
@@ -1219,65 +1190,86 @@ namespace OmniMod.Collection
                 return true;
             }
 
+            // 2. 检查 OmniPool 中是否有种子存量，若有直接从 OmniPool 按需即时物化！
+            if (OmniPool.Instance != null && OmniPool.Instance.GetSeedCount(itemTag) > 0)
+            {
+                int need = Mathf.CeilToInt(minUnreservedUnits - haveUnits);
+                int poolSeeds = OmniPool.Instance.GetSeedCount(itemTag);
+                int take = Mathf.Min(need, poolSeeds);
+                if (take > 0 && OmniPool.Instance.RemoveSeed(itemTag, take))
+                {
+                    GameObject prefab = Assets.TryGetPrefab(itemTag);
+                    if (prefab != null)
+                    {
+                        GameObject inst = GameUtil.KInstantiate(prefab, targetBox.transform.GetPosition(), Grid.SceneLayer.Ore);
+                        inst.SetActive(true);
+                        PrimaryElement pe = inst.GetComponent<PrimaryElement>();
+                        if (pe != null && take > 1) pe.Units = take;
+                        targetBox.BoxStorage.Store(inst, hide_popups: true);
+                        haveUnits += take;
+                        MarkWorldDirty(targetWorldId);
+                        RefreshWorldBoxItems(targetWorldId);
+                    }
+                }
+            }
+
+            if (haveUnits >= minUnreservedUnits)
+            {
+                return true;
+            }
+
+            // 3. 从其它星球的聚合箱调拨（使用 O(1) 标签索引匹配，杜绝线性全量遍历！）
             bool transferredAny = false;
             for (int bIdx = 0; bIdx < Boxes.Count && haveUnits < minUnreservedUnits; bIdx++)
             {
                 GlobalItemCollector donor = Boxes[bIdx];
                 if (donor == null || donor == targetBox || donor.gameObject == null || donor.IsRedundant
-                    || donor.mode != GlobalItemCollector.CollectMode.Debris || donor.BoxStorage == null || donor.BoxStorage.items == null)
+                    || donor.mode != GlobalItemCollector.CollectMode.Debris || donor.BoxStorage == null)
                 {
                     continue;
                 }
 
-                List<GameObject> donorItems = donor.BoxStorage.items;
-                for (int i = donorItems.Count - 1; i >= 0 && haveUnits < minUnreservedUnits; i--)
+                int donorWorld = donor.GetMyWorldId();
+                if (TryGetWorldBoxPickupables(donorWorld, itemTag, out List<Pickupable> donorPickups) && donorPickups != null)
                 {
-                    GameObject go = donorItems[i];
-                    if (go == null || !GlobalItemCollector.IsDiscreteManaged(go))
+                    for (int i = donorPickups.Count - 1; i >= 0 && haveUnits < minUnreservedUnits; i--)
                     {
-                        continue;
-                    }
-                    KPrefabID id = go.GetComponent<KPrefabID>();
-                    Pickupable p = go.GetComponent<Pickupable>();
-                    if (id == null || p == null || p.ReservedAmount > 0f || id.HasTag(GameTags.StoredPrivate))
-                    {
-                        continue;
-                    }
-                    if (!id.HasTag(itemTag) || (checkAdditional && !id.HasTag(additionalRequiredTag)))
-                    {
-                        continue;
-                    }
+                        Pickupable p = donorPickups[i];
+                        if (p == null || p.gameObject == null || p.storage != donor.BoxStorage || p.ReservedAmount > 0f) continue;
+                        if (!GlobalItemCollector.IsDiscreteManaged(p.gameObject)) continue;
+                        if (checkAdditional && (p.KPrefabID == null || !p.KPrefabID.HasTag(additionalRequiredTag))) continue;
 
-                    // 跳过已分配给其它星球小人的专属物品
-                    Assignable assignable = go.GetComponent<Assignable>();
-                    if (assignable != null && assignable.IsAssigned() && GetAssigneeWorldId(assignable.assignee) != targetWorldId)
-                    {
-                        continue;
-                    }
-
-                    float needNow = Mathf.Ceil(minUnreservedUnits - haveUnits);
-                    float itemUnits = p.PrimaryElement != null ? p.PrimaryElement.Units : 1f;
-                    if (p.PrimaryElement != null && itemUnits > needNow && needNow >= 1f)
-                    {
-                        Pickupable split = p.TakeUnit(needNow);
-                        if (split != null)
+                        Assignable assignable = p.GetComponent<Assignable>();
+                        if (assignable != null && assignable.IsAssigned() && GetAssigneeWorldId(assignable.assignee) != targetWorldId)
                         {
-                            targetBox.BoxStorage.Store(split.gameObject, hide_popups: true);
-                            haveUnits += needNow;
+                            continue;
+                        }
+
+                        float needNow = Mathf.Ceil(minUnreservedUnits - haveUnits);
+                        float itemUnits = p.PrimaryElement != null ? p.PrimaryElement.Units : 1f;
+                        if (p.PrimaryElement != null && itemUnits > needNow && needNow >= 1f)
+                        {
+                            Pickupable split = p.TakeUnit(needNow);
+                            if (split != null)
+                            {
+                                targetBox.BoxStorage.Store(split.gameObject, hide_popups: true);
+                                haveUnits += needNow;
+                                transferredAny = true;
+                            }
+                        }
+                        else
+                        {
+                            donor.BoxStorage.Transfer(p.gameObject, targetBox.BoxStorage, block_events: false, hide_popups: true);
+                            haveUnits += itemUnits;
                             transferredAny = true;
                         }
-                    }
-                    else
-                    {
-                        donor.BoxStorage.Transfer(go, targetBox.BoxStorage, block_events: false, hide_popups: true);
-                        haveUnits += itemUnits;
-                        transferredAny = true;
                     }
                 }
             }
 
             if (transferredAny)
             {
+                MarkWorldDirty(targetWorldId);
                 RefreshWorldBoxItems(targetWorldId);
             }
             return haveUnits > 0f;

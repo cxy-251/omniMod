@@ -51,21 +51,53 @@ namespace OmniMod.Collection
 
             ExceptionShield.Execute("BulkBufferManager.MigrateOwnStorage", () =>
             {
-                for (int i = storage.items.Count - 1; i >= 0; i--)
-                {
-                    GameObject go = storage.items[i];
-                    if (go == null) continue;
-
-                    Pickupable p = go.GetComponent<Pickupable>();
-                    if (p != null && !LivingThingsSafety.IsLivingThing(go) && IsBulkSolidElementChunk(p))
-                    {
-                        PrimaryElement pe = p.PrimaryElement;
-                        OmniPool.Instance.AddSolid(pe.ElementID, pe.Mass, pe.Temperature);
-                        storage.Remove(go);
-                        Util.KDestroyGameObject(go);
-                    }
-                }
+                ConsolidateChunksToPool(collector, storage);
             });
+        }
+
+        /// <summary>
+        /// 维护每个元素仅保留最多 1 个缓冲 Chunk，多余散装碎片全部吸收回 OmniPool，
+        /// 彻底防止数千个碎片堆积导致 Unity 容器迭代百毫秒卡顿！
+        /// </summary>
+        public static void ConsolidateChunksToPool(GlobalItemCollector collector, Storage storage)
+        {
+            if (collector.mode != GlobalItemCollector.CollectMode.Debris || OmniPool.Instance == null || storage == null || storage.items == null)
+            {
+                return;
+            }
+
+            Dictionary<SimHashes, PrimaryElement> keptChunks = new Dictionary<SimHashes, PrimaryElement>(64);
+            bool changed = false;
+
+            for (int i = storage.items.Count - 1; i >= 0; i--)
+            {
+                GameObject go = storage.items[i];
+                if (go == null) continue;
+
+                Pickupable p = go.GetComponent<Pickupable>();
+                if (p == null || !IsBulkSolidElementChunk(p) || p.ReservedAmount > 0.001f) continue;
+
+                PrimaryElement pe = p.PrimaryElement;
+                if (pe == null) continue;
+
+                if (!keptChunks.TryGetValue(pe.ElementID, out PrimaryElement mainChunk))
+                {
+                    keptChunks[pe.ElementID] = pe;
+                }
+                else
+                {
+                    OmniPool.Instance.AddSolid(pe.ElementID, pe.Mass, pe.Temperature);
+                    storage.items.RemoveAt(i);
+                    p.storage = null;
+                    Util.KDestroyGameObject(go);
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                StorageBatchHelper.PublishChanges(storage, increased: false);
+            }
         }
 
         public static void RestockFromPool(GlobalItemCollector collector, Storage storage, TreeFilterable treeFilterable)

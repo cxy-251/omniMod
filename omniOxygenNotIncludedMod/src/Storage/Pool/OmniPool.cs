@@ -202,7 +202,32 @@ namespace OmniMod.Pool
 
         public int GetSeedCount(Tag tag)
         {
-            return _seeds.TryGetValue(tag, out int c) ? c : 0;
+            if (!tag.IsValid) return 0;
+            if (_seeds.TryGetValue(tag, out int c)) return c;
+
+            // 若请求的是分类大标签（如 GameTags.Seed / GameTags.CropSeed），汇总所有种子总数
+            if (tag == GameTags.Seed || tag == GameTags.CropSeed)
+            {
+                int total = 0;
+                foreach (KeyValuePair<Tag, int> pair in _seeds)
+                {
+                    total += pair.Value;
+                }
+                return total;
+            }
+
+            int matching = 0;
+            foreach (KeyValuePair<Tag, int> pair in _seeds)
+            {
+                if (pair.Value <= 0) continue;
+                GameObject prefab = Assets.TryGetPrefab(pair.Key);
+                KPrefabID id = prefab != null ? prefab.GetComponent<KPrefabID>() : null;
+                if (id != null && id.HasTag(tag))
+                {
+                    matching += pair.Value;
+                }
+            }
+            return matching;
         }
 
         public IEnumerable<KeyValuePair<Tag, int>> EnumerateSeeds()

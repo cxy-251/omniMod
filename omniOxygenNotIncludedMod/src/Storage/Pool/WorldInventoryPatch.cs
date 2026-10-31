@@ -33,8 +33,7 @@ namespace OmniMod.Pool
                 return;
             }
 
-            bool hasAccess = isPocket || AggregateBoxRegistry.WorldHasActiveJunkBox(world.id) ||
-                             (effectiveParentWorld >= 0 && AggregateBoxRegistry.WorldHasActiveJunkBox(effectiveParentWorld));
+            bool hasAccess = AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParentWorld, GlobalItemCollector.CollectMode.Debris, isPocket);
 
             if (OmniPool.Instance != null && hasAccess)
             {

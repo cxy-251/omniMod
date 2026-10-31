@@ -147,26 +147,12 @@ namespace OmniMod.Collection
                     AggregateBoxRegistry.EnsureDiscreteTagInWorldJunkBox(GameTags.ChargedPortableBattery, Tag.Invalid, myWorld, 2f);
                 }
 
-                // 3. 响应本世界活跃 FetchChore
+                // 3. 响应本世界活跃 FetchChore（按需调拨离散物资）
                 List<FetchChore> chores = null;
                 if (GlobalChoreProvider.Instance == null ||
                     (!GlobalChoreProvider.Instance.fetchMap.TryGetValue(myWorld, out chores) &&
                      (myParentWorld < 0 || !GlobalChoreProvider.Instance.fetchMap.TryGetValue(myParentWorld, out chores))) ||
                     chores == null)
-                {
-                    return;
-                }
-
-                GlobalItemCollector donor = null;
-                if (myParentWorld >= 0 && myParentWorld != myWorld)
-                {
-                    donor = AggregateBoxRegistry.GetActiveJunkBoxForWorld(myParentWorld);
-                }
-                if (donor == null)
-                {
-                    donor = AggregateBoxRegistry.DiscreteHome;
-                }
-                if (donor == null || donor == collector || donor.BoxStorage == null || donor.BoxStorage.items == null)
                 {
                     return;
                 }
@@ -183,67 +169,34 @@ namespace OmniMod.Collection
                         continue;
                     }
 
-                    if (fc.criteria == FetchChore.MatchCriteria.MatchID && fc.tags != null)
+                    Tag targetTag = fc.tagsFirst.IsValid ? fc.tagsFirst : (fc.requiredTag.IsValid ? fc.requiredTag : Tag.Invalid);
+                    if (!targetTag.IsValid && fc.tags != null && fc.tags.Count > 0)
                     {
-                        bool isBulk = false;
                         foreach (Tag t in fc.tags)
                         {
-                            Element elem = ElementLoader.FindElementByHash(ElementLoader.GetElementID(t));
-                            if (elem != null && elem.IsSolid)
-                            {
-                                isBulk = true;
-                                break;
-                            }
-                        }
-                        if (isBulk) continue;
-                    }
-
-                    bool alreadyHave = false;
-                    for (int i = 0; i < storage.items.Count; i++)
-                    {
-                        GameObject localGo = storage.items[i];
-                        Pickupable localP = localGo != null ? localGo.GetComponent<Pickupable>() : null;
-                        if (localP != null && localP.UnreservedFetchAmount > 0f && FetchManager.IsFetchablePickup(localP, fc, fc.destination))
-                        {
-                            alreadyHave = true;
+                            targetTag = t;
                             break;
                         }
                     }
-                    if (alreadyHave) continue;
+                    if (!targetTag.IsValid || targetTag == GameTags.Empty) continue;
 
-                    List<GameObject> donorItems = donor.BoxStorage.items;
-                    for (int i = donorItems.Count - 1; i >= 0; i--)
+                    Element elem = ElementLoader.FindElementByHash(ElementLoader.GetElementID(targetTag));
+                    if (elem != null && elem.IsSolid) continue; // 散装矿石建材由 BulkBufferManager 管理，不走离散调拨
+
+                    // 检查本地箱是否已有该物资（O(1) 字典快速判定，绝不全量线性扫描）
+                    if (AggregateBoxRegistry.TryGetWorldBoxMass(myWorld, targetTag, out float localMass) && localMass > 0.001f)
                     {
-                        GameObject go = donorItems[i];
-                        if (go == null || !IsDiscreteManaged(go)) continue;
-
-                        Pickupable p = go.GetComponent<Pickupable>();
-                        if (p == null || p.ReservedAmount > 0f || p.UnreservedFetchAmount <= 0f) continue;
-
-                        Assignable assignable = go.GetComponent<Assignable>();
-                        if (assignable != null && assignable.IsAssigned() && AggregateBoxRegistry.GetAssigneeWorldId(assignable.assignee) != myWorld)
-                        {
-                            continue;
-                        }
-                        if (!FetchManager.IsFetchablePickup(p, fc, fc.destination)) continue;
-
-                        PrimaryElement pe = p.PrimaryElement;
-                        float massPerUnit = pe != null && pe.MassPerUnit > 0f ? pe.MassPerUnit : 1f;
-                        float unitsNeeded = Mathf.Max(1f, Mathf.Ceil(fc.amount / massPerUnit));
-                        if (pe != null && pe.Units > unitsNeeded)
-                        {
-                            Pickupable split = p.TakeUnit(unitsNeeded);
-                            if (split != null)
-                            {
-                                storage.Store(split.gameObject, hide_popups: true);
-                            }
-                        }
-                        else
-                        {
-                            donor.BoxStorage.Transfer(go, storage, block_events: false, hide_popups: true);
-                        }
-                        break;
+                        continue;
                     }
+
+                    // 检查所属母星箱是否有
+                    if (myParentWorld >= 0 && AggregateBoxRegistry.TryGetWorldBoxMass(myParentWorld, targetTag, out float parentMass) && parentMass > 0.001f)
+                    {
+                        continue;
+                    }
+
+                    // 按需调拨该离散物资至本地杂物箱
+                    AggregateBoxRegistry.EnsureDiscreteTagInWorldJunkBox(targetTag, Tag.Invalid, myWorld, 1f);
                 }
             });
         }

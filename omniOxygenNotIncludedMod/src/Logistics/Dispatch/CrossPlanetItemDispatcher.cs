@@ -158,10 +158,21 @@ namespace OmniMod.Logistics.Dispatch
                 }
 
                 int worldId = __instance.GetMyWorldId();
-                if (worldId >= 0 && worldId != 255 && AggregateBoxRegistry.WorldHasActiveJunkBox(worldId))
+                bool isPocket = OmniMod.Buildings.OmniPocketHabitat.IsPocketHabitatWorld(worldId);
+                int targetWorld = worldId;
+                if (!AggregateBoxRegistry.WorldHasActiveJunkBox(targetWorld) && isPocket)
+                {
+                    int parentId = OmniMod.Buildings.OmniPocketHabitat.GetExteriorWorldId(worldId);
+                    if (AggregateBoxRegistry.WorldHasActiveJunkBox(parentId))
+                    {
+                        targetWorld = parentId;
+                    }
+                }
+
+                if (targetWorld >= 0 && targetWorld != 255 && AggregateBoxRegistry.WorldHasActiveJunkBox(targetWorld))
                 {
                     float needed = Mathf.Max(1f, MaterialNeeds.GetAmount(entityTag, worldId, includeRelatedWorlds: false));
-                    AggregateBoxRegistry.EnsureDiscreteTagInWorldJunkBox(entityTag, additionalFilterTag, worldId, needed);
+                    AggregateBoxRegistry.EnsureDiscreteTagInWorldJunkBox(entityTag, additionalFilterTag, targetWorld, needed);
                 }
             });
         }

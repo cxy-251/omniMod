@@ -433,10 +433,19 @@ namespace OmniMod.Logistics.RemoteFetch
             }
 
             // =========================================================================
-            // 普通物品 / 杂物 / 种子 / 建材 / 食物：严格遵循用户规则，仅限取星球内的箱子！绝不跨星！
+            // 普通物品 / 杂物 / 种子 / 建材 / 食物：
+            // 箱子是入口，所有箱子共享资源！
+            // 机械手通过本世界的箱子入口取物（若本世界无箱子，则无权访问共享池）
             // =========================================================================
+            bool hasAccess = AggregateBoxRegistry.WorldHasAccessToSharedBox(world, parentWorld, GlobalItemCollector.CollectMode.Debris, isPocket: parentWorld >= 0) ||
+                             AggregateBoxRegistry.WorldHasAccessToSharedBox(world, parentWorld, GlobalItemCollector.CollectMode.Edibles, isPocket: parentWorld >= 0);
+            if (!hasAccess)
+            {
+                RecordFailure(chore);
+                return null;
+            }
 
-            // 1. 本世界聚合箱（舱内聚合箱，或本星球表面聚合箱）
+            // 1. 优先从本世界聚合箱取用
             Pickupable matched = AggregateBoxRegistry.FindMatchInWorldBox(world, chore, destination);
             if (matched != null)
             {
@@ -477,6 +486,25 @@ namespace OmniMod.Logistics.RemoteFetch
                     {
                         return matched;
                     }
+                }
+            }
+
+            // 1.3 若本世界箱内未直接命中实体（例如种子存在于其它星球的箱子入口中）：
+            // 因为所有箱子共享资源，将该物品通过箱子入口瞬移至本地箱子，供机械手就地取用！
+            for (int b = 0; b < AggregateBoxRegistry.BoxesCount; b++)
+            {
+                GlobalItemCollector box = AggregateBoxRegistry.GetBox(b);
+                if (box == null || box.BoxStorage == null || box.IsRedundant) continue;
+                int bw = box.GetMyWorldId();
+                if (bw == world || bw == parentWorld) continue;
+
+                Pickupable remoteMatch = AggregateBoxRegistry.FindMatchInWorldBox(bw, chore, destination, isCrossPlanetDiscrete: true);
+                if (remoteMatch != null)
+                {
+                    GlobalItemCollector.CollectMode m = (remoteMatch.GetComponent<Edible>() != null || (remoteMatch.KPrefabID != null && remoteMatch.KPrefabID.HasTag(GameTags.Edible)))
+                        ? GlobalItemCollector.CollectMode.Edibles : GlobalItemCollector.CollectMode.Debris;
+                    AggregateBoxRegistry.TransferItemToWorldBox(remoteMatch.gameObject, world, m);
+                    return remoteMatch;
                 }
             }
 

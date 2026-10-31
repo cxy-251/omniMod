@@ -140,12 +140,6 @@ namespace OmniMod.Machinery.Farming
                 return;
             }
 
-            FetchChore fetchChore = __instance.GetActiveRequest;
-            if (fetchChore == null || fetchChore.tags == null)
-            {
-                return;
-            }
-
             StatusItem noneAvailable = Db.Get()?.BuildingStatusItems?.NoAvailableSeed;
             StatusItem awaiting = Db.Get()?.BuildingStatusItems?.AwaitingSeedDelivery;
 
@@ -156,12 +150,25 @@ namespace OmniMod.Machinery.Farming
                 int parentWorldId = isPocket ? OmniMod.Buildings.OmniPocketHabitat.GetExteriorWorldId(worldId) : -1;
 
                 bool hasSeed = false;
-                foreach (Tag tag in fetchChore.tags)
+                Tag req = __instance.requestedEntityTag;
+                if (req.IsValid && req != GameTags.Empty)
                 {
-                    if (AggregateBoxRegistry.HasPlanetItem(worldId, parentWorldId, tag, isPocket))
+                    if (AggregateBoxRegistry.HasColonyItem(req) || AggregateBoxRegistry.HasSharedItem(worldId, parentWorldId, req, isPocket))
                     {
                         hasSeed = true;
-                        break;
+                    }
+                }
+
+                FetchChore fetchChore = __instance.GetActiveRequest;
+                if (!hasSeed && fetchChore != null && fetchChore.tags != null)
+                {
+                    foreach (Tag tag in fetchChore.tags)
+                    {
+                        if (AggregateBoxRegistry.HasColonyItem(tag) || AggregateBoxRegistry.HasSharedItem(worldId, parentWorldId, tag, isPocket))
+                        {
+                            hasSeed = true;
+                            break;
+                        }
                     }
                 }
 
