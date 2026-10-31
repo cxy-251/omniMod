@@ -1174,13 +1174,21 @@ namespace OmniMod.Buildings
                 return;
             }
 
-            // 1. 清理 TrackerTool 中的世界追踪器，防止每帧轮询更新生态舱无用追踪数据
+            // 1. 清理 TrackerTool 中的高负载世界追踪器，仅保留 StressTracker 和 KCalTracker 支撑顶部 HUD（防止报空引用）
             if (TrackerTool.Instance != null)
             {
                 List<WorldTracker> trackers = WorldTrackersRef(TrackerTool.Instance);
                 if (trackers != null)
                 {
-                    trackers.RemoveAll(t => t != null && t.WorldID == worldId);
+                    trackers.RemoveAll(t => t != null && t.WorldID == worldId && !(t is StressTracker) && !(t is KCalTracker));
+                    if (TrackerTool.Instance.GetWorldTracker<StressTracker>(worldId) == null)
+                    {
+                        trackers.Add(new StressTracker(worldId));
+                    }
+                    if (TrackerTool.Instance.GetWorldTracker<KCalTracker>(worldId) == null)
+                    {
+                        trackers.Add(new KCalTracker(worldId));
+                    }
                     UpdatingWorldTrackerRef(TrackerTool.Instance) = 0;
                 }
             }
@@ -1419,10 +1427,90 @@ namespace OmniMod.Buildings
         [HarmonyPatch(typeof(TrackerTool), "AddNewWorldTrackers")]
         public static class TrackerTool_AddNewWorldTrackers_Patch
         {
-            public static bool Prefix(int worldID)
+            public static bool Prefix(TrackerTool __instance, int worldID)
             {
                 if (IsPocketHabitatWorld(worldID))
                 {
+                    // 仅保留 StressTracker 和 KCalTracker 支撑顶部 HUD，杜绝 NullReferenceException；
+                    // 彻底跳过后续 500+ 个高消耗资源追踪器
+                    List<WorldTracker> trackers = WorldTrackersRef(__instance);
+                    if (trackers != null)
+                    {
+                        if (__instance.GetWorldTracker<StressTracker>(worldID) == null)
+                        {
+                            trackers.Add(new StressTracker(worldID));
+                        }
+                        if (__instance.GetWorldTracker<KCalTracker>(worldID) == null)
+                        {
+                            trackers.Add(new KCalTracker(worldID));
+                        }
+                    }
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(MeterScreen_Stress), "InternalRefresh")]
+        public static class MeterScreen_Stress_InternalRefresh_Patch
+        {
+            public static bool Prefix(MeterScreen_Stress __instance)
+            {
+                int activeWorldId = ClusterManager.Instance.activeWorldId;
+                if (IsPocketHabitatWorld(activeWorldId))
+                {
+                    int parentId = OmniPocketHabitat.GetExteriorWorldId(activeWorldId);
+                    if (parentId < 0) parentId = 0;
+                    float maxStress = GameUtil.GetMaxStressInActiveWorld();
+                    __instance.Label?.SetText(Mathf.Round(maxStress).ToString());
+                    WorldTracker worldTracker = TrackerTool.Instance?.GetWorldTracker<StressTracker>(activeWorldId)
+                        ?? TrackerTool.Instance?.GetWorldTracker<StressTracker>(parentId);
+                    if (worldTracker != null && __instance.diagnosticGraph != null)
+                    {
+                        SparkLayer spark = __instance.diagnosticGraph.GetComponentInChildren<SparkLayer>();
+                        if (spark != null)
+                        {
+                            spark.SetColor((worldTracker.GetCurrentValue() >= TUNING.STRESS.ACTING_OUT_RESET)
+                                ? Constants.NEGATIVE_COLOR : Constants.NEUTRAL_COLOR);
+                        }
+                        LineLayer line = __instance.diagnosticGraph.GetComponentInChildren<LineLayer>();
+                        if (line != null)
+                        {
+                            line.RefreshLine(worldTracker.ChartableData(600f), "stressData");
+                        }
+                    }
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(MeterScreen_Rations), "InternalRefresh")]
+        public static class MeterScreen_Rations_InternalRefresh_Patch
+        {
+            public static bool Prefix(MeterScreen_Rations __instance)
+            {
+                int activeWorldId = ClusterManager.Instance.activeWorldId;
+                if (IsPocketHabitatWorld(activeWorldId))
+                {
+                    int parentId = OmniPocketHabitat.GetExteriorWorldId(activeWorldId);
+                    if (parentId < 0) parentId = 0;
+                    WorldContainer parentWorld = ClusterManager.Instance?.GetWorld(parentId);
+                    if (__instance.Label != null && WorldResourceAmountTracker<RationTracker>.Get() != null && parentWorld != null)
+                    {
+                        long num = (long)WorldResourceAmountTracker<RationTracker>.Get().CountAmount(null, parentWorld.worldInventory);
+                        __instance.Label.SetText(GameUtil.GetFormattedCalories(num));
+                    }
+                    WorldTracker worldTracker = TrackerTool.Instance?.GetWorldTracker<KCalTracker>(activeWorldId)
+                        ?? TrackerTool.Instance?.GetWorldTracker<KCalTracker>(parentId);
+                    if (worldTracker != null && __instance.diagnosticGraph != null)
+                    {
+                        LineLayer line = __instance.diagnosticGraph.GetComponentInChildren<LineLayer>();
+                        if (line != null)
+                        {
+                            line.RefreshLine(worldTracker.ChartableData(600f), "kcal");
+                        }
+                    }
                     return false;
                 }
                 return true;
