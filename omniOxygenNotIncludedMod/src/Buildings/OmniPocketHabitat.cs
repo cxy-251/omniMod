@@ -1185,13 +1185,14 @@ namespace OmniMod.Buildings
                 }
             }
 
-            // 2. 彻底注销并移除调度器中的所有诊断实例，从根源消除每4秒主线程全图卡顿
+            // 2. 彻底注销并移除调度器中的所有诊断实例，保持 worldDiagnostics 为纯空列表
+            // （绝不能删除字典 key，否则外部 UI 如 ColonyDiagnosticScreen 会因缺少 key 抛出 KeyNotFoundException）
             if (ColonyDiagnosticUtility.Instance != null)
             {
                 Dictionary<int, List<ColonyDiagnostic>> worldDiagnostics = WorldDiagnosticsRef(ColonyDiagnosticUtility.Instance);
-                if (worldDiagnostics != null && worldDiagnostics.TryGetValue(worldId, out List<ColonyDiagnostic> diags))
+                if (worldDiagnostics != null)
                 {
-                    if (diags != null)
+                    if (worldDiagnostics.TryGetValue(worldId, out List<ColonyDiagnostic> diags) && diags != null)
                     {
                         foreach (ColonyDiagnostic diag in diags)
                         {
@@ -1201,11 +1202,22 @@ namespace OmniMod.Buildings
                             }
                         }
                     }
-                    worldDiagnostics.Remove(worldId);
+                    worldDiagnostics[worldId] = new List<ColonyDiagnostic>();
                 }
 
-                ColonyDiagnosticUtility.Instance.diagnosticDisplaySettings?.Remove(worldId);
-                ColonyDiagnosticUtility.Instance.diagnosticCriteriaDisabled?.Remove(worldId);
+                if (ColonyDiagnosticUtility.Instance.diagnosticDisplaySettings != null &&
+                    !ColonyDiagnosticUtility.Instance.diagnosticDisplaySettings.ContainsKey(worldId))
+                {
+                    ColonyDiagnosticUtility.Instance.diagnosticDisplaySettings[worldId] =
+                        new Dictionary<string, ColonyDiagnosticUtility.DisplaySetting>();
+                }
+
+                if (ColonyDiagnosticUtility.Instance.diagnosticCriteriaDisabled != null &&
+                    !ColonyDiagnosticUtility.Instance.diagnosticCriteriaDisabled.ContainsKey(worldId))
+                {
+                    ColonyDiagnosticUtility.Instance.diagnosticCriteriaDisabled[worldId] =
+                        new Dictionary<string, List<string>>();
+                }
             }
         }
 
@@ -1246,6 +1258,7 @@ namespace OmniMod.Buildings
             {
                 if (IsPocketHabitatWorld(worldID))
                 {
+                    PurgePocketWorldDiagnostics(worldID);
                     return false;
                 }
                 return true;
@@ -1259,6 +1272,7 @@ namespace OmniMod.Buildings
             {
                 if (IsPocketHabitatWorld(worldID))
                 {
+                    PurgePocketWorldDiagnostics(worldID);
                     __result = ColonyDiagnostic.DiagnosticResult.Opinion.Normal;
                     return false;
                 }
@@ -1273,6 +1287,7 @@ namespace OmniMod.Buildings
             {
                 if (IsPocketHabitatWorld(worldID))
                 {
+                    PurgePocketWorldDiagnostics(worldID);
                     __result = string.Empty;
                     return false;
                 }
@@ -1287,6 +1302,7 @@ namespace OmniMod.Buildings
             {
                 if (IsPocketHabitatWorld(worldID))
                 {
+                    PurgePocketWorldDiagnostics(worldID);
                     __result = string.Empty;
                     return false;
                 }
@@ -1301,6 +1317,7 @@ namespace OmniMod.Buildings
             {
                 if (IsPocketHabitatWorld(worldID))
                 {
+                    PurgePocketWorldDiagnostics(worldID);
                     __result = null;
                     return false;
                 }
@@ -1315,6 +1332,7 @@ namespace OmniMod.Buildings
             {
                 if (IsPocketHabitatWorld(worldID))
                 {
+                    PurgePocketWorldDiagnostics(worldID);
                     __result = false;
                     return false;
                 }
@@ -1329,6 +1347,7 @@ namespace OmniMod.Buildings
             {
                 if (IsPocketHabitatWorld(worldID))
                 {
+                    PurgePocketWorldDiagnostics(worldID);
                     return false;
                 }
                 return true;
@@ -1342,6 +1361,7 @@ namespace OmniMod.Buildings
             {
                 if (IsPocketHabitatWorld(worldID))
                 {
+                    PurgePocketWorldDiagnostics(worldID);
                     __result = null;
                     return false;
                 }
@@ -1356,7 +1376,40 @@ namespace OmniMod.Buildings
             {
                 if (IsPocketHabitatWorld(worldID))
                 {
+                    PurgePocketWorldDiagnostics(worldID);
                     __result = null;
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(ColonyDiagnosticScreen), "OnSpawn")]
+        public static class ColonyDiagnosticScreen_OnSpawn_Patch
+        {
+            public static void Prefix()
+            {
+                if (ClusterManager.Instance != null && ColonyDiagnosticUtility.Instance != null)
+                {
+                    foreach (WorldContainer world in ClusterManager.Instance.WorldContainers)
+                    {
+                        if (world != null && IsPocketHabitatWorld(world.id))
+                        {
+                            PurgePocketWorldDiagnostics(world.id);
+                        }
+                    }
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(ColonyDiagnosticScreen), "SpawnTrackerLines")]
+        public static class ColonyDiagnosticScreen_SpawnTrackerLines_Patch
+        {
+            public static bool Prefix(int world)
+            {
+                if (IsPocketHabitatWorld(world))
+                {
+                    PurgePocketWorldDiagnostics(world);
                     return false;
                 }
                 return true;
