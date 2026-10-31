@@ -290,10 +290,9 @@ namespace OmniMod.Buildings
         {
             try
             {
-                Vector2I size = TUNING.ROCKETRY.ROCKET_INTERIOR_SIZE;
-                if (!Grid.GetFreeGridSpace(size, out Vector2I offset))
+                if (!OmniPocketSpaceManager.TryAllocatePocketSpace(out Vector2I size, out Vector2I offset))
                 {
-                    ModLog.Warn("[折叠生态舱] 创建内部空间失败：底层网格空间不足。");
+                    ModLog.Warn("[折叠生态舱] 创建内部空间失败：星系底层网格空间已彻底耗尽。");
                     return;
                 }
 
@@ -342,7 +341,8 @@ namespace OmniMod.Buildings
             }
 
             isStampingTemplate = true;
-            world.PlaceInteriorTemplate(OmniPocketTemplate.TemplateName, OnTemplateStamped);
+            string templateName = OmniPocketTemplate.GetTemplateNameForSize(world.WorldSize);
+            world.PlaceInteriorTemplate(templateName, OnTemplateStamped);
             ConfigurePocketWorldZoneAndSunlight(world);
         }
 
@@ -709,6 +709,7 @@ namespace OmniMod.Buildings
                 }
 
                 int worldIdToClean = targetWorldId;
+                Grid.FreeGridSpace(world.WorldSize, world.WorldOffset);
                 ClusterManager.Instance.UnregisterWorldContainer(world);
                 OmniPocketHabitatPatches.CleanupDestroyedWorldTrackersAndDiagnostics(worldIdToClean);
 
@@ -804,6 +805,11 @@ namespace OmniMod.Buildings
                     {
                         VirtualCircuitKeyRef(__instance) = targetWorld;
                     }
+                    else
+                    {
+                        // 核心防线：若内部世界未就绪，使用自身建筑实例作为安全非空 key，杜绝 ArgumentNullException
+                        VirtualCircuitKeyRef(__instance) = __instance.gameObject;
+                    }
                     return;
                 }
 
@@ -811,7 +817,7 @@ namespace OmniMod.Buildings
                 WorldContainer myWorld = ClusterUtil.GetMyWorld(__instance);
                 if (IsPocketHabitatWorld(myWorld))
                 {
-                    VirtualCircuitKeyRef(__instance) = myWorld;
+                    VirtualCircuitKeyRef(__instance) = (object)myWorld ?? __instance.gameObject;
                 }
             }
         }
