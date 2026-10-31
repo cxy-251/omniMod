@@ -341,8 +341,7 @@ namespace OmniMod.Buildings
             }
 
             isStampingTemplate = true;
-            string templateName = OmniPocketTemplate.GetTemplateNameForSize(world.WorldSize);
-            world.PlaceInteriorTemplate(templateName, OnTemplateStamped);
+            world.PlaceInteriorTemplate(OmniPocketTemplate.TemplateName, OnTemplateStamped);
             ConfigurePocketWorldZoneAndSunlight(world);
         }
 
