@@ -62,6 +62,11 @@ namespace OmniMod.Logistics.Dispatch
 
                     // 1. 物品在可访问的聚合箱内 → 允许跨星球分配给建有同类型聚合箱星球上的小人
                     Pickupable p = __instance.GetComponent<Pickupable>();
+                    if (__instance is BionicUpgradeComponent && BionicUpgradeRegistry.IsDispatchSource(p) &&
+                        BionicUpgradeRegistry.GetDestinationBox(targetGo.GetMyWorldId()) != null)
+                    {
+                        return true;
+                    }
                     if (p != null && AggregateBoxRegistry.IsAccessibleBoxStorage(p.storage, Grid.PosToCell(targetGo)))
                     {
                         return true;

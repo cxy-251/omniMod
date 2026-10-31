@@ -6,14 +6,20 @@ namespace OmniMod.Buildings
 {
     /// <summary>
     /// 【折叠空间生态巨舱】建筑配置：
-    /// - 外部占地 3x3，防水防淹（Floodable = false），可建于基地任意地面或水底。
+    /// - 外部占地 1x3，防水防淹（Floodable = false），可建于基地地面或水底。
     /// - 底部正中自带白色电源接口，与舱内的原版【电源插座】(RocketInteriorPowerPlug) 跨维直通，共享同一电网。
     /// - 挂载 AlertStateManager.Def、Notifier 与 SaveLoadRoot 可选组件声明，完美满足 WorldContainer 底层契约。
     /// </summary>
     public class OmniPocketHabitatConfig : IBuildingConfig
     {
         public const string ID = "OmniPocketHabitat";
+        public const string ExteriorAnim = "rocket_hatch_door_kanim";
+        public const string ExteriorAnimState = "closed";
         public static readonly CellOffset PowerPlugOffset = new CellOffset(0, 0);
+        public static readonly CellOffset LiquidInputOffset = new CellOffset(0, 0);
+        public static readonly CellOffset LiquidOutputOffset = new CellOffset(0, 2);
+        public static readonly ConduitPortInfo GasInputPort = new ConduitPortInfo(ConduitType.Gas, new CellOffset(0, 0));
+        public static readonly ConduitPortInfo GasOutputPort = new ConduitPortInfo(ConduitType.Gas, new CellOffset(0, 2));
 
         public override string[] GetRequiredDlcIds()
         {
@@ -24,9 +30,9 @@ namespace OmniMod.Buildings
         {
             BuildingDef def = BuildingTemplates.CreateBuildingDef(
                 id: ID,
-                width: 5,
-                height: 4,
-                anim: "rocket_habitat_medium_module_kanim",
+                width: 1,
+                height: 3,
+                anim: ExteriorAnim,
                 hitpoints: 1000,
                 construction_time: 45f,
                 construction_mass: BUILDINGS.CONSTRUCTION_MASS_KG.TIER5,
@@ -38,13 +44,15 @@ namespace OmniMod.Buildings
 
             def.SceneLayer = Grid.SceneLayer.BuildingBack;
             def.ForegroundLayer = Grid.SceneLayer.BuildingFront;
-            def.DefaultAnimState = "grounded";
+            // 舱体只占普通建筑层，电线、气液管道与运输轨道仍使用各自的独立占格层。
+            def.ObjectLayer = ObjectLayer.Building;
+            def.DefaultAnimState = ExteriorAnimState;
 
             def.Floodable = false;
             def.Entombable = false;
             def.Overheatable = false;
             def.AudioCategory = "Metal";
-            def.AudioSize = "large";
+            def.AudioSize = "small";
 
             // 外部电网直连插口（位于建筑底部中心 0,0），与舱内【电源插座】共享虚拟电路网络
             def.ViewMode = OverlayModes.Power.ID;
@@ -53,18 +61,48 @@ namespace OmniMod.Buildings
             def.RequiresPowerOutput = true;
             def.UseWhitePowerOutputConnectorColour = true;
 
-            // 外部液体管网接口（建筑宽 5 格，合法 X 偏移为 -2..2，电源口占据正中 (0, 0)）：
-            // - 输入口（绿口）位于 (-1, 0)，电源口左侧，支持将外部液体（如咸乳）通入生态舱内部
-            // - 输出口（白口）位于 (1, 0)，电源口右侧，支持将舱内液体排回外部基地管网
+            // 1x3 单列入口：底格为气液输入和电口，顶格为气液输出，各自使用独立线管层。
             def.InputConduitType = ConduitType.Liquid;
-            def.UtilityInputOffset = new CellOffset(-1, 0);
+            def.UtilityInputOffset = LiquidInputOffset;
             def.OutputConduitType = ConduitType.Liquid;
-            def.UtilityOutputOffset = new CellOffset(1, 0);
+            def.UtilityOutputOffset = LiquidOutputOffset;
 
             GeneratedBuildings.RegisterWithOverlay(OverlayScreen.WireIDs, ID);
             GeneratedBuildings.RegisterWithOverlay(OverlayScreen.LiquidVentIDs, ID);
+            GeneratedBuildings.RegisterWithOverlay(OverlayScreen.GasVentIDs, ID);
 
             return def;
+        }
+
+        private void AttachPorts(GameObject go)
+        {
+            go.AddComponent<ConduitSecondaryInput>().portInfo = GasInputPort;
+            go.AddComponent<ConduitSecondaryOutput>().portInfo = GasOutputPort;
+        }
+
+        // 原版舱门贴图宽 1、高 2，只拉高画面至 3 格；不缩放建筑 Transform、碰撞盒或内部世界坐标。
+        internal static void ConfigureExteriorAnimation(GameObject go)
+        {
+            KBatchedAnimController anim = go.GetComponent<KBatchedAnimController>();
+            if (anim == null) return;
+            anim.animWidth = 1f;
+            anim.animHeight = 1.5f;
+        }
+
+        public override void DoPostConfigurePreview(BuildingDef def, GameObject go)
+        {
+            base.DoPostConfigurePreview(def, go);
+            go.AddOrGet<BuildingCellVisualizer>();
+            AttachPorts(go);
+            ConfigureExteriorAnimation(go);
+        }
+
+        public override void DoPostConfigureUnderConstruction(GameObject go)
+        {
+            base.DoPostConfigureUnderConstruction(go);
+            go.AddOrGet<BuildingCellVisualizer>();
+            AttachPorts(go);
+            ConfigureExteriorAnimation(go);
         }
 
         public override void ConfigureBuildingTemplate(GameObject go, Tag prefab_tag)
@@ -72,6 +110,8 @@ namespace OmniMod.Buildings
             KPrefabID kpid = go.GetComponent<KPrefabID>();
             kpid.AddTag(GameTags.Bunker);
             kpid.AddTag(GameTags.NotRoomAssignable);
+            // 管网视图通过原版规则将舱体放在管道后面；动画前景另在运行时同步退层。
+            kpid.AddTag(GameTags.OverlayBehindConduits);
 
             // 声明动态挂载的内部世界组件，确保存档/读档序列化完整无损
             SaveLoadRoot saveLoadRoot = go.AddOrGet<SaveLoadRoot>();
@@ -82,14 +122,14 @@ namespace OmniMod.Buildings
             go.AddOrGet<Notifier>();
             go.AddOrGetDef<AlertStateManager.Def>();
 
-            // 为右侧星球列表（WorldSelector）提供图标与名称实体（不显示在星图上，也不修改建筑坐标）
+            // 保留内部世界所需的名称/图标实体；星图隐藏，星球列表由专用 UI 补丁隐藏。
             go.AddOrGet<OmniPocketClusterEntity>();
 
             Prioritizable.AddRef(go);
             go.AddOrGet<Operational>();
             go.AddOrGet<LoopingSounds>();
 
-            // 液体储罐与管线消费者/分配器（支持舱内外液体互通，如输送咸乳）
+            // 1. 液体储罐与管线消费者/分配器（支持舱内外液体互通，如输送咸乳）
             Storage liquidInStorage = BuildingTemplates.CreateDefaultStorage(go, forceCreate: false);
             liquidInStorage.capacityKg = 1000f;
             liquidInStorage.showInUI = true;
@@ -104,18 +144,51 @@ namespace OmniMod.Buildings
             liquidOutStorage.storageFilters = STORAGEFILTERS.LIQUIDS;
             liquidOutStorage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
 
-            ConduitConsumer consumer = go.AddOrGet<ConduitConsumer>();
-            consumer.conduitType = ConduitType.Liquid;
-            consumer.consumptionRate = 10f;
-            consumer.capacityKG = 1000f;
-            consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
-            consumer.forceAlwaysSatisfied = true;
-            consumer.storage = liquidInStorage;
+            ConduitConsumer liquidConsumer = go.AddOrGet<ConduitConsumer>();
+            liquidConsumer.conduitType = ConduitType.Liquid;
+            liquidConsumer.consumptionRate = 10f;
+            liquidConsumer.capacityKG = 1000f;
+            liquidConsumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
+            liquidConsumer.forceAlwaysSatisfied = true;
+            liquidConsumer.alwaysConsume = true; // 气液接口独立工作，不要求其他输出管全部接好
+            liquidConsumer.storage = liquidInStorage;
 
-            ConduitDispenser dispenser = go.AddOrGet<ConduitDispenser>();
-            dispenser.conduitType = ConduitType.Liquid;
-            dispenser.alwaysDispense = true;
-            dispenser.storage = liquidOutStorage;
+            ConduitDispenser liquidDispenser = go.AddOrGet<ConduitDispenser>();
+            liquidDispenser.conduitType = ConduitType.Liquid;
+            liquidDispenser.alwaysDispense = true;
+            liquidDispenser.storage = liquidOutStorage;
+
+            // 2. 气体储罐与副端口消费者/分配器（支持舱内外气体互通，如输送氧气、天然气等）
+            // - 底格 (0,0) 输入，顶格 (0,2) 输出，与液管使用不同占格层。
+            Storage gasInStorage = BuildingTemplates.CreateDefaultStorage(go, forceCreate: true);
+            gasInStorage.capacityKg = 100f;
+            gasInStorage.showInUI = true;
+            gasInStorage.allowItemRemoval = false;
+            gasInStorage.storageFilters = STORAGEFILTERS.GASES;
+            gasInStorage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
+
+            Storage gasOutStorage = BuildingTemplates.CreateDefaultStorage(go, forceCreate: true);
+            gasOutStorage.capacityKg = 100f;
+            gasOutStorage.showInUI = true;
+            gasOutStorage.allowItemRemoval = false;
+            gasOutStorage.storageFilters = STORAGEFILTERS.GASES;
+            gasOutStorage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
+
+            ConduitConsumer gasConsumer = go.AddComponent<ConduitConsumer>();
+            gasConsumer.conduitType = ConduitType.Gas;
+            gasConsumer.consumptionRate = 1f;
+            gasConsumer.capacityKG = 100f;
+            gasConsumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
+            gasConsumer.forceAlwaysSatisfied = true;
+            gasConsumer.alwaysConsume = true;
+            gasConsumer.storage = gasInStorage;
+            gasConsumer.useSecondaryInput = true;
+
+            ConduitDispenser gasDispenser = go.AddComponent<ConduitDispenser>();
+            gasDispenser.conduitType = ConduitType.Gas;
+            gasDispenser.alwaysDispense = true;
+            gasDispenser.storage = gasOutStorage;
+            gasDispenser.useSecondaryOutput = true;
 
             RequireInputs requireInputs = go.AddOrGet<RequireInputs>();
             requireInputs.SetRequirements(power: false, conduit: false);
@@ -123,7 +196,7 @@ namespace OmniMod.Buildings
             AssignmentGroupController agc = go.AddOrGet<AssignmentGroupController>();
             agc.generateGroupOnStart = true;
 
-            go.AddOrGet<NavTeleporter>();
+            go.AddOrGet<NavTeleporter>().offset = new CellOffset(0, 0);
             go.AddOrGet<AccessControl>();
             go.AddOrGet<UserNameable>();
 
@@ -133,6 +206,9 @@ namespace OmniMod.Buildings
             ownable.tintWhenUnassigned = false;
 
             go.AddOrGet<OmniPocketHabitat>();
+            go.AddOrGet<BuildingCellVisualizer>();
+            ConfigureExteriorAnimation(go);
+            AttachPorts(go);
         }
 
         public override void DoPostConfigureComplete(GameObject go)
@@ -140,6 +216,9 @@ namespace OmniMod.Buildings
             WireUtilitySemiVirtualNetworkLink wireLink = go.AddOrGet<WireUtilitySemiVirtualNetworkLink>();
             wireLink.link1 = PowerPlugOffset;
             wireLink.visualizeOnly = false;
+
+            go.AddOrGet<BuildingCellVisualizer>();
+            ConfigureExteriorAnimation(go);
 
             KBatchedAnimController kbac = go.GetComponent<KBatchedAnimController>();
             if (kbac != null)
@@ -151,7 +230,7 @@ namespace OmniMod.Buildings
     }
 
     /// <summary>
-    /// 供右侧星球切换列表（WorldSelector）读取名称与图标的轻量级星图实体：
+    /// 供内部世界读取名称与图标的轻量级实体；不作为独立小行星显示：
     /// - isWorldEntity = true 防止 ClusterGridEntity.OnSpawn 篡改建筑的 transform.localPosition。
     /// - IsVisible = false 确保不会在星图（Starmap）上渲染任何多余图标。
     /// </summary>
@@ -186,8 +265,8 @@ namespace OmniMod.Buildings
                     {
                         new AnimConfig
                         {
-                            animFile = Assets.GetAnim("rocket_habitat_medium_module_kanim"),
-                            initialAnim = "grounded"
+                            animFile = Assets.GetAnim(OmniPocketHabitatConfig.ExteriorAnim),
+                            initialAnim = OmniPocketHabitatConfig.ExteriorAnimState
                         }
                     };
                 }

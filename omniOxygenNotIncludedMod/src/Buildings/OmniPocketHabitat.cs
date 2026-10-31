@@ -27,6 +27,8 @@ namespace OmniMod.Buildings
 
         public Storage LiquidInStorage { get; private set; }
         public Storage LiquidOutStorage { get; private set; }
+        public Storage GasInStorage { get; private set; }
+        public Storage GasOutStorage { get; private set; }
 
         private static readonly Dictionary<int, OmniPocketHabitat> HabitatsByWorld = new Dictionary<int, OmniPocketHabitat>();
 
@@ -37,6 +39,35 @@ namespace OmniMod.Buildings
                 return hab;
             }
             return null;
+        }
+
+        /// <summary>生态舱内部世界 → 舱体建筑所在的外部世界 ID（不是生态舱则返回 -1）。</summary>
+        public static int GetExteriorWorldId(int interiorWorldId)
+        {
+            OmniPocketHabitat hab = GetHabitatForWorld(interiorWorldId);
+            if (hab == null)
+            {
+                return -1;
+            }
+            int exterior = ClusterUtil.GetMyWorldId(hab);
+            return (exterior >= 0 && exterior != ClusterManager.INVALID_WORLD_IDX && exterior != interiorWorldId) ? exterior : -1;
+        }
+
+        /// <summary>收集建造在指定外部世界上的所有生态舱的内部世界 ID。</summary>
+        public static void CollectInteriorWorldsOf(int exteriorWorldId, List<int> dst)
+        {
+            if (exteriorWorldId < 0 || dst == null)
+            {
+                return;
+            }
+            foreach (KeyValuePair<int, OmniPocketHabitat> kvp in HabitatsByWorld)
+            {
+                OmniPocketHabitat hab = kvp.Value;
+                if (hab != null && !Util.IsNullOrDestroyed(hab) && kvp.Key != exteriorWorldId && ClusterUtil.GetMyWorldId(hab) == exteriorWorldId)
+                {
+                    dst.Add(kvp.Key);
+                }
+            }
         }
 
 #pragma warning disable CS0649
@@ -51,6 +82,8 @@ namespace OmniMod.Buildings
         private bool isInitializingWorld;
         private bool hasInitializedWorld;
         private bool isStampingTemplate;
+        private OverlayScreen overlayScreen;
+        private KBatchedAnimController habitatAnim;
 
         public string SidescreenTitle => ModStrings.T("折叠空间生态巨舱", "Omni Pocket Hyper-Habitat").Resolve();
         public string SidescreenButtonText => ModStrings.T("进入舱内 (View Interior)", "View Interior").Resolve();
@@ -104,24 +137,35 @@ namespace OmniMod.Buildings
         {
             base.OnSpawn();
 
-            // 绑定外部液体输入与输出储罐，供内部 RocketConduitStorageAccess 跨维管线传输液体（如咸乳）
-            ConduitConsumer consumer = GetComponent<ConduitConsumer>();
-            if (consumer != null && consumer.storage != null)
+            // 绑定外部液体/气体输入与输出储罐，供内部 RocketConduitStorageAccess 跨维管线传输液体（如咸乳）与气体
+            foreach (ConduitConsumer consumer in GetComponents<ConduitConsumer>())
             {
-                LiquidInStorage = consumer.storage;
+                if (consumer == null || consumer.storage == null) continue;
+                if (consumer.conduitType == ConduitType.Liquid) LiquidInStorage = consumer.storage;
+                else if (consumer.conduitType == ConduitType.Gas) GasInStorage = consumer.storage;
             }
-            ConduitDispenser dispenser = GetComponent<ConduitDispenser>();
-            if (dispenser != null && dispenser.storage != null)
+            foreach (ConduitDispenser dispenser in GetComponents<ConduitDispenser>())
             {
-                LiquidOutStorage = dispenser.storage;
+                if (dispenser == null || dispenser.storage == null) continue;
+                if (dispenser.conduitType == ConduitType.Liquid) LiquidOutStorage = dispenser.storage;
+                else if (dispenser.conduitType == ConduitType.Gas) GasOutStorage = dispenser.storage;
             }
 
-            // 确保使用火箭舱体动画（rocket_habitat_medium_module_kanim）时播放 grounded 常驻状态，防止因默认 off 状态缺失导致建筑隐形
+            // 外部入口使用 1x3 窄舱门；读入旧存档时也覆盖旧的 grounded 播放状态。
             KBatchedAnimController kbac = GetComponent<KBatchedAnimController>();
             if (kbac != null)
             {
+                OmniPocketHabitatConfig.ConfigureExteriorAnimation(gameObject);
                 kbac.enabled = true;
-                kbac.Play("grounded", KAnim.PlayMode.Loop);
+                kbac.Play(OmniPocketHabitatConfig.ExteriorAnimState, KAnim.PlayMode.Loop);
+            }
+
+            habitatAnim = kbac;
+            overlayScreen = OverlayScreen.Instance;
+            if (overlayScreen != null)
+            {
+                overlayScreen.OnOverlayChanged += OnUtilityOverlayChanged;
+                OnUtilityOverlayChanged(overlayScreen.GetMode());
             }
 
             EnsurePocketWorldInitialized();
@@ -129,6 +173,30 @@ namespace OmniMod.Buildings
             if (targetWorldId >= 0)
             {
                 HabitatsByWorld[targetWorldId] = this;
+            }
+        }
+
+        private void OnUtilityOverlayChanged(HashedString mode)
+        {
+            if (habitatAnim == null) return;
+            bool utilities = mode == OverlayModes.Power.ID || mode == OverlayModes.LiquidConduits.ID ||
+                             mode == OverlayModes.GasConduits.ID || mode == OverlayModes.Logic.ID ||
+                             mode == OverlayModes.SolidConveyor.ID;
+            // BuildingBack(18) 仍在气管(3)、水管(5)、电线(10) 前方。
+            // 火箭贴图的 FG/SH 子动画也必须退层，单改根动画无法消除遮挡。
+            Grid.SceneLayer body = utilities ? Grid.SceneLayer.Gas : Grid.SceneLayer.BuildingBack;
+            Grid.SceneLayer front = utilities ? Grid.SceneLayer.Gas : Grid.SceneLayer.BuildingFront;
+            if (habitatAnim.sceneLayer != body) habitatAnim.SetSceneLayer(body);
+            habitatAnim.SetFGLayer(front);
+            // 子动画的批次按深度分组，移动 Transform 后也要像原版管网视图一样重新排序。
+            foreach (KBatchedAnimController child in habitatAnim.GetComponentsInChildren<KBatchedAnimController>())
+            {
+                if (child == habitatAnim) continue;
+                child.animWidth = habitatAnim.animWidth;
+                child.animHeight = habitatAnim.animHeight;
+                if (!child.enabled) continue;
+                child.enabled = false;
+                child.enabled = true;
             }
         }
 
@@ -545,6 +613,9 @@ namespace OmniMod.Buildings
 
         protected override void OnCleanUp()
         {
+            if (overlayScreen != null) overlayScreen.OnOverlayChanged -= OnUtilityOverlayChanged;
+            overlayScreen = null;
+            habitatAnim = null;
             if (targetWorldId >= 0)
             {
                 HabitatsByWorld.Remove(targetWorldId);
@@ -1129,9 +1200,13 @@ namespace OmniMod.Buildings
                 Operational op = __instance.GetComponent<Operational>();
                 if (op != null && !op.IsOperational)
                 {
+                    op.SetActive(false);
                     return false;
                 }
 
+                // 该桥接只处理气液管网，不能把固体接口的物资塞进液体储罐。
+                if (__instance.cargoType != CargoBay.CargoType.Gasses &&
+                    __instance.cargoType != CargoBay.CargoType.Liquids) return false;
                 Storage cabinPortStorage = __instance.storage;
                 if (cabinPortStorage == null) return false;
 
@@ -1139,29 +1214,32 @@ namespace OmniMod.Buildings
                 float targetLevel = __instance.targetLevel;
                 if (Mathf.Abs(currentMass - targetLevel) <= 0.01f)
                 {
+                    op?.SetActive(false);
                     return false;
                 }
 
-                if (op != null)
-                {
-                    op.SetActive(true);
-                }
-
+                float transferred = 0f;
                 float needed = targetLevel - currentMass;
                 Filterable filterable = __instance.GetComponent<Filterable>();
                 Tag selectedTag = filterable != null ? filterable.SelectedTag : Tag.Invalid;
 
+                bool isGas = __instance.cargoType == CargoBay.CargoType.Gasses;
+                Storage extIn = isGas ? habitat.GasInStorage : habitat.LiquidInStorage;
+                Storage extOut = isGas ? habitat.GasOutStorage : habitat.LiquidOutStorage;
+
                 if (needed > 0f)
                 {
-                    // 舱内接口 RocketInteriorLiquidOutput（targetLevel = 10f）：
-                    // 从舱外建筑输入储罐 LiquidInStorage 提取液体（支持过滤，如咸乳），送入舱内管道接口
-                    Storage extIn = habitat.LiquidInStorage;
+                    needed = Mathf.Min(needed, cabinPortStorage.RemainingCapacity());
+                    // 舱内接口 RocketInteriorLiquidOutput / RocketInteriorGasOutput：
+                    // 从舱外建筑输入储罐 extIn 提取流体（支持过滤），送入舱内管道接口
                     if (extIn != null && extIn.MassStored() > 0f)
                     {
                         for (int i = extIn.items.Count - 1; i >= 0; i--)
                         {
                             GameObject go = extIn.items[i];
-                            if (go == null) continue;
+                            if (go == null || needed <= 0.01f) continue;
+                            PrimaryElement element = go.GetComponent<PrimaryElement>();
+                            if (element == null || (isGas ? !element.Element.IsGas : !element.Element.IsLiquid)) continue;
                             if (selectedTag.IsValid && selectedTag != GameTags.Void && go.PrefabID() != selectedTag)
                             {
                                 continue;
@@ -1173,7 +1251,9 @@ namespace OmniMod.Buildings
                                 Pickupable taken = p.Take(needed);
                                 if (taken != null)
                                 {
-                                    needed -= taken.PrimaryElement.Mass;
+                                    float mass = taken.PrimaryElement.Mass;
+                                    needed -= mass;
+                                    transferred += mass;
                                     cabinPortStorage.Store(taken.gameObject, hide_popups: true);
                                 }
                             }
@@ -1183,10 +1263,9 @@ namespace OmniMod.Buildings
                 }
                 else if (needed < 0f)
                 {
-                    // 舱内接口 RocketInteriorLiquidInput（targetLevel = 0f）：
-                    // 将舱内回收的液体送入舱外输出储罐 LiquidOutStorage，供外部管网排出
+                    // 舱内接口 RocketInteriorLiquidInput / RocketInteriorGasInput（targetLevel = 0f）：
+                    // 将舱内回收的流体送入舱外输出储罐 extOut，供外部管网排出
                     float toTransfer = -needed;
-                    Storage extOut = habitat.LiquidOutStorage;
                     if (extOut != null && extOut.RemainingCapacity() > 0f)
                     {
                         float availableCap = Mathf.Min(toTransfer, extOut.RemainingCapacity());
@@ -1194,13 +1273,17 @@ namespace OmniMod.Buildings
                         {
                             GameObject go = cabinPortStorage.items[i];
                             if (go == null) continue;
+                            PrimaryElement element = go.GetComponent<PrimaryElement>();
+                            if (element == null || (isGas ? !element.Element.IsGas : !element.Element.IsLiquid)) continue;
                             Pickupable p = go.GetComponent<Pickupable>();
                             if (p != null)
                             {
                                 Pickupable taken = p.Take(availableCap);
                                 if (taken != null)
                                 {
-                                    availableCap -= taken.PrimaryElement.Mass;
+                                    float mass = taken.PrimaryElement.Mass;
+                                    availableCap -= mass;
+                                    transferred += mass;
                                     extOut.Store(taken.gameObject, hide_popups: true);
                                 }
                             }
@@ -1209,6 +1292,7 @@ namespace OmniMod.Buildings
                     }
                 }
 
+                op?.SetActive(transferred > 0f);
                 return false; // 跳过原版依赖 CraftModuleInterface 的逻辑
             }
         }

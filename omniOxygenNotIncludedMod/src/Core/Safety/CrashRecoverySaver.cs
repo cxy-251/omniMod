@@ -17,6 +17,7 @@ namespace OmniMod.Core.Safety
     public static class CrashRecoverySaver
     {
         private static bool _hasSavedEmergency = false;
+        private static bool _savingEmergency;
         private static readonly object SaveLock = new object();
 
         /// <summary>
@@ -27,7 +28,21 @@ namespace OmniMod.Core.Safety
             lock (SaveLock)
             {
                 _hasSavedEmergency = false;
+                _savingEmergency = false;
             }
+        }
+
+        internal static string NormalizeAutoSaveDirectory(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+            DirectoryInfo directory = new DirectoryInfo(path);
+            while (directory.Parent != null &&
+                   directory.Name.Equals("auto_save", StringComparison.OrdinalIgnoreCase) &&
+                   directory.Parent.Name.Equals("auto_save", StringComparison.OrdinalIgnoreCase))
+            {
+                directory = directory.Parent;
+            }
+            return directory.FullName;
         }
 
         /// <summary>
@@ -38,13 +53,15 @@ namespace OmniMod.Core.Safety
         /// <returns>若成功保存返回 true，否则返回 false</returns>
         public static bool TriggerEmergencySave(string triggerSource, string details = null)
         {
+            if (!Game.IsOnMainThread() || App.isLoading) return false;
             lock (SaveLock)
             {
-                if (_hasSavedEmergency)
+                if (_hasSavedEmergency || _savingEmergency)
                 {
                     return false;
                 }
 
+                _savingEmergency = true;
                 try
                 {
                     if (SaveLoader.Instance == null || Game.Instance == null)
@@ -72,12 +89,7 @@ namespace OmniMod.Core.Safety
                     string autoSaveDir = SaveLoader.GetActiveAutoSavePath();
                     if (!string.IsNullOrEmpty(autoSaveDir))
                     {
-                        DirectoryInfo dInfo = new DirectoryInfo(autoSaveDir);
-                        while (dInfo.Parent != null && dInfo.Name.Equals("auto_save", StringComparison.OrdinalIgnoreCase) && dInfo.Parent.Name.Equals("auto_save", StringComparison.OrdinalIgnoreCase))
-                        {
-                            dInfo = dInfo.Parent;
-                        }
-                        autoSaveDir = dInfo.FullName;
+                        autoSaveDir = NormalizeAutoSaveDirectory(autoSaveDir);
                         if (!Directory.Exists(autoSaveDir))
                         {
                             Directory.CreateDirectory(autoSaveDir);
@@ -104,7 +116,12 @@ namespace OmniMod.Core.Safety
                     }
 
                     // isAutoSave: false (不触发行数清理), updateSavePointer: false (不修改默认指针)
-                    SaveLoader.Instance.Save(recoveryFullPath, isAutoSave: false, updateSavePointer: false);
+                    string savedPath = SaveLoader.Instance.Save(recoveryFullPath, isAutoSave: false, updateSavePointer: false);
+                    if (!string.Equals(savedPath, recoveryFullPath, StringComparison.Ordinal) || !File.Exists(recoveryFullPath))
+                    {
+                        ModLog.Warn("[容灾防护] 游戏未完成紧急存档写入，保留原活动存档。");
+                        return false;
+                    }
 
                     _hasSavedEmergency = true;
                     ModLog.Info($"[容灾防护] ✅ 紧急抢救成功！已将最新进度安全写入: {recoveryFullPath}");
@@ -114,6 +131,10 @@ namespace OmniMod.Core.Safety
                 {
                     ModLog.Error($"[容灾防护] ❌ 紧急抢救保存失败 (已安全拦截，未影响主进程退出): {ex.Message}", ex);
                     return false;
+                }
+                finally
+                {
+                    _savingEmergency = false;
                 }
             }
         }

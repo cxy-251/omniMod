@@ -156,6 +156,8 @@ namespace OmniMod.Ranching
         private static void Postfix(RanchStation.Instance __instance)
         {
             AutoRanchHelper.EnsureVirtualRancher(__instance);
+            if (AquaticRanchAutoRunner.IsAquaticStation(__instance.gameObject))
+                __instance.gameObject.AddOrGet<AquaticRanchAutoRunner>();
         }
     }
 
@@ -201,7 +203,7 @@ namespace OmniMod.Ranching
 
             if (__instance.ActiveRanchable != null)
             {
-                __instance.RanchCreature();
+                if (!AquaticRanchAutoRunner.IsAquaticStation(__instance.gameObject)) __instance.RanchCreature();
                 return;
             }
 
@@ -296,42 +298,39 @@ namespace OmniMod.Ranching
     [HarmonyPatch(typeof(RanchStation.Instance), "RanchCreature")]
     internal static class RanchStation_RanchCreature_Patch
     {
-        private static RanchedStates.Instance _lastActiveRanched;
-
-        private static void Prefix(RanchStation.Instance __instance)
+        private static void Prefix(RanchStation.Instance __instance, out RanchedStates.Instance __state)
         {
-            _lastActiveRanched = __instance?.ActiveRanchable;
-            if (_lastActiveRanched != null && _lastActiveRanched.gameObject != null)
+            __state = __instance?.ActiveRanchable;
+            if (__state != null && __state.gameObject != null)
             {
-                AutoRanchTracker.Clear(_lastActiveRanched.gameObject.GetInstanceID());
+                AutoRanchTracker.Clear(__state.gameObject.GetInstanceID());
             }
         }
 
-        private static void Postfix(RanchStation.Instance __instance)
+        private static void Postfix(RanchStation.Instance __instance, RanchedStates.Instance __state)
         {
-            if (_lastActiveRanched != null && !_lastActiveRanched.IsNullOrStopped())
+            if (__state != null && !__state.IsNullOrStopped() && __instance.ActiveRanchable != __state)
             {
                 try
                 {
-                    int critterId = _lastActiveRanched.gameObject != null ? _lastActiveRanched.gameObject.GetInstanceID() : 0;
+                    int critterId = __state.gameObject != null ? __state.gameObject.GetInstanceID() : 0;
                     if (critterId != 0)
                     {
                         AutoRanchTracker.Clear(critterId);
                     }
 
-                    if (_lastActiveRanched.Monitor != null)
+                    if (__state.Monitor != null)
                     {
-                        _lastActiveRanched.Monitor.TargetRanchStation = null;
+                        __state.Monitor.TargetRanchStation = null;
                     }
 
-                    _lastActiveRanched.StopSM("OmniMod virtual ranch completed");
+                    __state.StopSM("OmniMod virtual ranch completed");
                 }
                 catch (Exception ex)
                 {
                     ModLog.Warn($"照料完成退出异常: {ex.Message}");
                 }
             }
-            _lastActiveRanched = null;
         }
     }
 
@@ -358,6 +357,8 @@ namespace OmniMod.Ranching
             }
 
             AutoRanchHelper.EnsureVirtualRancher(__instance);
+            // 水生站在动物的入站状态切换结束后，由模拟回调计时并执行原版工作回调。
+            if (AquaticRanchAutoRunner.IsAquaticStation(__instance.gameObject)) return;
 
             RanchedStates.Instance targetCritter = __instance.ActiveRanchable ?? critter;
             if (targetCritter == null)

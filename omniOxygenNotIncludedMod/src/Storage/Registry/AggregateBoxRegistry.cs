@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using Stopwatch = System.Diagnostics.Stopwatch;
+using OmniMod.Buildings;
 using OmniMod.Core.Logging;
+using OmniMod.Logistics.RemoteFetch;
 using OmniMod.Pool;
 using UnityEngine;
 
@@ -13,6 +16,8 @@ namespace OmniMod.Collection
     internal static class AggregateBoxRegistry
     {
         private static readonly List<GlobalItemCollector> Boxes = new List<GlobalItemCollector>();
+        internal static int BoxesCount => Boxes.Count;
+        internal static GlobalItemCollector GetBox(int index) => (index >= 0 && index < Boxes.Count) ? Boxes[index] : null;
 
         /// <summary>所有聚合箱的 Storage → 所属聚合箱映射，供"隔空取物"补丁 O(1) 判断某物品是否在可访问的聚合箱里。</summary>
         private static readonly Dictionary<Storage, GlobalItemCollector> StorageToBox = new Dictionary<Storage, GlobalItemCollector>();
@@ -57,6 +62,7 @@ namespace OmniMod.Collection
             {
                 box.BoxStorage.ignoreSourcePriority = true;
                 StorageToBox[box.BoxStorage] = box;
+                RegisterRemoteStorage(box.BoxStorage);
             }
             MarkWorldDirty(box.GetMyWorldId());
             RebuildActiveBoxCells();
@@ -282,118 +288,61 @@ namespace OmniMod.Collection
 
         // —— 机械臂"本星球隔空取物"用：主线程每秒刷新每个星球自身聚合箱内物品的快照，
         //    机械臂的扫描补丁使用基于 Tag 索引的字典进行 O(1) 匹配，杜绝全量线性扫描引起的卡顿。——
-        private static readonly Dictionary<int, Pickupable[]> _worldBoxItems = new Dictionary<int, Pickupable[]>();
         private static readonly Dictionary<int, Dictionary<Tag, List<Pickupable>>> _worldBoxItemsByTag = new Dictionary<int, Dictionary<Tag, List<Pickupable>>>();
         private static readonly Dictionary<int, Dictionary<Tag, float>> _worldBoxMassByTag = new Dictionary<int, Dictionary<Tag, float>>();
-        private static readonly Dictionary<int, float> _rocketRefreshTime = new Dictionary<int, float>();
-        private static readonly List<Pickupable> _refreshScratch = new List<Pickupable>(128);
-
-        private static void AppendStoragePickupables(Storage storage, List<Pickupable> dst)
+        private sealed class WorldIndexBuild
         {
-            if (storage == null || storage.items == null)
+            internal int World;
+            internal readonly List<GameObject> Items = new List<GameObject>();
+            internal readonly HashSet<Storage> Sources = new HashSet<Storage>();
+            internal readonly HashSet<Pickupable> Seen = new HashSet<Pickupable>();
+            internal readonly Dictionary<Tag, List<Pickupable>> Tags = new Dictionary<Tag, List<Pickupable>>();
+            internal readonly Dictionary<Tag, float> Mass = new Dictionary<Tag, float>();
+            internal int Cursor;
+        }
+
+        private static readonly Queue<int> PendingWorlds = new Queue<int>();
+        private static readonly HashSet<int> QueuedWorlds = new HashSet<int>();
+        private static WorldIndexBuild _indexBuild;
+        private static int _indexFrame = -1;
+
+        // 来源按容器登记，库存变更时只遍历这些容器，不扫描整颗星球的 Pickupables。
+        private static readonly Dictionary<int, List<Storage>> RemoteStorages = new Dictionary<int, List<Storage>>();
+        private static readonly Dictionary<Storage, int> RemoteStorageWorlds = new Dictionary<Storage, int>();
+        private static readonly Dictionary<int, float> LastWorldRefresh = new Dictionary<int, float>();
+
+        internal static void RegisterRemoteStorage(Storage storage)
+        {
+            if (storage == null) return;
+            int world = storage.GetMyWorldId();
+            if (world < 0 || world == 255) return;
+            bool registered = RemoteStorageWorlds.TryGetValue(storage, out int oldWorld);
+            if (registered && oldWorld == world) return;
+            if (registered) UnregisterRemoteStorage(storage);
+            RemoteStorageWorlds[storage] = world;
+            if (!RemoteStorages.TryGetValue(world, out List<Storage> list))
             {
-                return;
+                list = new List<Storage>();
+                RemoteStorages[world] = list;
             }
-            for (int k = 0; k < storage.items.Count; k++)
+            list.Add(storage);
+            MarkWorldDirty(world);
+            if (!registered)
             {
-                GameObject go = storage.items[k];
-                Pickupable p = go != null ? go.GetComponent<Pickupable>() : null;
-                if (p != null)
+                storage.Subscribe((int)GameHashes.OnStorageChange, _ =>
                 {
-                    dst.Add(p);
-                }
+                    RegisterRemoteStorage(storage);
+                    MarkWorldDirty(storage.GetMyWorldId());
+                });
             }
         }
 
-        internal static void AppendRocketInteriorItems(int worldId, List<Pickupable> dst)
+        internal static void UnregisterRemoteStorage(Storage storage)
         {
-            if (Components.Pickupables == null || worldId < 0 || worldId == 255)
-            {
-                return;
-            }
-
-            List<Pickupable> pickups = Components.Pickupables.GetWorldItems(worldId);
-            if (pickups == null)
-            {
-                return;
-            }
-
-            for (int i = 0; i < pickups.Count; i++)
-            {
-                Pickupable p = pickups[i];
-                if (p == null || p.gameObject == null || p.UnreservedFetchAmount <= 0f)
-                {
-                    continue;
-                }
-
-                // 如果物品在某个 Storage 内，检查是否允许取出（排除正在被消费的机器、以及运输装载机自身）
-                if (p.storage != null)
-                {
-                    if (!p.storage.allowItemRemoval)
-                    {
-                        continue;
-                    }
-                    if (p.storage.GetComponent<SolidConduitInbox>() != null)
-                    {
-                        continue;
-                    }
-                    p.storage.ignoreSourcePriority = true;
-                }
-
-                dst.Add(p);
-            }
-        }
-
-        internal static void AppendWorldStorageItems(int worldId, List<Pickupable> dst)
-        {
-            if (Components.Pickupables == null || worldId < 0 || worldId == 255)
-            {
-                return;
-            }
-
-            List<Pickupable> pickups = Components.Pickupables.GetWorldItems(worldId);
-            if (pickups == null)
-            {
-                return;
-            }
-
-            for (int i = 0; i < pickups.Count; i++)
-            {
-                Pickupable p = pickups[i];
-                if (p == null || p.gameObject == null || p.UnreservedFetchAmount <= 0f)
-                {
-                    continue;
-                }
-
-                if (p.storage != null)
-                {
-                    if (!p.storage.allowItemRemoval)
-                    {
-                        continue;
-                    }
-                    if (p.storage.GetComponent<SolidConduitInbox>() != null)
-                    {
-                        continue;
-                    }
-                    p.storage.ignoreSourcePriority = true;
-                }
-
-                dst.Add(p);
-            }
-        }
-
-        internal static void RefreshRocketInteriorIfNeeded(int worldId)
-        {
-            float now = Time.time;
-            lock (_rocketRefreshTime)
-            {
-                if (_rocketRefreshTime.TryGetValue(worldId, out float lastTime) && now - lastTime < 1.0f)
-                {
-                    return;
-                }
-                _rocketRefreshTime[worldId] = now;
-            }
-            RefreshWorldBoxItems(worldId, force: true);
+            if (ReferenceEquals(storage, null) || !RemoteStorageWorlds.TryGetValue(storage, out int world)) return;
+            RemoteStorageWorlds.Remove(storage);
+            if (RemoteStorages.TryGetValue(world, out List<Storage> list)) list.Remove(storage);
+            MarkWorldDirty(world);
         }
 
         private static void AddTagToIndex(Dictionary<Tag, List<Pickupable>> index, Dictionary<Tag, float> massIndex, Tag tag, Pickupable p, float mass)
@@ -417,88 +366,108 @@ namespace OmniMod.Collection
 
         internal static void RefreshWorldBoxItems(int worldId, bool force = false)
         {
+            if (worldId < 0 || worldId == 255 || !Game.IsOnMainThread() || QueuedWorlds.Contains(worldId)) return;
+            bool exists;
+            lock (_worldBoxItemsByTag) exists = _worldBoxItemsByTag.ContainsKey(worldId);
             lock (_dirtyWorlds)
             {
-                if (!force && !_dirtyWorlds.Contains(worldId) && _worldBoxItems.ContainsKey(worldId))
+                if (!force && exists && !_dirtyWorlds.Contains(worldId)) return;
+            }
+            if (!force && exists && LastWorldRefresh.TryGetValue(worldId, out float last) &&
+                Time.realtimeSinceStartup - last < 0.5f) return;
+            QueuedWorlds.Add(worldId);
+            PendingWorlds.Enqueue(worldId);
+        }
+
+        private static void CaptureIndexStorage(WorldIndexBuild build, Storage storage)
+        {
+            if (!SolidTransferArmRemotePickup.IsRemoteStorage(storage) || !build.Sources.Add(storage)) return;
+            storage.ignoreSourcePriority = true;
+            // 只复制引用；GetComponent、去重与逐标签建表分散到后续帧。
+            build.Items.AddRange(storage.items);
+        }
+
+        internal static void AdvanceWorldIndexes()
+        {
+            if (_indexFrame == Time.frameCount || !Game.IsOnMainThread()) return;
+            _indexFrame = Time.frameCount;
+            if (_indexBuild == null && PendingWorlds.Count == 0) return;
+            ModLog.CallTimer started = ModLog.StartCall();
+            long deadline = started.Started + Stopwatch.Frequency / 500;
+            if (_indexBuild == null)
+            {
+                int world = PendingWorlds.Dequeue();
+                _indexBuild = new WorldIndexBuild { World = world };
+                lock (_dirtyWorlds) _dirtyWorlds.Remove(world);
+                CaptureIndexStorage(_indexBuild, GetActiveJunkBoxForWorld(world)?.BoxStorage);
+                CaptureIndexStorage(_indexBuild, GetActiveBoxForWorld(world, GlobalItemCollector.CollectMode.Edibles)?.BoxStorage);
+                if (RemoteStorages.TryGetValue(world, out List<Storage> storages))
+                    for (int i = 0; i < storages.Count; i++) CaptureIndexStorage(_indexBuild, storages[i]);
+            }
+            WorldIndexBuild build = _indexBuild;
+            int examined = 0;
+            while (build.Cursor < build.Items.Count && examined++ < 256 && Stopwatch.GetTimestamp() < deadline)
+            {
+                GameObject item = build.Items[build.Cursor++];
+                Pickupable pickup = item != null ? item.GetComponent<Pickupable>() : null;
+                if (pickup == null || pickup.storage == null || !build.Sources.Contains(pickup.storage) ||
+                    !build.Seen.Add(pickup)) continue;
+                KPrefabID id = pickup.KPrefabID;
+                if (id == null || id.HasTag(GameTags.StoredPrivate)) continue;
+                float mass = pickup.TotalAmount;
+                Tag prefab = id.PrefabTag;
+                AddTagToIndex(build.Tags, build.Mass, prefab, pickup, mass);
+                foreach (Tag tag in id.Tags)
+                    if (tag != prefab) AddTagToIndex(build.Tags, build.Mass, tag, pickup, mass);
+            }
+            if (build.Cursor >= build.Items.Count)
+            {
+                // 后台查询继续读上一份完整快照，整批完成后才替换；绝不发布半张表。
+                lock (_worldBoxItemsByTag)
                 {
-                    return;
+                    _worldBoxItemsByTag[build.World] = build.Tags;
+                    _worldBoxMassByTag[build.World] = build.Mass;
                 }
-                _dirtyWorlds.Remove(worldId);
+                LastWorldRefresh[build.World] = Time.realtimeSinceStartup;
+                QueuedWorlds.Remove(build.World);
+                _indexBuild = null;
             }
+            ModLog.SlowCall("仓储索引分片", started, examined);
+        }
 
-            _refreshScratch.Clear();
+        internal static void AbortWorldIndexBuild()
+        {
+            if (_indexBuild == null) return;
+            MarkWorldDirty(_indexBuild.World);
+            QueuedWorlds.Remove(_indexBuild.World);
+            _indexBuild = null;
+        }
 
-            GlobalItemCollector localJunk = GetActiveBoxForWorld(worldId, GlobalItemCollector.CollectMode.Debris);
-            if (localJunk != null)
+        internal static void ClearWorldIndexes()
+        {
+            _indexBuild = null;
+            _indexFrame = -1;
+            PendingWorlds.Clear();
+            QueuedWorlds.Clear();
+            LastWorldRefresh.Clear();
+            lock (_worldBoxItemsByTag)
             {
-                AppendStoragePickupables(localJunk.BoxStorage, _refreshScratch);
-            }
-
-            GlobalItemCollector localFood = GetActiveBoxForWorld(worldId, GlobalItemCollector.CollectMode.Edibles);
-            if (localFood != null)
-            {
-                AppendStoragePickupables(localFood.BoxStorage, _refreshScratch);
-            }
-
-            // 自动收集储物箱/冰箱/地面的可用物品（包括火箭舱内、生态舱内、或未放置聚合箱的星球世界）
-            if (ClusterManager.Instance != null)
-            {
-                WorldContainer wc = ClusterManager.Instance.GetWorld(worldId);
-                if (wc != null && wc.IsModuleInterior)
-                {
-                    AppendRocketInteriorItems(worldId, _refreshScratch);
-                }
-                else if (localJunk == null)
-                {
-                    AppendWorldStorageItems(worldId, _refreshScratch);
-                }
-            }
-
-            Pickupable[] arr = _refreshScratch.Count > 0 ? _refreshScratch.ToArray() : System.Array.Empty<Pickupable>();
-
-            var tagIndex = new Dictionary<Tag, List<Pickupable>>(_refreshScratch.Count > 32 ? _refreshScratch.Count / 2 : 16);
-            var tagMass = new Dictionary<Tag, float>(_refreshScratch.Count > 32 ? _refreshScratch.Count / 2 : 16);
-            for (int i = 0; i < _refreshScratch.Count; i++)
-            {
-                Pickupable p = _refreshScratch[i];
-                if (p == null || p.KPrefabID == null) continue;
-                if (p.KPrefabID.HasTag(GameTags.StoredPrivate)) continue;
-
-                float mass = p.TotalAmount;
-                Tag prefabTag = p.KPrefabID.PrefabTag;
-                AddTagToIndex(tagIndex, tagMass, prefabTag, p, mass);
-
-                if (p.KPrefabID.Tags != null)
-                {
-                    foreach (Tag t in p.KPrefabID.Tags)
-                    {
-                        if (t != prefabTag)
-                        {
-                            AddTagToIndex(tagIndex, tagMass, t, p, mass);
-                        }
-                    }
-                }
-            }
-
-            lock (_worldBoxItems)
-            {
-                _worldBoxItems[worldId] = arr;
-                _worldBoxItemsByTag[worldId] = tagIndex;
-                _worldBoxMassByTag[worldId] = tagMass;
+                _worldBoxItemsByTag.Clear();
+                _worldBoxMassByTag.Clear();
             }
         }
 
         internal static bool TryGetWorldBoxMass(int worldId, Tag tag, out float mass)
         {
             Dictionary<Tag, float> massDict = null;
-            lock (_worldBoxItems)
+            lock (_worldBoxItemsByTag)
             {
                 _worldBoxMassByTag.TryGetValue(worldId, out massDict);
             }
             if (massDict == null)
             {
                 RefreshWorldBoxItems(worldId);
-                lock (_worldBoxItems)
+                lock (_worldBoxItemsByTag)
                 {
                     _worldBoxMassByTag.TryGetValue(worldId, out massDict);
                 }
@@ -514,14 +483,14 @@ namespace OmniMod.Collection
         internal static bool TryGetWorldBoxPickupables(int worldId, Tag tag, out List<Pickupable> list)
         {
             Dictionary<Tag, List<Pickupable>> tagDict = null;
-            lock (_worldBoxItems)
+            lock (_worldBoxItemsByTag)
             {
                 _worldBoxItemsByTag.TryGetValue(worldId, out tagDict);
             }
             if (tagDict == null)
             {
                 RefreshWorldBoxItems(worldId);
-                lock (_worldBoxItems)
+                lock (_worldBoxItemsByTag)
                 {
                     _worldBoxItemsByTag.TryGetValue(worldId, out tagDict);
                 }
@@ -534,38 +503,17 @@ namespace OmniMod.Collection
             return false;
         }
 
-        internal static Pickupable[] GetWorldBoxItems(int worldId)
-        {
-            lock (_worldBoxItems)
-            {
-                if (_worldBoxItems.TryGetValue(worldId, out Pickupable[] a))
-                {
-                    return a;
-                }
-            }
-
-            // 若尚未生成该星球的快照，按需刷新一次
-            RefreshWorldBoxItems(worldId);
-
-            lock (_worldBoxItems)
-            {
-                return _worldBoxItems.TryGetValue(worldId, out Pickupable[] a) ? a : System.Array.Empty<Pickupable>();
-            }
-        }
-
         internal static Pickupable FindMatchInWorldBox(int worldId, FetchChore chore, Storage destination, bool isCrossPlanetDiscrete = false)
         {
+            // 快照存在也可能已脏；原先仅首次创建时刷新，普通箱新入库物品会长期不可见。
+            RefreshWorldBoxItems(worldId);
             Dictionary<Tag, List<Pickupable>> tagIndex;
-            lock (_worldBoxItems)
+            lock (_worldBoxItemsByTag)
             {
-                if (!_worldBoxItemsByTag.TryGetValue(worldId, out tagIndex) || tagIndex == null)
-                {
-                    RefreshWorldBoxItems(worldId);
-                    _worldBoxItemsByTag.TryGetValue(worldId, out tagIndex);
-                }
+                _worldBoxItemsByTag.TryGetValue(worldId, out tagIndex);
             }
 
-            if (tagIndex == null || tagIndex.Count == 0)
+            if (tagIndex == null)
             {
                 return null;
             }
@@ -790,6 +738,7 @@ namespace OmniMod.Collection
                 {
                     continue;
                 }
+                if (!SolidTransferArmRemotePickup.IsRemoteSource(p)) continue;
                 if (p.storage != null)
                 {
                     if (p.storage == destination)
@@ -840,33 +789,25 @@ namespace OmniMod.Collection
         }
 
         /// <summary>统计除 self 以外所有生效杂物箱中某散装元素的缓冲质量（供微量散装元素跨星球均衡缓冲）。</summary>
-        internal static float GetOtherBoxesBulkMass(GlobalItemCollector self, SimHashes element)
+        internal static void CollectOtherBoxesBulkMass(GlobalItemCollector self, Dictionary<SimHashes, float> totals)
         {
-            float total = 0f;
+            totals.Clear();
             for (int i = 0; i < Boxes.Count; i++)
             {
-                GlobalItemCollector b = Boxes[i];
-                if (b == null || b == self || b.gameObject == null || b.IsRedundant
-                    || b.mode != GlobalItemCollector.CollectMode.Debris || b.BoxStorage == null || b.BoxStorage.items == null)
-                {
-                    continue;
-                }
-                List<GameObject> items = b.BoxStorage.items;
+                GlobalItemCollector box = Boxes[i];
+                if (box == null || box == self || box.IsRedundant ||
+                    box.mode != GlobalItemCollector.CollectMode.Debris || box.BoxStorage == null) continue;
+                List<GameObject> items = box.BoxStorage.items;
                 for (int k = 0; k < items.Count; k++)
                 {
                     GameObject go = items[k];
-                    if (go == null)
-                    {
-                        continue;
-                    }
-                    Pickupable p = go.GetComponent<Pickupable>();
-                    if (p != null && GlobalItemCollector.IsBulkSolidElementChunk(p) && p.PrimaryElement.ElementID == element)
-                    {
-                        total += p.PrimaryElement.Mass;
-                    }
+                    Pickupable pickup = go != null ? go.GetComponent<Pickupable>() : null;
+                    if (pickup == null || !BulkBufferManager.IsBulkSolidElementChunk(pickup)) continue;
+                    PrimaryElement element = pickup.PrimaryElement;
+                    totals.TryGetValue(element.ElementID, out float mass);
+                    totals[element.ElementID] = mass + element.Mass;
                 }
             }
-            return total;
         }
 
         /// <summary>
@@ -1028,13 +969,18 @@ namespace OmniMod.Collection
                 return false;
             }
 
-            GlobalItemCollector targetBox = GetActiveJunkBoxForWorld(targetWorldId);
+            bool isUpgrade = itemGo.GetComponent<BionicUpgradeComponent>() != null;
+            GlobalItemCollector targetBox = isUpgrade
+                ? BionicUpgradeRegistry.GetDestinationBox(targetWorldId) : GetActiveJunkBoxForWorld(targetWorldId);
             if (targetBox == null || targetBox.BoxStorage == null)
             {
                 return false;
             }
 
             Pickupable p = itemGo.GetComponent<Pickupable>();
+            // 旧版静默存储可能留下过期 StoredPrivate，仅在确认是可调拨容器后同步原版标签。
+            if (isUpgrade && BionicUpgradeRegistry.IsDispatchSource(p) && p.storage != null)
+                itemGo.Trigger((int)GameHashes.OnStorageInteracted, p.storage);
             if (p == null || p.ReservedAmount > 0f || itemGo.HasTag(GameTags.StoredPrivate))
             {
                 return false;
@@ -1047,21 +993,26 @@ namespace OmniMod.Collection
 
             if (p.storage != null)
             {
-                if (!IsBoxStorage(p.storage))
+                if (!IsBoxStorage(p.storage) && !(isUpgrade && BionicUpgradeRegistry.IsDispatchSource(p)))
                 {
                     return false;
                 }
-                p.storage.Transfer(itemGo, targetBox.BoxStorage, block_events: false, hide_popups: true);
+                int sourceWorld = p.storage.GetMyWorldId();
+                if (!p.storage.Transfer(itemGo, targetBox.BoxStorage, block_events: false, hide_popups: true)) return false;
+                MarkWorldDirty(sourceWorld);
+                MarkWorldDirty(targetBox.GetMyWorldId());
                 RefreshWorldBoxItems(targetWorldId);
-                return true;
+                return p != null && p.storage == targetBox.BoxStorage;
             }
 
             int itemWorld = itemGo.GetMyWorldId();
-            if (WorldHasActiveJunkBox(itemWorld))
+            if (WorldHasActiveJunkBox(itemWorld) || (isUpgrade && BionicUpgradeRegistry.IsDispatchSource(p)))
             {
                 targetBox.BoxStorage.Store(itemGo, hide_popups: true);
+                MarkWorldDirty(itemWorld);
+                MarkWorldDirty(targetBox.GetMyWorldId());
                 RefreshWorldBoxItems(targetWorldId);
-                return true;
+                return p != null && p.storage == targetBox.BoxStorage;
             }
 
             return false;

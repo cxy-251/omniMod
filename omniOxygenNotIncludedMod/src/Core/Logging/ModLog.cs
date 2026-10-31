@@ -46,6 +46,30 @@ namespace OmniMod.Core.Logging
             }
         }
 
+        internal readonly struct CallTimer
+        {
+            internal readonly long Started;
+            internal readonly int FullCollections;
+
+            internal CallTimer(long started, int fullCollections)
+            {
+                Started = started;
+                FullCollections = fullCollections;
+            }
+        }
+
+        internal static CallTimer StartCall() => new CallTimer(System.Diagnostics.Stopwatch.GetTimestamp(),
+            GC.CollectionCount(GC.MaxGeneration));
+
+        internal static void SlowCall(string operation, CallTimer timer, int items = 0)
+        {
+            double elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - timer.Started) * 1000.0 /
+                               System.Diagnostics.Stopwatch.Frequency;
+            if (elapsedMs < 100.0) return;
+            int collections = GC.CollectionCount(GC.MaxGeneration) - timer.FullCollections;
+            Throttle("slow_" + operation, $"[慢调用] {operation} 耗时 {elapsedMs:F0} ms，物品数 {items}，完整 GC +{collections}", 10f);
+        }
+
         /// <summary>
         /// 节流日志：同一 key 至少间隔 intervalSeconds 秒才会再次输出，防止高频刷屏。
         /// </summary>

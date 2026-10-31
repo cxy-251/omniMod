@@ -20,6 +20,25 @@ namespace OmniMod.Collection
             return storage != null && BottlerStorages.Contains(storage);
         }
 
+        internal static void PrepareStorage(Bottler bottler)
+        {
+            Storage storage = bottler != null ? bottler.storage : null;
+            if (storage == null) return;
+            bool wasLocked = !storage.allowItemRemoval;
+            storage.allowItemRemoval = true;
+            storage.ignoreSourcePriority = true;
+            if (!wasLocked) return;
+
+            // 原版会在未满/切换状态时锁定容器并给物品打 StoredPrivate。
+            // 解锁后必须同步物品标签，否则机械臂仍会把这些流体当成私有库存。
+            for (int i = 0; i < storage.items.Count; i++)
+            {
+                GameObject item = storage.items[i];
+                if (item != null) item.Trigger((int)GameHashes.OnStorageInteracted, storage);
+            }
+            AggregateBoxRegistry.MarkWorldDirty(storage.GetMyWorldId());
+        }
+
         private static void EnsureCellArray()
         {
             if (_bottlerCellWorld == null || _bottlerCellWorld.Length < Grid.CellCount)
@@ -42,9 +61,9 @@ namespace OmniMod.Collection
             }
             if (bottler.storage != null)
             {
-                bottler.storage.ignoreSourcePriority = true;
-                bottler.storage.allowItemRemoval = true;
+                PrepareStorage(bottler);
                 BottlerStorages.Add(bottler.storage);
+                AggregateBoxRegistry.RegisterRemoteStorage(bottler.storage);
             }
             Rebuild();
         }
@@ -154,6 +173,11 @@ namespace OmniMod.Collection
             }
             return null;
         }
+
+        internal static List<Bottler> GetAllBottlers()
+        {
+            return Bottlers;
+        }
     }
 
     [HarmonyPatch(typeof(Bottler), "OnSpawn")]
@@ -164,6 +188,7 @@ namespace OmniMod.Collection
             if (__instance != null)
             {
                 BottlerRegistry.Register(__instance);
+                __instance.Subscribe((int)GameHashes.OnStorageChange, _ => BottlerRegistry.PrepareStorage(__instance));
             }
         }
     }
@@ -190,8 +215,7 @@ namespace OmniMod.Collection
                 // 只要装瓶器内有流体，始终允许机械臂取物并忽略来源优先级
                 if (__instance.storage.MassStored() > 0f)
                 {
-                    __instance.storage.allowItemRemoval = true;
-                    __instance.storage.ignoreSourcePriority = true;
+                    BottlerRegistry.PrepareStorage(__instance);
                 }
             }
         }

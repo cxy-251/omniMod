@@ -19,6 +19,7 @@ namespace OmniMod.Collection
         private static readonly HashSet<SimHashes> _elementScratch = new HashSet<SimHashes>();
         private static readonly Dictionary<SimHashes, float> _localBulkMass = new Dictionary<SimHashes, float>(64);
         private static readonly Dictionary<SimHashes, float> _localReservedMass = new Dictionary<SimHashes, float>(64);
+        private static readonly Dictionary<SimHashes, float> _otherBoxesBulkMass = new Dictionary<SimHashes, float>(64);
         private static readonly Dictionary<SimHashes, PrimaryElement> _localBulkChunk = new Dictionary<SimHashes, PrimaryElement>(64);
 
         public static bool IsBulkSolidElementChunk(Pickupable p)
@@ -111,7 +112,8 @@ namespace OmniMod.Collection
                 }
             }
 
-            bool newChunkSpawned = false;
+            bool storageChanged = false;
+            bool otherMassCollected = false;
             foreach (SimHashes element in _elementScratch)
             {
                 Element e = ElementLoader.FindElementByHash(element);
@@ -133,7 +135,7 @@ namespace OmniMod.Collection
                     {
                         if (unreservedHave > 0f)
                         {
-                            MoveBufferElementToPool(collector, storage, element, unreservedHave);
+                            storageChanged |= MoveBufferElementToPool(collector, storage, element, unreservedHave);
                             _localBulkMass[element] = reservedHave;
                         }
                         if (isHome)
@@ -148,7 +150,12 @@ namespace OmniMod.Collection
                 float target = Mathf.Min(inPool + unreservedHave, LocalBufferTargetPerElementKg);
                 if (boxCount > 1 && inPool + unreservedHave < LocalBufferTargetPerElementKg)
                 {
-                    float otherHave = AggregateBoxRegistry.GetOtherBoxesBulkMass(collector, element);
+                    if (!otherMassCollected)
+                    {
+                        AggregateBoxRegistry.CollectOtherBoxesBulkMass(collector, _otherBoxesBulkMass);
+                        otherMassCollected = true;
+                    }
+                    _otherBoxesBulkMass.TryGetValue(element, out float otherHave);
                     float fairShare = (inPool + unreservedHave + otherHave) / boxCount;
                     target = Mathf.Min(fairShare, LocalBufferTargetPerElementKg);
                 }
@@ -174,6 +181,7 @@ namespace OmniMod.Collection
                             float finalTemp = GameUtil.GetFinalTemperature(chunk.Temperature, chunk.Mass, tempK, taken);
                             chunk.Mass += taken;
                             chunk.Temperature = finalTemp;
+                            storageChanged = true;
                         }
                         else if (e.substance != null)
                         {
@@ -184,8 +192,8 @@ namespace OmniMod.Collection
                                 p.prevent_absorb_until_stored = true;
                             }
                             e.substance.ActivateSubstanceGameObject(go, NoDisease, 0);
-                            storage.Store(go, hide_popups: true, block_events: true, do_disease_transfer: false);
-                            newChunkSpawned = true;
+                            StorageBatchHelper.Store(storage, go);
+                            storageChanged = true;
                         }
                         _localBulkMass[element] = totalHave + taken;
                     }
@@ -194,28 +202,22 @@ namespace OmniMod.Collection
                          (boxCount > 1 && target < LocalBufferTargetPerElementKg - 1f && unreservedHave > target + 2f))
                 {
                     float ret = unreservedHave - target;
-                    MoveBufferElementToPool(collector, storage, element, ret);
+                    storageChanged |= MoveBufferElementToPool(collector, storage, element, ret);
                     _localBulkMass[element] = Mathf.Max(0f, totalHave - ret);
                 }
             }
 
-            if (newChunkSpawned)
-            {
-                storage.Trigger(-1697596308, storage.gameObject);
-                storage.OnStorageChange?.Invoke(storage.gameObject);
-                AggregateBoxRegistry.MarkWorldDirty(worldId);
-            }
+            if (storageChanged) StorageBatchHelper.PublishChanges(storage, increased: true);
         }
 
-        public static void MoveBufferElementToPool(GlobalItemCollector collector, Storage storage, SimHashes element, float amount)
+        private static bool MoveBufferElementToPool(GlobalItemCollector collector, Storage storage, SimHashes element, float amount)
         {
             if (storage == null || storage.items == null || amount <= 0f || OmniPool.Instance == null)
             {
-                return;
+                return false;
             }
 
             float remaining = amount;
-            bool itemRemoved = false;
             for (int i = storage.items.Count - 1; i >= 0 && remaining > 0.001f; i--)
             {
                 GameObject go = storage.items[i];
@@ -234,26 +236,22 @@ namespace OmniMod.Collection
 
                 float canTake = Mathf.Min(unreservedInChunk, remaining);
                 OmniPool.Instance.AddSolid(element, canTake, pe.Temperature);
-                pe.Mass -= canTake;
                 remaining -= canTake;
-
-                if (pe.Mass <= 0.001f && p.ReservedAmount <= 0.001f)
+                float massLeft = Mathf.Max(0f, pe.Mass - canTake);
+                if (massLeft <= 0.001f && p.ReservedAmount <= 0.001f)
                 {
-                    storage.Remove(go);
+                    // 先从所属容器解除引用，再销毁；先将质量置零会立即触发 Unity 销毁。
+                    storage.items.RemoveAt(i);
+                    p.storage = null;
                     Util.KDestroyGameObject(go);
-                    itemRemoved = true;
+                }
+                else
+                {
+                    pe.Mass = massLeft;
                 }
             }
 
-            if (itemRemoved)
-            {
-                storage.Trigger(-1697596308, storage.gameObject);
-                storage.OnStorageChange?.Invoke(storage.gameObject);
-                if (collector != null)
-                {
-                    AggregateBoxRegistry.MarkWorldDirty(collector.GetMyWorldId());
-                }
-            }
+            return remaining < amount;
         }
 
         /// <summary>
@@ -283,9 +281,8 @@ namespace OmniMod.Collection
             }
 
             Storage storage = collector.BoxStorage;
-            float targetTake = Mathf.Min(inPool, Mathf.Max(neededMass, LocalBufferTargetPerElementKg));
-
             PrimaryElement chunk = null;
+            float unreservedHave = 0f;
             if (storage.items != null)
             {
                 for (int i = 0; i < storage.items.Count; i++)
@@ -295,11 +292,15 @@ namespace OmniMod.Collection
                     Pickupable pItem = go.GetComponent<Pickupable>();
                     if (pItem != null && IsBulkSolidElementChunk(pItem) && pItem.PrimaryElement != null && pItem.PrimaryElement.ElementID == element)
                     {
-                        chunk = pItem.PrimaryElement;
-                        break;
+                        unreservedHave += Mathf.Max(0f, pItem.UnreservedFetchAmount);
+                        if (chunk == null || pItem.PrimaryElement.Mass > chunk.Mass) chunk = pItem.PrimaryElement;
                     }
                 }
             }
+
+            // 只补足自由缓冲的差额；反复评估同一任务时不能每次额外物化 4 吨。
+            float targetTake = Mathf.Min(inPool, Mathf.Max(0f, Mathf.Max(neededMass, LocalBufferTargetPerElementKg) - unreservedHave));
+            if (targetTake <= 0.001f) return chunk != null ? chunk.GetComponent<Pickupable>() : null;
 
             float taken;
             float tempK;
@@ -311,6 +312,7 @@ namespace OmniMod.Collection
                     float finalTemp = GameUtil.GetFinalTemperature(chunk.Temperature, chunk.Mass, tempK, taken);
                     chunk.Mass += taken;
                     chunk.Temperature = finalTemp;
+                    StorageBatchHelper.PublishChanges(storage, increased: true);
                 }
                 return chunk.GetComponent<Pickupable>();
             }
@@ -326,9 +328,9 @@ namespace OmniMod.Collection
                         p.prevent_absorb_until_stored = true;
                     }
                     e.substance.ActivateSubstanceGameObject(go, NoDisease, 0);
-                    storage.Store(go, hide_popups: true, block_events: false, do_disease_transfer: false);
+                    GameObject stored = storage.Store(go, hide_popups: true, block_events: false, do_disease_transfer: false);
                     AggregateBoxRegistry.MarkWorldDirty(collector.GetMyWorldId());
-                    return p;
+                    return stored != null ? stored.GetComponent<Pickupable>() : null;
                 }
             }
 

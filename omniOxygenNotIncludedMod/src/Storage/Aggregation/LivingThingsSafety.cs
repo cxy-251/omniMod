@@ -57,5 +57,14 @@ namespace OmniMod.Collection
                 }
             });
         }
+
+        internal static bool EjectIfLiving(GlobalItemCollector collector, GameObject item)
+        {
+            if (!IsLivingThing(item)) return false;
+            collector.BoxStorage.Drop(item, true);
+            item.transform.position = collector.transform.position + Vector3.up;
+            ModLog.Warn($"[安全排斥] 从聚合箱中弹出误入的活物: {item.name}");
+            return true;
+        }
     }
 }

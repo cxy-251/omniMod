@@ -20,6 +20,7 @@ namespace OmniMod
         public override void OnLoad(Harmony harmony)
         {
             ModLog.Info("正在加载（针对游戏版本 744825 构建）…");
+            ModLog.Info("构建标识：perf-20261030-aquatic7（水生自动站清除复制人技能及在场要求）");
 
             int ok = 0;
             int failed = 0;

@@ -76,7 +76,7 @@ namespace OmniMod.Core.Safety
                     targetFolder = SaveLoader.GetActiveSaveColonyFolder();
                 }
 
-                string autoSaveDir = SaveLoader.GetActiveAutoSavePath();
+                string autoSaveDir = CrashRecoverySaver.NormalizeAutoSaveDirectory(SaveLoader.GetActiveAutoSavePath());
                 if (!string.IsNullOrEmpty(autoSaveDir))
                 {
                     if (!Directory.Exists(autoSaveDir))
@@ -94,7 +94,11 @@ namespace OmniMod.Core.Safety
                 string backupFullPath = Path.Combine(targetFolder, backupFilename);
 
                 ModLog.Info($"[容灾防护] 现实时间已达 {BackupIntervalSeconds / 60:F0} 分钟未存档，正在后台生成防丢备份...");
-                SaveLoader.Instance.Save(backupFullPath, isAutoSave: false, updateSavePointer: false);
+                string savedPath = SaveLoader.Instance.Save(backupFullPath, isAutoSave: false, updateSavePointer: false);
+                if (!string.Equals(savedPath, backupFullPath, StringComparison.Ordinal) || !File.Exists(backupFullPath))
+                {
+                    throw new IOException("游戏未完成定时备份写入");
+                }
                 _lastSaveRealtime = Time.unscaledTime;
                 ModLog.Info($"[容灾防护] ✅ 防丢备份已成功保存: {backupFullPath}");
             }

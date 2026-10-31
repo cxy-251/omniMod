@@ -110,7 +110,7 @@ namespace OmniMod.Fixes
                     {
                         foreach (Pickupable p in collection)
                         {
-                            if (p != null && p.gameObject != null && !p.HasTag(GameTags.MutatedSeed))
+                            if (p != null && p.gameObject != null)
                             {
                                 count++;
                             }

@@ -366,11 +366,11 @@ namespace OmniMod.Buildings
                 OmniPocketHabitatConfig.ID,
                 name: ModStrings.T("折叠空间生态巨舱", "Omni Pocket Hyper-Habitat"),
                 desc: ModStrings.T(
-                    "采用高维空间折叠技术建造的独立基地太空舱。外部仅占 3x3 地块，防水防淹，可放置于基地地面或水底。内部提供 28x27 格纯粹净空（外框为标准钢制火箭壁板，不塞中子物质、不预充气体），并支持通过原版【电源插座】将舱内与舱外电网直接连通。",
-                    "A standalone pocket habitat module occupying a 3x3 footprint externally, fully waterproof and submergeable. Internally provides a clean 28x27 vacuum space framed by standard steel rocket walls, with direct cross-dimensional power grid linkage via standard Rocket Interior Power Plugs."),
+                    "采用高维空间折叠技术建造的独立基地太空舱。外部仅占 1x3 格，防水防淹，可放置于基地地面或水底。内部提供 30x30 格净空，不作为独立小行星列出；点击舱门侧边栏进入，通过舱内门返回。支持原版气液插座和电源插座连通内外管网。",
+                    "A waterproof pocket habitat with a compact 1x3 exterior and a clean 30x30 interior. Hidden from the asteroid list. Enter through the exterior door's side panel and return using the interior door. Standard interior conduit ports and power plugs link to the exterior networks."),
                 effect: ModStrings.T(
-                    "建造后开辟 28x27 净空太空舱空间，复制人可自由进出，侧边栏支持舱内外一键切换视角。外部自带电源接口，与舱内【电源插座】共享同一电网。",
-                    "Creates a 28x27 clean rocket interior upon construction. Duplicants can enter and exit freely, with one-click interior/exterior camera switching. Features an external power port that bridges directly with interior Power Plugs."));
+                    "外部宽 1 格、高 3 格。底格：电源、气体输入、液体输入；顶格：气体输出、液体输出。各类线管分层独立连接，舱内空间仍为 30x30 格。复制人可自由进出，侧边栏支持舱内外一键切换视角。",
+                    "Exterior: 1 tile wide and 3 tiles tall. Bottom tile: power, gas input and liquid input. Top tile: gas output and liquid output. Each utility uses its own layer. The interior remains 30x30, with free duplicant access and one-click camera switching."));
 
             ModUtil.AddBuildingToPlanScreen(
                 new HashedString("Base"),
