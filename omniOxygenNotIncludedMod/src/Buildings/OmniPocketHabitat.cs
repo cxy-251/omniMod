@@ -134,6 +134,11 @@ namespace OmniMod.Buildings
                 return;
             }
 
+            if (pairedInteriorDoor == null)
+            {
+                PairWithInteriorDoor();
+            }
+
             WorldContainer targetWorld = GetTargetWorld();
             if (targetWorld == null)
             {
@@ -223,6 +228,10 @@ namespace OmniMod.Buildings
             if (targetWorldId < 0)
             {
                 EnsurePocketWorldInitialized();
+            }
+            if (targetWorldId >= 0 && pairedInteriorDoor == null)
+            {
+                PairWithInteriorDoor();
             }
             RefreshConduitDemandState();
         }
@@ -471,8 +480,7 @@ namespace OmniMod.Buildings
             }
 
             isStampingTemplate = true;
-            string templateName = OmniPocketTemplate.GetTemplateNameForSize(world.WorldSize);
-            world.PlaceInteriorTemplate(templateName, OnTemplateStamped);
+            world.PlaceInteriorTemplate(OmniPocketTemplate.TemplateName, OnTemplateStamped);
             ConfigurePocketWorldZoneAndSunlight(world);
         }
 
