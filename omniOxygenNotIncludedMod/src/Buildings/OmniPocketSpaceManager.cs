@@ -20,6 +20,20 @@ namespace OmniMod.Buildings
         /// <summary>标准统一尺寸：外部占地 32x32，内部空间 30x30</summary>
         public static readonly Vector2I StandardSize = TUNING.ROCKETRY.ROCKET_INTERIOR_SIZE; // (32, 32)
 
+        /// <summary>
+        /// 阶梯装箱尺寸候选（宽度恒为 32，确保内部净空始终为 30 格大平层跨度；高度顺应大地图上下闲置真空带，最大限度扩充生态舱数量）。
+        /// </summary>
+        private static readonly Vector2I[] CandidateSizes = new Vector2I[]
+        {
+            new Vector2I(32, 32), // 优先原版标准 32x32（内部 30x30）
+            new Vector2I(32, 24), // 适配母星上方 25 格真空带（内部 30x22，可容纳 19+ 个新生态舱）
+            new Vector2I(32, 20),
+            new Vector2I(32, 16),
+            new Vector2I(24, 24),
+            new Vector2I(20, 20),
+            new Vector2I(16, 16)
+        };
+
         private struct WorldBox
         {
             public int x1;
@@ -115,8 +129,9 @@ namespace OmniMod.Buildings
         }
 
         /// <summary>
-        /// 为新的折叠生态舱分配底层网格空间（始终保持 32x32 原版标准尺寸）。
-        /// 先尝试原版标准分配；若原版右侧预留区用尽，则启动全图 32x32 深度装箱探测。
+        /// 为新的折叠生态舱分配底层网格空间：
+        /// 1. 优先尝试原版标准分配（32x32）；
+        /// 2. 若原版右侧预留区用尽，使用星系大地图深度真空装箱算法（优先 32x32，若高度受限则平滑选用 32x24 等，保持 30 格超宽大平层跨度）。
         /// </summary>
         public static bool TryAllocatePocketSpace(out Vector2I allocatedSize, out Vector2I allocatedOffset)
         {
@@ -136,23 +151,28 @@ namespace OmniMod.Buildings
                 return true;
             }
 
-            // 2. 原版右侧预留区耗尽，启动全图 32x32 深度装箱算法（在星球间隙的真空带寻找标准空间）
-            ModLog.Info("[折叠生态舱] 原版火箭预留区已满，启动全图 32x32 深度真空空间扫描...");
+            // 2. 原版右侧预留区耗尽，启动星系大地图深度真空空间装箱扫描
+            ModLog.Info("[折叠生态舱] 原版火箭预留区已满，启动星系大地图深度真空空间装箱扫描...");
             List<WorldBox> occupied = CollectExistingWorldBoxes(buffer: 1);
 
-            if (FindFreeSpaceForSize(StandardSize, occupied, out Vector2I freeOffset))
+            for (int i = 0; i < CandidateSizes.Length; i++)
             {
-                // 在底层 C++ Sim 物理网格中初始化这片真空空间
-                Vector2I gridOffset = new Vector2I(Grid.WidthInCells, Grid.HeightInCells);
-                SimMessages.SimDataResizeGridAndInitializeVacuumCells(gridOffset, StandardSize.x, StandardSize.y, freeOffset.x, freeOffset.y);
-                Game.Instance.roomProber?.Refresh();
+                Vector2I candidate = CandidateSizes[i];
+                if (FindFreeSpaceForSize(candidate, occupied, out Vector2I freeOffset))
+                {
+                    // 在底层 C++ Sim 物理网格中初始化这片真空空间
+                    Vector2I gridOffset = new Vector2I(Grid.WidthInCells, Grid.HeightInCells);
+                    SimMessages.SimDataResizeGridAndInitializeVacuumCells(gridOffset, candidate.x, candidate.y, freeOffset.x, freeOffset.y);
+                    Game.Instance.roomProber?.Refresh();
 
-                allocatedOffset = freeOffset;
-                ModLog.Info($"[折叠生态舱] 全图深度扫描成功开辟标准 32x32 空间！坐标: {allocatedOffset}。");
-                return true;
+                    allocatedSize = candidate;
+                    allocatedOffset = freeOffset;
+                    ModLog.Info($"[折叠生态舱] 深度装箱全图扫描分配成功 (Size: {allocatedSize}, Offset: {allocatedOffset})。");
+                    return true;
+                }
             }
 
-            ModLog.Warn("[折叠生态舱] 星系大地图物理真空空间已彻底耗尽，无法再容纳新的 32x32 折叠空间。");
+            ModLog.Warn("[折叠生态舱] 星系大地图物理真空空间已彻底耗尽。");
             return false;
         }
     }

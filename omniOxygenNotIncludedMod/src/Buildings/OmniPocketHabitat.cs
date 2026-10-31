@@ -116,14 +116,19 @@ namespace OmniMod.Buildings
         public string SidescreenButtonText => ModStrings.T("进入舱内 (View Interior)", "View Interior").Resolve();
         public string SidescreenButtonTooltip => ModStrings.T("将镜头视角切换至该生态舱内部空间", "Switch camera view to the habitat interior").Resolve();
 
-        public bool SidescreenEnabled() => targetWorldId >= 0;
-        public bool SidescreenButtonInteractable() => targetWorldId >= 0;
+        public bool SidescreenEnabled() => true;
+        public bool SidescreenButtonInteractable() => true;
         public int ButtonSideScreenSortOrder() => 20;
         public int HorizontalGroupID() => -1;
         public void SetButtonTextOverride(ButtonMenuTextOverride textOverride) { }
 
         public void OnSidescreenButtonPressed()
         {
+            if (targetWorldId < 0)
+            {
+                EnsurePocketWorldInitialized();
+            }
+
             if (targetWorldId < 0 || ClusterManager.Instance == null)
             {
                 return;
@@ -215,6 +220,10 @@ namespace OmniMod.Buildings
 
         public void Sim1000ms(float dt)
         {
+            if (targetWorldId < 0)
+            {
+                EnsurePocketWorldInitialized();
+            }
             RefreshConduitDemandState();
         }
 
@@ -390,7 +399,7 @@ namespace OmniMod.Buildings
                     StartCoroutine(DelayedPairDoor());
                 }
 
-                hasInitializedWorld = true;
+                hasInitializedWorld = targetWorldId >= 0;
             }
             finally
             {
@@ -462,7 +471,8 @@ namespace OmniMod.Buildings
             }
 
             isStampingTemplate = true;
-            world.PlaceInteriorTemplate(OmniPocketTemplate.TemplateName, OnTemplateStamped);
+            string templateName = OmniPocketTemplate.GetTemplateNameForSize(world.WorldSize);
+            world.PlaceInteriorTemplate(templateName, OnTemplateStamped);
             ConfigurePocketWorldZoneAndSunlight(world);
         }
 
