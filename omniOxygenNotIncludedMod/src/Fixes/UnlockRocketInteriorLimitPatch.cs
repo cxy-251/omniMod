@@ -13,8 +13,8 @@ namespace OmniMod.Fixes
         {
             public static bool Prefix(ref bool __result)
             {
-                // 恒定返回 true，彻底抹除已达上限禁止建造的红字拦截
-                __result = true;
+                // 扩充原版上限，但仍遵守 byte 世界编号边界，不能创建 World 255。
+                __result = OmniMod.Buildings.PocketWorldRegistry.HasAvailableId;
                 return false;
             }
         }

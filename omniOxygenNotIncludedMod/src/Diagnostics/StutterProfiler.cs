@@ -9,19 +9,10 @@ using UnityEngine;
 
 namespace OmniMod.Diagnostics
 {
-    /// <summary>
-    /// 卡顿诊断器（临时）：
-    /// - 给 OmniMod 打过补丁的所有原版方法、OmniMod 自身的 Sim/Update 方法、以及游戏主循环关键方法加计时；
-    /// - 每帧结束统计，若帧耗时超过阈值，把本帧耗时最高的方法、GC 次数变化写入 Player.log；
-    /// - 每 10 秒输出一次累计耗时排行与内存分配速率。
-    /// 日志关键字：[OmniMod][卡顿诊断]
-    /// </summary>
+    /// <summary>只计时调度批次与模组入口；不拦截逐物品、逐格子和逐预条件的热点。</summary>
     public static class StutterProfiler
     {
-        /// <summary>
-        /// 性能探针总开关：默认关闭以保证零开销与无干扰纯净运行。需排查卡顿时开启。
-        /// </summary>
-        public static bool Enabled = false;
+        public static bool Enabled = true;
 
         internal const float SpikeThresholdMs = 100f;
 
@@ -33,14 +24,7 @@ namespace OmniMod.Diagnostics
         private static int[] _windowCalls = new int[0];
         private static long[] _windowMax = new long[0];
 
-        private static readonly string[] OwnMethodNames =
-        {
-            "Sim33ms", "Sim200ms", "Sim1000ms", "Sim4000ms", "SimEveryTick",
-            "Update", "LateUpdate", "FixedUpdate",
-            "RenderEveryTick", "Render200ms", "Render1000ms",
-        };
-
-        private static readonly string[][] VanillaTargets =
+        private static readonly string[][] TimingTargets =
         {
             new[] { "Game", "Update" },
             new[] { "Game", "LateUpdate" },
@@ -51,10 +35,19 @@ namespace OmniMod.Diagnostics
             new[] { "StateMachineUpdater", "RenderEveryTick" },
             new[] { "StateMachineUpdater", "AdvanceOneSimSubTick" },
             new[] { "GlobalChoreProvider", "Render200ms" },
-            new[] { "FetchManager", "Sim200ms" },
+            new[] { "FetchManager", "Sim1000ms" },
             new[] { "BrainScheduler", "RenderEveryTick" },
+            new[] { "FishOvercrowingManager", "Sim1000ms" },
             new[] { "SolidTransferArm", "BatchUpdate" },
-            new[] { "ChoreConsumer", "FindNextChore" },
+            new[] { "SolidTransferArm", "Sim" },
+            new[] { "OmniMod.Collection.GlobalItemCollector", "Sim1000ms" },
+            new[] { "OmniMod.Collection.GlobalItemCollector", "Sim33ms" },
+            new[] { "OmniMod.Collection.CollectionCandidateSnapshot", "Advance" },
+            new[] { "OmniMod.Collection.WorldStorageIndex", "Advance" },
+            new[] { "OmniMod.Pool.SharedMaterialSupply", "ForChore" },
+            new[] { "OmniMod.Collection.BulkBufferManager", "MaterializeSolidFromPool" },
+            new[] { "OmniMod.Logistics.RemoteFetch.SolidTransferArm_FindFetchTarget_Patch", "FindTargetInternal" },
+            new[] { "OmniMod.Buildings.OmniPocketHabitat", "Sim1000ms" },
             new[] { "SaveLoader", "Save" },
         };
 
@@ -67,35 +60,8 @@ namespace OmniMod.Diagnostics
 
             var targets = new HashSet<MethodBase>();
 
-            // 1. OmniMod 打过补丁的所有原版方法
-            foreach (MethodBase m in Harmony.GetAllPatchedMethods())
-            {
-                Patches info = Harmony.GetPatchInfo(m);
-                if (info != null && info.Owners.Contains(harmony.Id))
-                {
-                    targets.Add(m);
-                }
-            }
-
-            // 2. OmniMod 自身组件的 Sim/Update 方法
-            var ownNames = new HashSet<string>(OwnMethodNames);
-            foreach (Type type in Assembly.GetExecutingAssembly().GetTypes())
-            {
-                if (type.IsDefined(typeof(HarmonyPatch), false) || type.Namespace == typeof(StutterProfiler).Namespace)
-                {
-                    continue;
-                }
-                foreach (MethodInfo m in type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-                {
-                    if (ownNames.Contains(m.Name) && !m.IsAbstract && !m.ContainsGenericParameters)
-                    {
-                        targets.Add(m);
-                    }
-                }
-            }
-
-            // 3. 游戏主循环关键方法（用于判断卡顿是否发生在 OmniMod 之外）
-            foreach (string[] t in VanillaTargets)
+            // 采用固定的低频入口名单，避免对所有 Harmony 补丁和高频内层循环再加一层计时。
+            foreach (string[] t in TimingTargets)
             {
                 try
                 {
@@ -140,16 +106,17 @@ namespace OmniMod.Diagnostics
                     Debug.LogWarning($"[OmniMod][卡顿诊断] 计时挂载失败: {m.DeclaringType?.FullName}.{m.Name} — {e.Message}");
                 }
             }
-            Debug.Log($"[OmniMod][卡顿诊断] 已挂载计时 {ok}/{targets.Count} 个方法，帧耗时阈值 {SpikeThresholdMs} ms");
+            Debug.Log($"[OmniMod][卡顿诊断] 已挂载计时 {ok}/{targets.Count} 个方法，帧耗时阈值 {SpikeThresholdMs} ms；方法耗时包含子调用，不可直接相加。");
         }
 
         private static void TimingPrefix(out long __state)
         {
-            __state = Stopwatch.GetTimestamp();
+            __state = Game.IsOnMainThread() ? Stopwatch.GetTimestamp() : 0;
         }
 
         private static void TimingPostfix(long __state, MethodBase __originalMethod)
         {
+            if (__state == 0) return;
             long dt = Stopwatch.GetTimestamp() - __state;
             if (__originalMethod == null || !_index.TryGetValue(__originalMethod, out int i))
             {
@@ -181,7 +148,7 @@ namespace OmniMod.Diagnostics
             order.Sort((a, b) => _frameTicks[b].CompareTo(_frameTicks[a]));
 
             var sb = new StringBuilder();
-            sb.Append($"[OmniMod][卡顿诊断] 卡顿帧 {frameMs:F0} ms | 距上次卡顿 {sinceLastSpikeSec:F2} s | GC0 +{gc0Delta} GC1 +{gc1Delta} | 堆 {GC.GetTotalMemory(false) / 1048576} MB");
+            sb.Append($"[OmniMod][卡顿诊断] 卡顿帧 {frameMs:F0} ms | 距上次记录 {sinceLastSpikeSec:F2} s | GC0 +{gc0Delta} GC1 +{gc1Delta} | 速度 {Time.timeScale:F1} | 前台 {Application.isFocused}");
             for (int k = 0; k < order.Count && k < 15; k++)
             {
                 int i = order[k];
@@ -196,7 +163,7 @@ namespace OmniMod.Diagnostics
             Array.Clear(_frameCalls, 0, _frameCalls.Length);
         }
 
-        internal static void ReportWindow(float windowSec, int frames, int spikes, double allocMbPerSec)
+        internal static void ReportWindow(float windowSec, int frames, int spikes, float maxFrameMs, int gc0, int gc1, float runningSec)
         {
             var order = new List<int>();
             for (int i = 0; i < _names.Count; i++)
@@ -206,7 +173,8 @@ namespace OmniMod.Diagnostics
             order.Sort((a, b) => _windowTicks[b].CompareTo(_windowTicks[a]));
 
             var sb = new StringBuilder();
-            sb.Append($"[OmniMod][卡顿诊断] {windowSec:F0}s 汇总 | 平均 {frames / Mathf.Max(windowSec, 0.001f):F1} FPS | 卡顿帧 {spikes} | 约 {allocMbPerSec:F1} MB/s 内存分配");
+            sb.Append($"[OmniMod][卡顿诊断] {windowSec:F0}s 汇总 | 平均 {frames / Mathf.Max(windowSec, 0.001f):F1} FPS | >=100ms {spikes} 帧 | 最长帧 {maxFrameMs:F0}ms | 模拟运行 {runningSec:F1}s | GC0 +{gc0} GC1 +{gc1} | 堆 {GC.GetTotalMemory(false) / 1048576} MB");
+            sb.Append($"\n    世界 {ClusterManager.Instance?.WorldContainers.Count ?? 0} | 物品 {Components.Pickupables.Count} | 建筑 {Components.BuildingCompletes.Count} | AI 个体 {Components.Brains.Count} | 复制人 {Components.LiveMinionIdentities.Count}");
             for (int k = 0; k < order.Count && k < 20; k++)
             {
                 int i = order[k];
@@ -230,8 +198,10 @@ namespace OmniMod.Diagnostics
         private float _windowStart;
         private int _windowFrames;
         private int _windowSpikes;
-        private long _lastHeap;
-        private double _allocBytes;
+        private float _maxFrameMs;
+        private int _windowGc0;
+        private int _windowGc1;
+        private float _runningSec;
 
         private void Start()
         {
@@ -240,7 +210,8 @@ namespace OmniMod.Diagnostics
             _windowStart = _lastFrameTime;
             _lastGc0 = GC.CollectionCount(0);
             _lastGc1 = GC.CollectionCount(1);
-            _lastHeap = GC.GetTotalMemory(false);
+            _windowGc0 = _lastGc0;
+            _windowGc1 = _lastGc1;
             StutterProfiler.ResetFrame();
         }
 
@@ -253,18 +224,17 @@ namespace OmniMod.Diagnostics
 
             int gc0 = GC.CollectionCount(0);
             int gc1 = GC.CollectionCount(1);
-            long heap = GC.GetTotalMemory(false);
-            if (heap > _lastHeap)
-            {
-                _allocBytes += heap - _lastHeap;
-            }
-            _lastHeap = heap;
-
+            _maxFrameMs = Mathf.Max(_maxFrameMs, frameMs);
+            if (Time.timeScale > 0f) _runningSec += frameMs / 1000f;
             if (frameMs >= StutterProfiler.SpikeThresholdMs)
             {
                 _windowSpikes++;
-                StutterProfiler.ReportSpike(frameMs, gc0 - _lastGc0, gc1 - _lastGc1, now - _lastSpikeTime);
-                _lastSpikeTime = now;
+                // 极卡时最多每 5 秒一条明细；每 10 秒汇总保留全部卡顿次数。
+                if (now - _lastSpikeTime >= 5f)
+                {
+                    StutterProfiler.ReportSpike(frameMs, gc0 - _lastGc0, gc1 - _lastGc1, now - _lastSpikeTime);
+                    _lastSpikeTime = now;
+                }
             }
             _lastGc0 = gc0;
             _lastGc1 = gc1;
@@ -273,11 +243,14 @@ namespace OmniMod.Diagnostics
             float windowSec = now - _windowStart;
             if (windowSec >= 10f)
             {
-                StutterProfiler.ReportWindow(windowSec, _windowFrames, _windowSpikes, _allocBytes / 1048576.0 / windowSec);
+                StutterProfiler.ReportWindow(windowSec, _windowFrames, _windowSpikes, _maxFrameMs, gc0 - _windowGc0, gc1 - _windowGc1, _runningSec);
                 _windowStart = now;
                 _windowFrames = 0;
                 _windowSpikes = 0;
-                _allocBytes = 0;
+                _maxFrameMs = 0f;
+                _windowGc0 = gc0;
+                _windowGc1 = gc1;
+                _runningSec = 0f;
             }
         }
     }

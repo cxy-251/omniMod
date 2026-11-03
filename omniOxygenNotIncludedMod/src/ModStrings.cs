@@ -42,7 +42,7 @@ namespace OmniMod
         }
 
         /// <summary>当前游戏语言是否为中文。本地化系统还没就绪时按英文处理。</summary>
-        private static bool PreferChinese()
+        internal static bool PreferChinese()
         {
             try
             {

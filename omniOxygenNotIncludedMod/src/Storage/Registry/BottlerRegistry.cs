@@ -36,7 +36,7 @@ namespace OmniMod.Collection
                 GameObject item = storage.items[i];
                 if (item != null) item.Trigger((int)GameHashes.OnStorageInteracted, storage);
             }
-            AggregateBoxRegistry.MarkWorldDirty(storage.GetMyWorldId());
+            WorldStorageIndex.MarkDirty(storage.GetMyWorldId());
         }
 
         private static void EnsureCellArray()
@@ -63,7 +63,7 @@ namespace OmniMod.Collection
             {
                 PrepareStorage(bottler);
                 BottlerStorages.Add(bottler.storage);
-                AggregateBoxRegistry.RegisterRemoteStorage(bottler.storage);
+                WorldStorageIndex.Register(bottler.storage);
             }
             Rebuild();
         }

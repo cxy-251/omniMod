@@ -127,7 +127,7 @@ namespace OmniMod.Machinery.Farming
     }
 
     /// <summary>
-    /// 确保种植箱、种植砖、水培砖在请求种子时，如果全星系（离散物品之家 DiscreteHome、OmniPool 或任意星球聚合箱）
+    /// 确保种植箱、种植砖、水培砖在请求种子时，如果全局共享池
     /// 存有该种子，状态项绝对不会被误标为【没有可用种子】（NoAvailableSeed），而是正确显示【等待种子运送】（AwaitingSeedDelivery）。
     /// </summary>
     [HarmonyPatch(typeof(SingleEntityReceptacle), "UpdateStatusItem", typeof(KSelectable))]
@@ -146,14 +146,12 @@ namespace OmniMod.Machinery.Farming
             if (noneAvailable != null && awaiting != null && selectable.HasStatusItem(noneAvailable))
             {
                 int worldId = __instance.GetMyWorldId();
-                bool isPocket = OmniMod.Buildings.OmniPocketHabitat.IsPocketHabitatWorld(worldId);
-                int parentWorldId = isPocket ? OmniMod.Buildings.OmniPocketHabitat.GetExteriorWorldId(worldId) : -1;
 
                 bool hasSeed = false;
                 Tag req = __instance.requestedEntityTag;
                 if (req.IsValid && req != GameTags.Empty)
                 {
-                    if (AggregateBoxRegistry.HasColonyItem(req) || AggregateBoxRegistry.HasSharedItem(worldId, parentWorldId, req, isPocket))
+                    if (SharedBoxInventory.HasItem(worldId, req))
                     {
                         hasSeed = true;
                     }
@@ -164,7 +162,7 @@ namespace OmniMod.Machinery.Farming
                 {
                     foreach (Tag tag in fetchChore.tags)
                     {
-                        if (AggregateBoxRegistry.HasColonyItem(tag) || AggregateBoxRegistry.HasSharedItem(worldId, parentWorldId, tag, isPocket))
+                        if (SharedBoxInventory.HasItem(worldId, tag))
                         {
                             hasSeed = true;
                             break;

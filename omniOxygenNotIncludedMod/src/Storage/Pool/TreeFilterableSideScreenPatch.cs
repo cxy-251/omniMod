@@ -14,15 +14,21 @@ namespace OmniMod.Pool
     [HarmonyPatch(typeof(TreeFilterableSideScreen), nameof(TreeFilterableSideScreen.GetAmountInStorage))]
     internal static class TreeFilterableSideScreen_GetAmountInStorage_Patch
     {
+        private static readonly AccessTools.FieldRef<TreeFilterableSideScreen, Storage> StorageField =
+            AccessTools.FieldRefAccess<TreeFilterableSideScreen, Storage>("storage");
+
+        internal static Storage GetStorage(TreeFilterableSideScreen screen) => screen != null ? StorageField(screen) : null;
+
         private static void Postfix(TreeFilterableSideScreen __instance, Tag tag, ref float __result)
         {
-            Storage storage = Traverse.Create(__instance).Field("storage").GetValue<Storage>();
+            Storage storage = GetStorage(__instance);
             GlobalItemCollector box = storage != null ? storage.GetComponent<GlobalItemCollector>() : null;
             if (box == null)
             {
                 return;   // 不是我们的聚合箱
             }
 
+            if (box.IsRedundant) return;
             if (box.mode == GlobalItemCollector.CollectMode.Debris && OmniPool.Instance != null)
             {
                 // 散装元素：加上纯数据池里的量
@@ -36,8 +42,9 @@ namespace OmniMod.Pool
                 }
             }
 
-            // 加上其它星球同类型聚合箱（杂物箱或食物箱）里的缓冲/共享存量，使任意星球的侧边栏都显示全星系总存量
-            __result += AggregateBoxRegistry.GetOtherBoxesMassAvailable(box, tag);
+            if (!box.IsRedundant)
+                __result = Mathf.Max(0f, __result - SharedBoxInventory.GetPortalOwnedMass(storage, tag)) +
+                    SharedBoxInventory.GetMassForMode(box.mode, tag);
         }
     }
 }

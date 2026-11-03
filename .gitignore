@@ -8,3 +8,9 @@ omniOxygenNotIncludedMod/**/obj/
 # sc2Mod
 sc2Mod/**/.venv/
 sc2Mod/**/__pycache__/
+
+# 本地游戏存档与部署回退备份
+omniOxygenNotIncludedMod/local-backups/
+
+# 本机安装回执含个人路径与存档名，留在本地
+docs/*-deployment.json

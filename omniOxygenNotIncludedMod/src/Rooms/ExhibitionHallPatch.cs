@@ -27,12 +27,13 @@ namespace OmniMod.Rooms
     ///
     /// 房间效果：
     /// 复制人进入展览馆即可获得持续 1 周期的【博览群雅】增益：
-    /// +6 士气、-15% 压力/周期、+2 科学属性。
+    /// +6 士气、-15% 压力/周期、+3 科学属性、+50% 技能点经验。
     /// </summary>
     public static class ExhibitionHallPatch
     {
         public const string RoomTypeId = "ExhibitionHall";
         public const string EffectId = "ExhibitionHallInspiration";
+        public const float SkillExperienceMultiplier = GalleryBenefits.ExperienceMultiplier;
 
         public static RoomType ExhibitionHallRoomType { get; private set; }
         public static RoomConstraints.Constraint HAS_EXHIBITION_SIGN { get; private set; }
@@ -51,11 +52,12 @@ namespace OmniMod.Rooms
                     RegisterEffect();
                     RegisterConstraints();
                     RegisterRoomType();
+                    LandmarkRooms.Register();
                     ModLog.Info("[房间扩展] 【展览馆 (Exhibition Hall)】房间类型与标牌约束注册成功。");
                 }
                 catch (Exception ex)
                 {
-                    ModLog.Warn($"[房间扩展] 注册【展览馆】失败: {ex}");
+                    ModLog.Warn($"[房间扩展] 注册展览馆及扩展房间失败: {ex}");
                 }
             }
         }
@@ -67,15 +69,12 @@ namespace OmniMod.Rooms
                 "立有展览馆标牌，并陈列了名画、雕塑与稀世藏品的文化殿堂。可为到访的复制人提供极高的士气与灵感。",
                 "A designated cultural hall marked by an Exhibition Sign, showcasing paintings, sculptures, and displayed artifacts. Grants visiting duplicants high morale and inspiration."
             ).Resolve();
-            string roomEffect = ModStrings.T(
-                "+6 士气\n-15% 压力/周期\n+2 学习能力",
-                "+6 Morale\n-15% Stress/cycle\n+2 Science"
-            ).Resolve();
+            string roomEffect = GalleryBenefits.Summary(ModStrings.T("学习能力", "Science").Resolve());
 
             string effectName = ModStrings.T("博览群雅", "Exhibition Inspiration").Resolve();
             string effectDesc = ModStrings.T(
-                "这名复制人刚刚参观了陈列着画作、雕塑与稀世藏品的展览馆，精神深受启发！",
-                "This Duplicant recently visited an Exhibition Hall filled with fine art and rare artifacts. They feel cultured, relaxed, and inspired!"
+                "刚刚参观过展览馆，精神深受启发！学习能力 +3；技能点经验 +50%（包括随时间及亲自工作获得的经验）。持续一周期，同馆不叠加，不同馆的经验加成相加。",
+                "Inspired by a recent Exhibition Hall visit: +3 Science and +50% skill point experience from both time alive and personal work. Lasts one cycle; identical effects do not stack; bonuses from different galleries add together."
             ).Resolve();
 
             string upperRoomId = RoomTypeId.ToUpperInvariant();
@@ -98,8 +97,8 @@ namespace OmniMod.Rooms
 
             string effectName = ModStrings.T("博览群雅", "Exhibition Inspiration").Resolve();
             string effectDesc = ModStrings.T(
-                "这名复制人刚刚参观了陈列着画作、雕塑与稀世藏品的展览馆，精神深受启发！",
-                "This Duplicant recently visited an Exhibition Hall filled with fine art and rare artifacts. They feel cultured, relaxed, and inspired!"
+                "刚刚参观过展览馆，精神深受启发！学习能力 +3；技能点经验 +50%（包括随时间及亲自工作获得的经验）。持续一周期，同馆不叠加，不同馆的经验加成相加。",
+                "Inspired by a recent Exhibition Hall visit: +3 Science and +50% skill point experience from both time alive and personal work. Lasts one cycle; identical effects do not stack; bonuses from different galleries add together."
             ).Resolve();
 
             var effect = new Effect(
@@ -112,9 +111,7 @@ namespace OmniMod.Rooms
                 is_bad: false
             );
 
-            effect.Add(new AttributeModifier(Db.Get().Attributes.QualityOfLife.Id, 6f, effectName));
-            effect.Add(new AttributeModifier(Db.Get().Amounts.Stress.deltaAttribute.Id, -0.025f, effectName));
-            effect.Add(new AttributeModifier(Db.Get().Attributes.Learning.Id, 2f, effectName));
+            GalleryBenefits.Apply(effect, Db.Get().Attributes.Learning.Id, effectName);
 
             Db.Get().effects.Add(effect);
         }
@@ -123,7 +120,7 @@ namespace OmniMod.Rooms
         {
             HAS_EXHIBITION_SIGN = new RoomConstraints.Constraint(
                 building_criteria: kpid => kpid != null && kpid.HasTag(ExhibitionSignConfig.ExhibitionSignTag),
-                room_criteria: null,
+                room_criteria: room => LandmarkRooms.CanDesignateGallery(room, ExhibitionSignConfig.ExhibitionSignTag),
                 times_required: 1,
                 name: ModStrings.T("展览馆标牌", "Exhibition Sign").Resolve(),
                 description: ModStrings.T(
@@ -184,10 +181,7 @@ namespace OmniMod.Rooms
                 "立有展览馆标牌，并陈列了名画、雕塑与稀世藏品的文化殿堂。可为到访的复制人提供极高的士气与灵感。",
                 "A designated cultural hall marked by an Exhibition Sign, showcasing paintings, sculptures, and displayed artifacts. Grants visiting duplicants high morale and inspiration."
             ).Resolve();
-            string roomEffect = ModStrings.T(
-                "+6 士气\n-15% 压力/周期\n+2 学习能力",
-                "+6 Morale\n-15% Stress/cycle\n+2 Science"
-            ).Resolve();
+            string roomEffect = GalleryBenefits.Summary(ModStrings.T("学习能力", "Science").Resolve());
 
             var category = Db.Get().RoomTypeCategories.Recreation ?? Db.Get().RoomTypeCategories.Park;
 
@@ -199,19 +193,7 @@ namespace OmniMod.Rooms
                 effect: roomEffect,
                 category: category,
                 primary_constraint: HAS_EXHIBITION_SIGN,
-                additional_constraints: new RoomConstraints.Constraint[]
-                {
-                    HAS_PAINTING,
-                    HAS_SCULPTURE,
-                    HAS_DISPLAYED_COLLECTION,
-                    RoomConstraints.NO_INDUSTRIAL_MACHINERY,
-                    RoomConstraints.NO_COTS,
-                    RoomConstraints.NO_LUXURY_BEDS,
-                    RoomConstraints.NO_OUTHOUSES,
-                    RoomConstraints.NO_MESS_STATION,
-                    RoomConstraints.MINIMUM_SIZE_32,
-                    RoomConstraints.MAXIMUM_SIZE_120
-                },
+                additional_constraints: CreateGalleryConstraints(),
                 display_details: new RoomDetails.Detail[]
                 {
                     RoomDetails.SIZE,
@@ -227,6 +209,16 @@ namespace OmniMod.Rooms
 
             Db.Get().RoomTypes.Add(ExhibitionHallRoomType);
         }
+
+        // 所有标志展馆共用同一组约束，差异只有标牌、名称和到访效果。
+        internal static RoomConstraints.Constraint[] CreateGalleryConstraints() => new[]
+        {
+            HAS_PAINTING, HAS_SCULPTURE, HAS_DISPLAYED_COLLECTION,
+            RoomConstraints.NO_INDUSTRIAL_MACHINERY,
+            RoomConstraints.NO_COTS, RoomConstraints.NO_LUXURY_BEDS,
+            RoomConstraints.NO_OUTHOUSES, RoomConstraints.NO_MESS_STATION,
+            RoomConstraints.MINIMUM_SIZE_32, RoomConstraints.MAXIMUM_SIZE_120
+        };
     }
 
     /// <summary>
@@ -235,22 +227,15 @@ namespace OmniMod.Rooms
     [HarmonyPatch(typeof(CavityInfo), nameof(CavityInfo.OnEnter))]
     public static class CavityInfo_OnEnter_ExhibitionHall_Patch
     {
-        public static void Postfix(object data)
+        public static void Postfix(CavityInfo __instance, object data)
         {
             try
             {
-                if (data is GameObject go && go != null && go.GetComponent<MinionIdentity>() != null)
-                {
-                    Room room = Game.Instance?.roomProber?.GetRoomOfGameObject(go);
-                    if (room?.roomType != null && room.roomType.Id == ExhibitionHallPatch.RoomTypeId)
-                    {
-                        go.GetComponent<Effects>()?.Add(ExhibitionHallPatch.EffectId, true);
-                    }
-                }
+                if (data is GameObject go) LandmarkRooms.ApplyVisitEffect(__instance, go);
             }
             catch (Exception ex)
             {
-                ModLog.Warn($"[展览馆] 触发入室士气效果异常: {ex.Message}");
+                ModLog.Throttle("landmark_room_visit", $"[房间扩展] 到访效果未完成：{ex.Message}", 10f);
             }
         }
     }

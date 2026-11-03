@@ -13,29 +13,37 @@ namespace OmniMod.Ranching
     /// </summary>
     internal class OmniVirtualRancher : WorkerBase
     {
+        private Attributes attributes;
+        private AttributeModifier ranchingBonus;
+        private static int skillFrame = -1;
+        private static float bestSkill = 15f;
+
         public override Attributes GetAttributes()
         {
-            var attrs = new Attributes(gameObject);
             var ranchingAttr = Db.Get().Attributes.Ranching;
-            var instance = attrs.Add(ranchingAttr);
-
-            float bestSkill = 15f;
-            if (Components.LiveMinionIdentities != null)
+            if (skillFrame != Time.frameCount)
             {
-                for (int i = 0; i < Components.LiveMinionIdentities.Count; i++)
+                skillFrame = Time.frameCount;
+                bestSkill = 15f;
+                if (Components.LiveMinionIdentities != null)
                 {
-                    var minion = Components.LiveMinionIdentities[i];
-                    if (minion == null) continue;
-                    var attr = minion.GetAttributes()?.Get(ranchingAttr.Id);
-                    if (attr != null && attr.GetTotalValue() > bestSkill)
+                    for (int i = 0; i < Components.LiveMinionIdentities.Count; i++)
                     {
-                        bestSkill = attr.GetTotalValue();
+                        var minion = Components.LiveMinionIdentities[i];
+                        if (minion == null) continue;
+                        var attr = minion.GetAttributes()?.Get(ranchingAttr.Id);
+                        if (attr != null) bestSkill = Mathf.Max(bestSkill, attr.GetTotalValue());
                     }
                 }
             }
-
-            instance.Add(new AttributeModifier(ranchingAttr.Id, bestSkill, "OmniMod Automated Rancher"));
-            return attrs;
+            if (attributes == null)
+            {
+                attributes = new Attributes(gameObject);
+                ranchingBonus = new AttributeModifier(ranchingAttr.Id, bestSkill, "OmniMod Automated Rancher", is_readonly: false);
+                attributes.Add(ranchingAttr).Add(ranchingBonus);
+            }
+            else ranchingBonus.SetValue(bestSkill);
+            return attributes;
         }
 
         public override AttributeConverterInstance GetAttributeConverter(string id) => null;
@@ -173,19 +181,6 @@ namespace OmniMod.Ranching
         }
     }
 
-    [HarmonyPatch(typeof(RanchStation.Instance), "TriggerRanchStationNoLongerAvailable")]
-    internal static class RanchStation_TriggerRanchStationNoLongerAvailable_Patch
-    {
-        private static bool Prefix(RanchStation.Instance __instance)
-        {
-            if (AutoRanchHelper.IsStationOperational(__instance))
-            {
-                return false;
-            }
-            return true;
-        }
-    }
-
     [HarmonyPatch(typeof(RanchStation.Instance), "FindRanchable")]
     internal static class RanchStation_FindRanchable_Patch
     {
@@ -201,11 +196,8 @@ namespace OmniMod.Ranching
 
             AutoRanchHelper.EnsureVirtualRancher(__instance);
 
-            if (__instance.ActiveRanchable != null)
-            {
-                if (!AquaticRanchAutoRunner.IsAquaticStation(__instance.gameObject)) __instance.RanchCreature();
-                return;
-            }
+            // 预约或入站过程中不结算；MessageCreatureArrived 只安排后续模拟回调。
+            if (__instance.ActiveRanchable != null) return;
 
             List<RanchableMonitor.Instance> list = TargetRanchablesField(__instance);
             if (list == null || list.Count == 0)
@@ -252,7 +244,7 @@ namespace OmniMod.Ranching
                     // 说明残留的目标站引用已失效，予以清理，允许当前照料站（如剪毛站）正常呼叫该小动物！
                     if (otherStation.ActiveRanchable != ranchable.States && !otherStation.IsCritterInQueue(ranchable))
                     {
-                        ranchable.TargetRanchStation = null;
+                        RanchStateLifecycle.RequestRelease(ranchable, otherStation);
                     }
                 }
             }
@@ -268,29 +260,12 @@ namespace OmniMod.Ranching
     {
         private static void Postfix(RanchableMonitor.Instance __instance, ref bool __result)
         {
-            if (!__result || __instance == null || __instance.TargetRanchStation == null)
-            {
-                return;
-            }
-
-            var station = __instance.TargetRanchStation;
-            if (!station.IsRunning())
+            if (__instance == null || __instance.TargetRanchStation == null) return;
+            RanchStation.Instance station = __instance.TargetRanchStation;
+            if (!RanchStateLifecycle.IsOwnedByStation(__instance, station))
             {
                 __result = false;
-                __instance.TargetRanchStation = null;
-                return;
-            }
-
-            // 小动物只有确实在照料站呼叫等待队列（IsCritterInQueue）中，
-            // 或者当前正在该照料站操作台上（ActiveRanchable == __instance.States），才产生“想被照料”行为。
-            // 彻底杜绝照料完成后小动物因 IsRancherReady 常驻 true 而持续触发 WantsToGetRanched 兴奋抽搐死循环！
-            bool isInQueue = station.IsCritterInQueue(__instance);
-            bool isActive = (station.ActiveRanchable != null && station.ActiveRanchable == __instance.States);
-
-            if (!isInQueue && !isActive)
-            {
-                __result = false;
-                __instance.TargetRanchStation = null;
+                RanchStateLifecycle.RequestRelease(__instance, station);
             }
         }
     }
@@ -319,12 +294,9 @@ namespace OmniMod.Ranching
                         AutoRanchTracker.Clear(critterId);
                     }
 
-                    if (__state.Monitor != null)
-                    {
-                        __state.Monitor.TargetRanchStation = null;
-                    }
-
-                    __state.StopSM("OmniMod virtual ranch completed");
+                    // 结算已经离开入站状态切换栈；先退出旧任务，由原版 root.Exit 一并清理目标。
+                    if (__state.Monitor != null && ReferenceEquals(__state.Monitor.TargetRanchStation, __instance))
+                        __state.StopSM("OmniMod virtual ranch completed");
                 }
                 catch (Exception ex)
                 {
@@ -366,7 +338,7 @@ namespace OmniMod.Ranching
                 return;
             }
 
-            __instance.RanchCreature();
+            __instance.gameObject.AddOrGet<DeferredRanchCompletion>().Request(targetCritter);
         }
     }
 

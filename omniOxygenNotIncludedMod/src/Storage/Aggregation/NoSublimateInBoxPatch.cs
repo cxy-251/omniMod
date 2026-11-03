@@ -16,7 +16,7 @@ namespace OmniMod.Collection
         private static bool Prefix(Sublimates __instance)
         {
             Pickupable p = __instance.GetComponent<Pickupable>();
-            if (p != null && AggregateBoxRegistry.IsBoxStorage(p.storage))
+            if (p != null && (AggregateBoxRegistry.IsBoxStorage(p.storage) || OmniMod.Pool.OmniEntityPool.IsPool(p.storage)))
             {
                 return false;   // 在聚合箱里：不挥发
             }

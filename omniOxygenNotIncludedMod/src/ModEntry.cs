@@ -20,7 +20,7 @@ namespace OmniMod
         public override void OnLoad(Harmony harmony)
         {
             ModLog.Info("正在加载（针对游戏版本 744825 构建）…");
-            ModLog.Info("构建标识：perf-20261030-aquatic7（水生自动站清除复制人技能及在场要求）");
+            ModLog.Info("构建标识：fix-20261103-food38（过滤失效库存引用、及时释放共享实体、保护食物热量统计）");
 
             int ok = 0;
             int failed = 0;
@@ -45,7 +45,7 @@ namespace OmniMod
 
             ModLog.Info($"Harmony 补丁完成：成功 {ok}，失败 {failed}。容灾防丢档系统已就绪。");
 
-            // 卡顿诊断器：默认关闭（零性能损耗）；需要专项排查时在 StutterProfiler.Enabled 开启
+            // 本次专项排查只计时固定的调度入口，每 10 秒汇总；不挂载逐物品/逐格子的计时。
             if (Diagnostics.StutterProfiler.Enabled)
             {
                 try

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using HarmonyLib;
 using OmniMod.Core.Logging;
 using UnityEngine;
@@ -13,6 +14,7 @@ namespace OmniMod.Machinery.Research
         private KBatchedAnimController anim;
         private KSelectable selectable;
         private bool running;
+        private float cleanupIn;
 
         protected override void OnSpawn()
         {
@@ -33,6 +35,12 @@ namespace OmniMod.Machinery.Research
             if (workable == null || operational == null || workable.worker != null) return;
             try
             {
+                cleanupIn -= dt;
+                if (cleanupIn <= 0f)
+                {
+                    cleanupIn = 1f;
+                    DropIdentifiedSeeds();
+                }
                 GameObject seed = workable.storage != null ? workable.storage.FindFirst(GameTags.UnidentifiedSeed) : null;
                 MutantPlant mutation = seed != null ? seed.GetComponent<MutantPlant>() : null;
                 Pickupable pickup = seed != null ? seed.GetComponent<Pickupable>() : null;
@@ -72,6 +80,20 @@ namespace OmniMod.Machinery.Research
             }
         }
 
+        private void DropIdentifiedSeeds()
+        {
+            Storage storage = workable.storage;
+            if (storage == null) return;
+            for (int i = storage.items.Count - 1; i >= 0; i--)
+            {
+                GameObject seed = storage.items[i];
+                if (seed == null || seed.HasTag(GameTags.UnidentifiedSeed) || seed.GetComponent<MutantPlant>() == null) continue;
+                // 另一台分析仪可能已鉴定相同亚种；释放真实种子，避免无效存量堵住入口。
+                GameObject dropped = storage.Drop(seed);
+                if (dropped != null) dropped.transform.SetPosition(transform.GetPosition() + workable.finishedSeedDropOffset);
+            }
+        }
+
         private void StopRunning()
         {
             if (!running) return;
@@ -99,5 +121,36 @@ namespace OmniMod.Machinery.Research
     internal static class GeneticAnalysisStation_CreateChore_AutoRun_Patch
     {
         private static void Postfix(Chore __result) => __result?.AddPrecondition(MachineryPreconditions.NeverAvailable);
+    }
+
+    [HarmonyPatch(typeof(FetchAreaChore.StatesInstance), nameof(FetchAreaChore.StatesInstance.DeliverComplete))]
+    internal static class GeneticAnalysis_DeliveryRevalidation_Patch
+    {
+        private static readonly AccessTools.FieldRef<FetchAreaChore.StatesInstance, List<Pickupable>> Deliverables =
+            AccessTools.FieldRefAccess<FetchAreaChore.StatesInstance, List<Pickupable>>("deliverables");
+
+        private static bool Prefix(FetchAreaChore.StatesInstance __instance)
+        {
+            if (__instance.deliveries.Count == 0) return true;
+            FetchAreaChore.StatesInstance.Delivery delivery = __instance.deliveries[0];
+            if (delivery.destination == null || delivery.destination.GetComponent<GeneticAnalysisAutoRunner>() == null ||
+                delivery.chore == null) return true;
+            FetchChore chore = delivery.chore;
+            foreach (Pickupable seed in Deliverables(__instance))
+            {
+                if (seed == null || seed.FetchTotalAmount <= 0f) continue;
+                KPrefabID id = seed.KPrefabID;
+                bool matches = chore.criteria == FetchChore.MatchCriteria.MatchID
+                    ? chore.tags != null && chore.tags.Contains(id.PrefabTag) : id.HasTag(chore.tagsFirst);
+                if (matches && (!chore.requiredTag.IsValid || id.HasTag(chore.requiredTag)) &&
+                    !id.HasAnyTags(chore.forbiddenTags) && seed.isChoreAllowedToPickup(chore.choreType)) continue;
+                // 必须在原版 Complete 断言前失败；沿用 DeliverFail 的清理、余货及后续配送流程。
+                // 同一批可能携带已鉴定和未鉴定种子，取消整单后重新按当前标签选择，不能强制入库。
+                __instance.DeliverFail();
+                ModLog.Throttle("identified_seed_delivery_cancelled", "[植物分析仪] 在途种子已鉴定或筛选已变更，已取消失效配送并释放预约。", 10f);
+                return false;
+            }
+            return true;
+        }
     }
 }

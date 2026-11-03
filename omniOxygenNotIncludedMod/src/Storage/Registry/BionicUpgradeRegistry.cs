@@ -40,6 +40,7 @@ namespace OmniMod.Collection
             if (pickup == null || pickup.ReservedAmount > 0f || pickup.IsEntombed || pickup.KPrefabID == null ||
                 pickup.KPrefabID.HasTag(GameTags.MarkedForMove)) return false;
             Storage storage = pickup.storage;
+            if (OmniMod.Pool.OmniEntityPool.Instance != null && OmniMod.Pool.OmniEntityPool.Instance.Owns(pickup)) return true;
             if (storage == null)
                 return !pickup.KPrefabID.HasTag(GameTags.Stored) &&
                        GetDestinationBox(pickup.GetMyWorldId()) != null;

@@ -46,6 +46,13 @@ namespace OmniMod.Logistics.Dispatch
                 Func<MinionAssignablesProxy, bool> originalWorldCheck = list[lastIdx];
                 list[lastIdx] = (MinionAssignablesProxy proxy) =>
                 {
+                    if (OmniMod.Pool.OmniEntityPool.Instance != null &&
+                        OmniMod.Pool.OmniEntityPool.Instance.Owns(__instance.GetComponent<Pickupable>()))
+                    {
+                        GameObject owner = proxy != null ? proxy.GetTargetGameObject() : null;
+                        return owner != null && OmniMod.Pool.EntityPoolAccess.FindPortal(owner.GetMyWorldId(),
+                            __instance.GetComponent<Pickupable>(), owner.GetComponent<Navigator>(), false) != null;
+                    }
                     if (originalWorldCheck(proxy))
                     {
                         return true;
@@ -106,10 +113,10 @@ namespace OmniMod.Logistics.Dispatch
                     return;
                 }
 
-                int targetWorldId = AggregateBoxRegistry.GetAssigneeWorldId(new_assignee);
+                int targetWorldId = SharedItemDispatcher.GetAssigneeWorldId(new_assignee);
                 if (targetWorldId >= 0 && targetWorldId != 255)
                 {
-                    AggregateBoxRegistry.TransferItemToWorldJunkBox(__instance.gameObject, targetWorldId);
+                    SharedItemDispatcher.TransferItemToWorldJunkBox(__instance.gameObject, targetWorldId);
                 }
             });
         }
@@ -132,17 +139,16 @@ namespace OmniMod.Logistics.Dispatch
                 }
 
                 int dupeWorld = __instance.gameObject.GetMyWorldId();
-                if (dupeWorld >= 0 && dupeWorld != 255 && upgradecComponent.GetMyWorldId() != dupeWorld)
+                if (dupeWorld >= 0 && dupeWorld != 255 && (OmniMod.Pool.OmniEntityPool.IsPool(upgradecComponent.GetComponent<Pickupable>()?.storage) || upgradecComponent.GetMyWorldId() != dupeWorld))
                 {
-                    AggregateBoxRegistry.TransferItemToWorldJunkBox(upgradecComponent.gameObject, dupeWorld);
+                    SharedItemDispatcher.TransferItemToWorldJunkBox(upgradecComponent.gameObject, dupeWorld);
                 }
             });
         }
     }
 
     /// <summary>
-    /// 当玩家在种植砖/农田/水培砖/孵化器/展台下单选择种子、蛋或神器时，立即按需将所需的 1 颗（或多颗）离散物品
-    /// 从主箱调拨到本星球的杂物箱，供本星球小人走去箱子取用或本星球机械手隔空抓取，剩余库存继续留在主箱不均分。
+    /// 下单只清理界面查询缓存；实际工作者检查 FetchChore 后，按完整标签条件和可达入口出库。
     /// </summary>
     [HarmonyPatch(typeof(SingleEntityReceptacle), nameof(SingleEntityReceptacle.CreateOrder))]
     internal static class SingleEntityReceptacle_CreateOrder_Patch
@@ -150,31 +156,6 @@ namespace OmniMod.Logistics.Dispatch
         private static void Postfix(SingleEntityReceptacle __instance, Tag entityTag, Tag additionalFilterTag)
         {
             OmniMod.Machinery.Farming.ReceptacleSideScreen_GetAvailableAmount_Patch.ClearCache();
-            ExceptionShield.Execute("SingleEntityReceptacle.CreateOrder", () =>
-            {
-                if (__instance == null || !entityTag.IsValid || entityTag == GameTags.Empty)
-                {
-                    return;
-                }
-
-                int worldId = __instance.GetMyWorldId();
-                bool isPocket = OmniMod.Buildings.OmniPocketHabitat.IsPocketHabitatWorld(worldId);
-                int targetWorld = worldId;
-                if (!AggregateBoxRegistry.WorldHasActiveJunkBox(targetWorld) && isPocket)
-                {
-                    int parentId = OmniMod.Buildings.OmniPocketHabitat.GetExteriorWorldId(worldId);
-                    if (AggregateBoxRegistry.WorldHasActiveJunkBox(parentId))
-                    {
-                        targetWorld = parentId;
-                    }
-                }
-
-                if (targetWorld >= 0 && targetWorld != 255 && AggregateBoxRegistry.WorldHasActiveJunkBox(targetWorld))
-                {
-                    float needed = Mathf.Max(1f, MaterialNeeds.GetAmount(entityTag, worldId, includeRelatedWorlds: false));
-                    AggregateBoxRegistry.EnsureDiscreteTagInWorldJunkBox(entityTag, additionalFilterTag, targetWorld, needed);
-                }
-            });
         }
     }
 

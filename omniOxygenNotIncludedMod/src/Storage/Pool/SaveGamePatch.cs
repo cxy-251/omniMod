@@ -20,6 +20,7 @@ namespace OmniMod.Pool
         private static void Postfix(SaveGame __instance)
         {
             __instance.gameObject.AddOrGet<OmniPool>();
+            __instance.gameObject.AddOrGet<OmniEntityPool>();
             __instance.gameObject.AddOrGet<ConduitGuardian>();
         }
     }

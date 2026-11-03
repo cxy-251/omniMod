@@ -2,6 +2,12 @@
 
 一个为《缺氧 / Oxygen Not Included》做的聚合存储 + 自动化 Mod。
 
+当前开发快照为 `fix-20261103-food38`，对应游戏 `U59-744825-SCRPAN`。包含跨星球实体共享池与存取入口、机械臂供货、自动生产与照料、生态舱、展馆与孵蛋室、均匀横向辐照、按密度调节的猎杀与成功猎杀统计。本轮修复库存查询中的失效物品引用及食物热量统计空引用。
+
+目前作为开发版维护：以本机游戏程序集做静态核对并完成 Release 编译，游戏内长期运行仍由实际游玩确认。源码可用于备份和协作，发行说明应明确标注开发版及对应游戏版本。构建需要自行安装游戏并通过项目的 `GameDir`／`GameManagedDir` 读取官方程序集，仓库不分发这些程序集；默认构建会自动部署本地 Mod，查看产物时可用 `ModDeployDir` 指定临时输出目录。
+
+当前架构、共享规则与本轮审查记录见仓库根目录的 `docs/architecture-review.md`。下方阶段表和目录示例是早期记录，功能与验证状态以该审查文档和当前源码为准。
+
 ## 总体目标（分阶段）
 
 | 阶段 | 内容 | 状态 |
@@ -64,3 +70,12 @@ dotnet build OmniMod.csproj -c Debug -p:GameDir="D:\你的路径\OxygenNotInclud
 ## 针对的游戏版本
 
 `744825`（release 分支）。游戏更新后若行为异常，多半是 API 变动，需要重新核对。
+
+
+实体共享池重构与旧档迁移说明：[entity16 架构说明](../docs/entity-pool-refactor.md)。
+
+植物施肥跨世界缺料与材料出口修复：[material17 说明](../docs/material-supply-fix.md)。
+
+机械臂施肥／碎石机取货任务修复：[fetch18 说明](../docs/fetch-amount-fix.md)。
+
+自动照料空目标崩溃修复：[ranch19 说明](../docs/ranch-target-crash-fix.md)。

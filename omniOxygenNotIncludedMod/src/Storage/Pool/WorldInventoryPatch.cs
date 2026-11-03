@@ -1,118 +1,149 @@
+using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using UnityEngine;
 using HarmonyLib;
-using OmniMod.Buildings;
 using OmniMod.Collection;
 
 namespace OmniMod.Pool
 {
-    /// <summary>
-    /// 让所有建有聚合箱星球及折叠生态舱内部的建造栏、资源统计面板、农田选种界面（PlanterSideScreen）、
-    /// 孵化器选蛋界面、展台界面、仿生人找电池传感器、卡路里统计等，
-    /// 100% 看到并使用全局杂物池（OmniPool）以及「离散物品之家」（DiscreteHome）与「食物之家」（FoodHome）中的全部物品，
-    /// 彻底消除按星球均分。
-    /// </summary>
+    /// <summary>界面适配仅组合原版本地库存与共享库存，不负责调拨或物化。</summary>
     [HarmonyPatch(typeof(WorldInventory), nameof(WorldInventory.GetTotalAmount))]
     internal static class WorldInventory_GetTotalAmount_Patch
     {
-        private static void Postfix(WorldInventory __instance, Tag tag, bool includeRelatedWorlds, ref float __result)
+        private static readonly AccessTools.FieldRef<WorldInventory, Dictionary<Tag, HashSet<Pickupable>>> NativeInventory =
+            AccessTools.FieldRefAccess<WorldInventory, Dictionary<Tag, HashSet<Pickupable>>>("Inventory");
+
+        private sealed class CachedAmount { internal int Frame; internal long Revision; internal float Value; }
+        private static readonly ConditionalWeakTable<WorldInventory, Dictionary<Tag, CachedAmount>> LocalCache =
+            new ConditionalWeakTable<WorldInventory, Dictionary<Tag, CachedAmount>>();
+
+        private static void Postfix(WorldInventory __instance, Tag tag, ref float __result)
         {
             WorldContainer world = __instance != null ? __instance.WorldContainer : null;
-            if (world == null)
+            if (world == null || !SharedBoxInventory.HasAccess(world.id)) return;
+            // 原版 accessibleAmounts 按标签分帧更新，不能拿它减去“当前入口量”：迁移期间会重复或漏计。
+            // 从原版已登记的本地集合读取本地非池实体；出库等候物仍属于池，只加一次全局账本。
+            if (!Game.IsOnMainThread()) return;
+            OmniEntityPool pool = OmniEntityPool.Instance;
+            long revision = pool?.Revision ?? -1;
+            Dictionary<Tag, CachedAmount> cache = LocalCache.GetValue(__instance, key => new Dictionary<Tag, CachedAmount>());
+            if (cache.TryGetValue(tag, out CachedAmount cached) && cached.Frame == Time.frameCount && cached.Revision == revision)
             {
+                __result = cached.Value + SharedBoxInventory.GetMass(world.id, tag) + SharedBoxInventory.GetVirtualMass(world.id, tag);
                 return;
             }
-
-            bool isPocket = OmniPocketHabitat.IsPocketHabitatWorld(world);
-            int effectiveParentWorld = isPocket ? OmniPocketHabitat.GetExteriorWorldId(world.id) : world.ParentWorldId;
-
-            bool hasAccess = AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParentWorld, GlobalItemCollector.CollectMode.Debris, isPocket) ||
-                             AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParentWorld, GlobalItemCollector.CollectMode.Edibles, isPocket);
-
-            if (!hasAccess)
-            {
-                return;
-            }
-
-            // 扣除本世界已包含在原生 __result 中的本地聚合箱存量，绝不重复计入！
-            float localBoxMass = 0f;
-            AggregateBoxRegistry.TryGetWorldBoxMass(world.id, tag, out localBoxMass);
-            float localNonBoxMass = UnityEngine.Mathf.Max(0f, __result - localBoxMass);
-
-            float sharedMass = 0f;
-            if (OmniPool.Instance != null)
-            {
-                sharedMass += OmniPool.Instance.GetMassMatchingTag(tag);
-                sharedMass += OmniPool.Instance.GetSeedCount(tag);
-            }
-
-            // 获取全星系所有生效聚合箱该 Tag 真实总质量（去重星球，每个星球只算一次）
-            sharedMass += AggregateBoxRegistry.GetSharedBoxMass(world.id, effectiveParentWorld, tag, isPocket);
-
-            __result = localNonBoxMass + sharedMass;
+            float local = 0f;
+            if (NativeInventory(__instance).TryGetValue(tag, out HashSet<Pickupable> pickups))
+                foreach (Pickupable pickup in pickups)
+                    if (pickup != null && pickup.GetMyWorldId() == world.id &&
+                        !pickup.KPrefabID.HasTag(GameTags.StoredPrivate) && (pool == null || !pool.Owns(pickup)))
+                        local += pickup.TotalAmount;
+            if (cached == null) cache[tag] = cached = new CachedAmount();
+            cached.Frame = Time.frameCount; cached.Revision = revision; cached.Value = local;
+            __result = local + SharedBoxInventory.GetMass(world.id, tag) + SharedBoxInventory.GetVirtualMass(world.id, tag);
         }
     }
 
-    /// <summary>
-    /// 当接入全星系共享箱时，inventory.GetAmount(tag, false) 已经完美包含了全共享池及当前世界库存。
-    /// 拦截原版在母星与关联子世界（生态舱、停靠飞船）之间的重复累加循环，防止总数成倍虚高或舱内外不一致。
-    /// </summary>
-    [HarmonyPatch(typeof(ClusterUtil), nameof(ClusterUtil.GetAmountFromRelatedWorlds), new System.Type[] { typeof(WorldInventory), typeof(Tag) })]
+    [HarmonyPatch(typeof(ClusterUtil), nameof(ClusterUtil.GetAmountFromRelatedWorlds), new Type[] { typeof(WorldInventory), typeof(Tag) })]
     internal static class ClusterUtil_GetAmountFromRelatedWorlds_Patch
     {
-        private static bool Prefix(WorldInventory inventory, Tag tag, ref float __result)
+        private static bool Prefix(WorldInventory __0, Tag __1, ref float __result)
         {
-            if (inventory == null || inventory.WorldContainer == null || !tag.IsValid)
-            {
-                return true;
-            }
-
-            WorldContainer world = inventory.WorldContainer;
-            bool isPocket = OmniPocketHabitat.IsPocketHabitatWorld(world);
-            int effectiveParent = isPocket ? OmniPocketHabitat.GetExteriorWorldId(world.id) : world.ParentWorldId;
-
-            if (AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParent, GlobalItemCollector.CollectMode.Debris, isPocket) ||
-                AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParent, GlobalItemCollector.CollectMode.Edibles, isPocket))
-            {
-                __result = inventory.GetTotalAmount(tag, false);
-                return false;
-            }
-
-            return true;
+            if (__0 == null || __0.WorldContainer == null || !__1.IsValid ||
+                !SharedBoxInventory.HasAccess(__0.WorldContainer.id)) return true;
+            __result = __0.GetTotalAmount(__1, false);
+            return false;
         }
     }
 
-    [HarmonyPatch(typeof(ClusterUtil), nameof(ClusterUtil.GetPickupablesFromRelatedWorlds), new System.Type[] { typeof(WorldInventory), typeof(Tag) })]
+    internal static class SharedPickupView
+    {
+        // 原版关联世界查询会逐世界调用 GetPickupables；仅在最外层合并一次共享池。
+        [ThreadStatic] internal static int RelatedDepth;
+
+        internal static bool IsUsable(Pickupable pickup, Tag tag)
+        {
+            if (pickup == null || pickup.KPrefabID == null || pickup.KPrefabID.pendingDestruction) return false;
+            if (pickup.KPrefabID.PrefabTag != tag && !pickup.KPrefabID.HasTag(tag)) return false;
+            if (tag != GameTags.Edible) return true;
+            Edible edible = pickup.GetComponent<Edible>();
+            return pickup.PrimaryElement != null && edible != null && edible.FoodInfo != null && !string.IsNullOrEmpty(edible.FoodID);
+        }
+
+        internal static void RemoveInvalid(Tag tag, ref ICollection<Pickupable> result)
+        {
+            if (result == null || !Game.IsOnMainThread()) return;
+            bool invalid = false;
+            foreach (Pickupable pickup in result)
+                if (!IsUsable(pickup, tag)) { invalid = true; break; }
+            if (!invalid) return;
+            // 只替换查询视图，不在原版 HashSet 的枚举过程中删除实体或修改库存。
+            var valid = new List<Pickupable>(result.Count);
+            foreach (Pickupable pickup in result) if (IsUsable(pickup, tag)) valid.Add(pickup);
+            result = valid;
+        }
+
+        internal static void Append(WorldInventory inventory, Tag tag, ref List<Pickupable> result)
+        {
+            WorldContainer world = inventory != null ? inventory.WorldContainer : null;
+            if (world == null) return;
+            ICollection<Pickupable> collection = result;
+            SharedBoxInventory.AppendPickupables(world.id, tag, ref collection);
+            if (!ReferenceEquals(collection, result))
+                result = collection as List<Pickupable> ?? new List<Pickupable>(collection);
+            // 原版关联世界列表可能还带着旧存档的重复或已销毁引用，压缩副本而不修改 Inventory 集合。
+            if (result == null) return;
+            var seen = new HashSet<Pickupable>();
+            int write = 0;
+            for (int i = 0; i < result.Count; i++)
+            {
+                Pickupable pickup = result[i];
+                if (IsUsable(pickup, tag) && seen.Add(pickup)) result[write++] = pickup;
+            }
+            if (write < result.Count) result.RemoveRange(write, result.Count - write);
+        }
+    }
+
+    [HarmonyPatch(typeof(ClusterUtil), nameof(ClusterUtil.GetPickupablesFromRelatedWorlds), new Type[] { typeof(WorldInventory), typeof(Tag), typeof(List<Pickupable>), }, new ArgumentType[] { ArgumentType.Normal, ArgumentType.Normal, ArgumentType.Ref })]
+    internal static class ClusterUtil_GetPickupablesFromRelatedWorlds_IntoList_Patch
+    {
+        private static void Prefix(out bool __state)
+        {
+            __state = true;
+            SharedPickupView.RelatedDepth++;
+        }
+
+        private static void Postfix(WorldInventory __0, Tag __1, ref List<Pickupable> __2)
+        {
+            if (SharedPickupView.RelatedDepth == 1) SharedPickupView.Append(__0, __1, ref __2);
+        }
+
+        private static Exception Finalizer(Exception __exception, bool __state)
+        {
+            if (__state) SharedPickupView.RelatedDepth--;
+            return __exception;
+        }
+    }
+
+    [HarmonyPatch(typeof(ClusterUtil), nameof(ClusterUtil.GetPickupablesFromRelatedWorlds), new Type[] { typeof(WorldInventory), typeof(Tag) })]
     internal static class ClusterUtil_GetPickupablesFromRelatedWorlds_Patch
     {
-        private static void Postfix(WorldInventory inventory, Tag tag, ref List<Pickupable> __result)
+        private static void Prefix(out bool __state)
         {
-            if (inventory == null || inventory.WorldContainer == null || !tag.IsValid) return;
+            __state = true;
+            SharedPickupView.RelatedDepth++;
+        }
 
-            WorldContainer world = inventory.WorldContainer;
-            bool isPocket = OmniPocketHabitat.IsPocketHabitatWorld(world);
-            int effectiveParent = isPocket ? OmniPocketHabitat.GetExteriorWorldId(world.id) : world.ParentWorldId;
+        private static void Postfix(WorldInventory __0, Tag __1, ref List<Pickupable> __result)
+        {
+            if (SharedPickupView.RelatedDepth == 1) SharedPickupView.Append(__0, __1, ref __result);
+        }
 
-            if (AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParent, GlobalItemCollector.CollectMode.Debris, isPocket) ||
-                AggregateBoxRegistry.WorldHasAccessToSharedBox(world.id, effectiveParent, GlobalItemCollector.CollectMode.Edibles, isPocket))
-            {
-                ICollection<Pickupable> col = __result;
-                AggregateBoxRegistry.AppendPlanetBoxPickupables(world.id, effectiveParent, tag, ref col, isPocket);
-                if (col != null && !ReferenceEquals(col, __result))
-                {
-                    __result = col as List<Pickupable> ?? new List<Pickupable>(col);
-                }
-            }
-
-            if (__result == null || __result.Count <= 1) return;
-            HashSet<Pickupable> seen = new HashSet<Pickupable>();
-            for (int i = __result.Count - 1; i >= 0; i--)
-            {
-                Pickupable p = __result[i];
-                if (p == null || p.gameObject == null || !seen.Add(p))
-                {
-                    __result.RemoveAt(i);
-                }
-            }
+        private static Exception Finalizer(Exception __exception, bool __state)
+        {
+            if (__state) SharedPickupView.RelatedDepth--;
+            return __exception;
         }
     }
 
@@ -122,14 +153,8 @@ namespace OmniMod.Pool
         private static void Postfix(WorldInventory __instance, Tag tag, bool includeRelatedWorlds, ref ICollection<Pickupable> __result)
         {
             WorldContainer world = __instance != null ? __instance.WorldContainer : null;
-            if (world == null)
-            {
-                return;
-            }
-
-            bool isPocket = OmniPocketHabitat.IsPocketHabitatWorld(world);
-            int effectiveParentWorld = isPocket ? OmniPocketHabitat.GetExteriorWorldId(world.id) : world.ParentWorldId;
-            AggregateBoxRegistry.AppendPlanetBoxPickupables(world.id, effectiveParentWorld, tag, ref __result, isPocket);
+            if (world != null && !includeRelatedWorlds && SharedPickupView.RelatedDepth == 0)
+                SharedBoxInventory.AppendPickupables(world.id, tag, ref __result);
         }
     }
 
@@ -138,25 +163,7 @@ namespace OmniMod.Pool
     {
         private static void Postfix(WorldInventory __instance, Tag tag, ref List<Pickupable> __result)
         {
-            WorldContainer world = __instance != null ? __instance.WorldContainer : null;
-            if (world == null)
-            {
-                return;
-            }
-
-            bool isPocket = OmniPocketHabitat.IsPocketHabitatWorld(world);
-            if (!isPocket && world.id != world.ParentWorldId)
-            {
-                return;
-            }
-
-            int effectiveParentWorld = isPocket ? OmniPocketHabitat.GetExteriorWorldId(world.id) : world.ParentWorldId;
-            ICollection<Pickupable> col = __result;
-            AggregateBoxRegistry.AppendSharedRemoteBoxPickupables(world.id, effectiveParentWorld, tag, ref col, isPocket);
-            if (col != null && !ReferenceEquals(col, __result))
-            {
-                __result = col as List<Pickupable> ?? new List<Pickupable>(col);
-            }
+            if (SharedPickupView.RelatedDepth == 0) SharedPickupView.Append(__instance, tag, ref __result);
         }
     }
 }

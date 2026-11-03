@@ -65,9 +65,12 @@ namespace OmniMod.Logistics.RemoteFetch
 
         internal static bool CanReach(ChoreConsumer consumer, IApproachable approachable)
         {
-            return consumer != null && consumer.consumerState != null &&
-                   consumer.consumerState.hasSolidTransferArm &&
-                   approachable is Pickupable pickup && IsRemoteSource(pickup);
+            if (consumer == null || consumer.consumerState == null || !consumer.consumerState.hasSolidTransferArm ||
+                !(approachable is Pickupable pickup) || !IsRemoteSource(pickup)) return false;
+            PrimaryElement primary = pickup.PrimaryElement;
+            bool crossWorld = pickup.KPrefabID.HasTag(GameTags.Creature) || pickup.GetComponent<Baggable>() != null ||
+                (primary != null && (primary.Element.IsGas || primary.Element.IsLiquid));
+            return crossWorld || (pickup.storage != null && pickup.storage.GetMyWorldId() == consumer.GetMyWorldId());
         }
     }
 
@@ -112,13 +115,13 @@ namespace OmniMod.Logistics.RemoteFetch
         private static void Postfix(Storage __instance)
         {
             if (!SolidTransferArmRemotePickup.IsRemoteStorage(__instance)) return;
-            AggregateBoxRegistry.RegisterRemoteStorage(__instance);
+            WorldStorageIndex.Register(__instance);
         }
     }
     [HarmonyPatch(typeof(Storage), "OnCleanUp")]
     internal static class Storage_OnCleanUp_RemotePickupIndex_Patch
     {
-        private static void Prefix(Storage __instance) => AggregateBoxRegistry.UnregisterRemoteStorage(__instance);
+        private static void Prefix(Storage __instance) => WorldStorageIndex.Unregister(__instance);
     }
 
 }

@@ -1,5 +1,6 @@
 using HarmonyLib;
 using OmniMod.Logistics.RemoteFetch;
+using OmniMod.Rooms;
 using OmniMod.Teleportation;
 
 namespace OmniMod.Buildings
@@ -35,6 +36,7 @@ namespace OmniMod.Buildings
             RegisterBackgroundLight();
             RegisterLightEnhancements();
             RegisterRadboltGenerator();
+            RegisterRadboltIrradiator();
             RegisterFluidProcessors();
             RegisterAutoIceMaker();
             RegisterLiquidChiller();
@@ -42,6 +44,7 @@ namespace OmniMod.Buildings
             RegisterNuclearReprocessor();
             RegisterPocketHabitat();
             RegisterExhibitionSign();
+            RegisterLandmarkSigns();
         }
 
         private static void RegisterFluidProcessors()
@@ -179,6 +182,32 @@ namespace OmniMod.Buildings
                 ordering: ModUtil.BuildingOrdering.After);
         }
 
+        private static void RegisterRadboltIrradiator()
+        {
+            if (!DlcManager.IsExpansion1Active()) return;
+            ModStrings.AddBuilding(RadboltIrradiatorConfig.ID,
+                ModStrings.T("横向辐照器", "Horizontal Radbolt Irradiator"),
+                ModStrings.T("占地 1×1 的普通建筑，无需电力。吸收辐射粒子并持续转换为横向窄带辐射，适合已经建成的长条农场。",
+                    "A normal 1×1 building that needs no electricity. Converts stored radbolts into a narrow horizontal radiation field for long farms."),
+                ModStrings.T("先填满 100 粒子缓存，满仓余量或停机时沿原方向放行。默认向右延伸 30 格、高 5 格，高度和上下偏移可调，到世界边界缩短。工作时矩形区域每格辐射均为设定值，无距离、遮挡及四角衰减，重叠取较高值。支持自动化及复制设置；辐射同样影响复制人。",
+                    "Fills a 100-radbolt buffer first; overflow or disabled units let radbolts continue. Defaults to 30 tiles rightward and 5 tiles high, with adjustable height and offset, clipped at world borders. Every tile uses the target radiation without falloff or shielding; overlaps use the higher target. Supports automation and Copy Settings; also affects duplicants."));
+            string key = RadboltIrradiator.SliderKey;
+            Strings.Add(key + "TITLE", ModStrings.T("横向辐照设置", "Horizontal Irradiation").Resolve());
+            Strings.Add(key + "REACH_TITLE", ModStrings.T("横向延伸距离", "Horizontal Reach").Resolve());
+            Strings.Add(key + "REACH_TOOLTIP", ModStrings.T("单向延伸距离；双向时平均分配。到当前世界边界自动缩短。", "One-sided reach, split evenly in both directions; clipped to world borders.").Resolve());
+            Strings.Add(key + "HEIGHT_TITLE", ModStrings.T("辐照高度", "Irradiation Height").Resolve());
+            Strings.Add(key + "HEIGHT_TOOLTIP", ModStrings.T("辐照带总高度，3–15 格，步进 2。", "Total band height, 3–15 tiles in steps of 2.").Resolve());
+            Strings.Add(key + "STRENGTH_TITLE", ModStrings.T("每格目标辐射", "Target Radiation Per Tile").Resolve());
+            Strings.Add(key + "STRENGTH_TOOLTIP", ModStrings.T("工作时区域每格采用此实际辐射值，重叠取较高值。", "Every covered tile uses this actual radiation value while running; overlaps use the higher target.").Resolve());
+            Strings.Add(key + "CONSUMPTION_TITLE", ModStrings.T("整机粒子消耗", "Total Radbolt Consumption").Resolve());
+            Strings.Add(key + "CONSUMPTION_TOOLTIP", ModStrings.T("整台设备每游戏秒实际消耗，不随范围或辐射强度增加；游戏倍速同比加快消耗。", "Actual total use per game second, independent of field size or radiation; fast-forward speeds up consumption in real time.").Resolve());
+            Strings.Add("STRINGS.BUILDING.STATUSITEMS.OMNIRADBOLTIRRADIATOR.NAME", ModStrings.T("横向辐照", "Horizontal Irradiation").Resolve());
+            Strings.Add("STRINGS.BUILDING.STATUSITEMS.OMNIRADBOLTIRRADIATOR.TOOLTIP", ModStrings.T("辐射粒子转换为横向辐射。", "Converts radbolts into horizontal radiation.").Resolve());
+            TUNING.BUILDINGS.PLANSUBCATEGORYSORTING[RadboltIrradiatorConfig.ID] = "transmissions";
+            ModUtil.AddBuildingToPlanScreen(new HashedString("HEP"), RadboltIrradiatorConfig.ID,
+                "transmissions", relativeBuildingId: "HighEnergyParticleRedirector", ordering: ModUtil.BuildingOrdering.After);
+        }
+
         private static void RegisterBackgroundLight()
         {
             ModStrings.AddBuilding(
@@ -280,13 +309,12 @@ namespace OmniMod.Buildings
                 name: ModStrings.T("食物箱", "Food Box"),
                 desc: ModStrings.T(
                     "容量近乎无限的食物聚合箱。箱内食物绝对防腐、永不变质。" +
-                    "建成后会自动把本星球散落在地面的可食用物吸进来。",
+                    "建成后会自动把本星球散落在地面的可食用物吸进来，并作为全星系共享食物的本地入口。",
                     "A food aggregation bin with near-infinite capacity. Food inside never spoils. " +
-                    "Once built, it automatically pulls in loose edibles from across its planet."),
+                    "Once built, it automatically pulls in loose edibles from across its planet and provides local access to shared food across worlds."),
                 effect: ModStrings.T(
-                    "自动收集并存放本星球上几乎任意数量的食物，且绝对防腐。",
-                    "Automatically collects and stores an almost unlimited amount of food from this planet, " +
-                    "with absolute preservation."));
+                    "自动收集食物并存入全局共享池，统一防腐保存。箱子作为存取门户，筛选清单显示共享池总量，储存内容仅显示待领取实物。复制人按禁食设置，经可步行到达的入口领取食物；未取走的出库食物归还共享池。",
+                    "Automatically deposits food into one preserved global pool. Boxes are access portals: filter rows show pool totals and storage contents show pending checkouts. Duplicants fetch permitted meals on foot through a reachable portal; unclaimed meals return to the pool."));
 
             // 建造菜单：食物(Food) / 储物(storage)，排在"迷你冰箱"之后
             ModUtil.AddBuildingToPlanScreen(
@@ -388,9 +416,7 @@ namespace OmniMod.Buildings
                 desc: ModStrings.T(
                     "一座典雅的展馆导览铭牌。如同【公园标牌】用于标识公园与自然保护区一样，在房间内立起此标牌并陈列画作、雕塑与展台藏品，即可将该房间正式认定为【展览馆】，彻底避免与摆放了艺术品的私人卧室发生冲突。",
                     "An elegant gallery plaque. Just like a Park Sign designates a Park or Nature Reserve, placing this sign in a room alongside a painting, sculpture, and displayed artifact designates the room as an Exhibition Hall without conflicting with decorated Private Bedrooms."),
-                effect: ModStrings.T(
-                    "将满足艺术品陈列条件的房间标识为【展览馆】（到访复制人获得 +6 士气、-15% 压力/周期、+2 学习能力）。未放置此标牌的房间不会被识别为展览馆。",
-                    "Designates a qualified room as an Exhibition Hall (+6 Morale, -15% Stress/cycle, +2 Science to visitors). Rooms without this sign will never conflict with Exhibition Hall."));
+                effect: GalleryBenefits.BuildingEffect(ModStrings.T("博览群雅", "Exhibition Inspiration"), ModStrings.T("学习能力", "Science")));
 
             ModUtil.AddBuildingToPlanScreen(
                 new HashedString("Furniture"),
@@ -398,6 +424,27 @@ namespace OmniMod.Buildings
                 "decor",
                 relativeBuildingId: "ParkSign",
                 ordering: ModUtil.BuildingOrdering.After);
+        }
+
+        private static void RegisterLandmarkSigns()
+        {
+            RegisterLandmarkSign(NaturalHistorySignConfig.ID, ModStrings.T("自然馆标牌", "Natural History Gallery Sign"),
+                GalleryBenefits.BuildingEffect(ModStrings.T("万物有灵", "Wonder of Life"), ModStrings.T("畜牧", "Husbandry")),
+                ExhibitionSignConfig.ID);
+            RegisterLandmarkSign(WorkshopSignConfig.ID, ModStrings.T("工艺馆标牌", "Craft Gallery Sign"),
+                GalleryBenefits.BuildingEffect(ModStrings.T("匠心独运", "Crafting Inspiration"), ModStrings.T("机械", "Machinery")), NaturalHistorySignConfig.ID);
+            RegisterLandmarkSign(FitnessSignConfig.ID, ModStrings.T("活力馆标牌", "Vitality Gallery Sign"),
+                GalleryBenefits.BuildingEffect(ModStrings.T("神采飞扬", "Radiant Vitality"), ModStrings.T("运动", "Athletics")), WorkshopSignConfig.ID);
+        }
+
+        private static void RegisterLandmarkSign(string id, ModStrings.Bilingual name, ModStrings.Bilingual effect, string previous)
+        {
+            var requirements = ModStrings.T(
+                "房间要求与展览馆一致：32～120 格，至少一件画作、一座雕塑、一个放有藏品的展台；无工业机械、床铺、厕所和餐桌。同房间只放一种展馆标牌。不同展馆的经验加成相加，同馆重复到访只刷新持续时间。",
+                "Uses the Exhibition Hall requirements: 32–120 tiles, a painting, a sculpture and an occupied pedestal; no industrial machinery, beds, toilets or mess tables. Use one kind of gallery sign per room. Experience bonuses from different galleries add together; revisits only refresh duration.");
+            ModStrings.AddBuilding(id, name, requirements, effect);
+            ModUtil.AddBuildingToPlanScreen(new HashedString("Furniture"), id, "decor",
+                relativeBuildingId: previous, ordering: ModUtil.BuildingOrdering.After);
         }
 
         // 注：阶段二仍不做科技门槛，两个箱子一开局就能造。

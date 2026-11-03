@@ -11,7 +11,7 @@ namespace OmniMod.Collection
 {
     /// <summary>
     /// 全星球聚合箱物品收集调度器：
-    /// 挂在杂物箱和食物箱上，协调散落物地面扫描、虚拟池缓冲、离散物品按需跨星调度及食物均衡。
+    /// 挂在杂物箱和食物箱上，协调散落物地面扫描、虚拟池缓冲、实体池入库和入口出库维护。
     /// </summary>
     public class GlobalItemCollector : KMonoBehaviour, ISim1000ms, ISim33ms
     {
@@ -33,7 +33,6 @@ namespace OmniMod.Collection
         private const float MaxCollectTemperatureK = 673.15f; // 400°C
 
         private float _timer;
-        private float _restockTimer;
         private Storage _storage;
         private TreeFilterable _treeFilterable;
         private bool _isRedundant;
@@ -44,6 +43,8 @@ namespace OmniMod.Collection
         private readonly List<Pickupable> _scanItems = new List<Pickupable>(128);
         private int _scanCursor;
         private bool _scanInProgress;
+        private bool _waitingForCandidates;
+        private int _candidateVersion;
         private static int _collectionBudgetFrame = -1;
         private static long _collectionDeadline;
         private const int MaxItemsPerSlice = 64;
@@ -57,17 +58,17 @@ namespace OmniMod.Collection
             _storage = GetComponent<Storage>();
             _treeFilterable = GetComponent<TreeFilterable>();
 
-            AggregateBoxRegistry.Register(this);
             _isRedundant = AggregateBoxRegistry.ExistsOnWorld(mode, this.GetMyWorldId(), except: this);
+            AggregateBoxRegistry.Register(this);
             if (_isRedundant)
             {
                 ModLog.Warn("本星球已有同类型聚合箱，此箱不生效（仅保留安全放生）。");
             }
 
             StorageBatchHelper.RepairStoredItems(_storage);
+            if (!_isRedundant) OmniEntityPool.Instance?.AdoptPortal(_storage);
             // 分散各箱的全图扫描时刻，避免读档后每隔 6 秒集中到同一帧。
             _timer = (Mathf.Abs(GetInstanceID() % 600) / 600f) * ScanIntervalSeconds;
-            _restockTimer = (Mathf.Abs(GetInstanceID() % 300) / 100f);
             BulkBufferManager.InsulateStoredItems(_storage);
             BulkBufferManager.MigrateOwnStorageToPool(this, _storage);
 
@@ -81,11 +82,7 @@ namespace OmniMod.Collection
             }
 
             LivingThingsSafety.EjectLivingThings(this);
-            if (_storage != null)
-            {
-                _storage.Subscribe((int)GameHashes.OnStorageChange, (data) => AggregateBoxRegistry.MarkWorldDirty(this.GetMyWorldId()));
-            }
-            AggregateBoxRegistry.RefreshWorldBoxItems(this.GetMyWorldId());
+            WorldStorageIndex.QueueRefresh(this.GetMyWorldId());
         }
 
         private void OnResourceDiscovered(Tag category, Tag resource)
@@ -100,6 +97,7 @@ namespace OmniMod.Collection
                 DiscoveredResources.Instance.OnDiscover -= OnResourceDiscovered;
             }
             _scanInProgress = false;
+            _waitingForCandidates = false;
             _scanItems.Clear();
             _maintenanceItems.Clear();
             AggregateBoxRegistry.Unregister(this);
@@ -120,39 +118,12 @@ namespace OmniMod.Collection
                 if (_isRedundant) return;
 
                 // 仅在脏标记触发时刷新快照，绝不每秒无谓重建
-                AggregateBoxRegistry.RefreshWorldBoxItems(this.GetMyWorldId());
+                WorldStorageIndex.QueueRefresh(this.GetMyWorldId());
 
                 _timer += dt;
-                _restockTimer += dt;
 
                 ExceptionShield.Execute("GlobalItemCollector.Sim1000ms", () =>
                 {
-                    if (mode == CollectMode.Debris)
-                    {
-                        if (_storage.items.Count > 100)
-                        {
-                            BulkBufferManager.ConsolidateChunksToPool(this, _storage);
-                        }
-                        if (AggregateBoxRegistry.DiscreteHome == this)
-                        {
-                            DiscreteDemandManager.MigratePoolSeedsToHomeStorage(this, _storage);
-                        }
-                        else
-                        {
-                            DiscreteDemandManager.ServeDiscreteDemand(this, _storage);
-                        }
-
-                        if (_restockTimer >= 8f)
-                        {
-                            _restockTimer = 0f;
-                            BulkBufferManager.RestockFromPool(this, _storage, _treeFilterable);
-                        }
-                    }
-                    else if (mode == CollectMode.Edibles)
-                    {
-                        FoodBalancer.RebalanceFoodAcrossBoxes();
-                    }
-
                     if (_timer >= ScanIntervalSeconds)
                     {
                         _timer = 0f;
@@ -168,18 +139,28 @@ namespace OmniMod.Collection
 
         private void BeginCollection()
         {
-            if (_scanInProgress || Components.Pickupables == null) return;
+            if (_scanInProgress || _waitingForCandidates || Components.Pickupables == null) return;
+            _candidateVersion = CollectionCandidateSnapshot.RequestRefresh();
+            _waitingForCandidates = true;
+            TryStartCollection();
+        }
+
+        private void TryStartCollection()
+        {
             int worldId = this.GetMyWorldId();
             if (worldId < 0 || worldId == 255) return;
+            if (!CollectionCandidateSnapshot.TryGetWorldItems(worldId, _candidateVersion, out List<Pickupable> candidates)) return;
+            _waitingForCandidates = false;
             _scanItems.Clear();
-            _scanItems.AddRange(Components.Pickupables.GetWorldItems(worldId, false));
+            if (candidates != null) _scanItems.AddRange(candidates);
             _scanCursor = 0;
             _scanInProgress = _scanItems.Count > 0;
         }
 
         public void Sim33ms(float dt)
         {
-            if (!_scanInProgress && _maintenanceCursor >= _maintenanceItems.Count) return;
+            if (!_scanInProgress && !_waitingForCandidates && !CollectionCandidateSnapshot.IsBuilding &&
+                _maintenanceCursor >= _maintenanceItems.Count) return;
             int frame = Time.frameCount;
             if (_collectionBudgetFrame != frame)
             {
@@ -191,12 +172,16 @@ namespace OmniMod.Collection
             ModLog.CallTimer started = ModLog.StartCall();
             try
             {
+                // 扫描与维护合用原有 2ms 总预算，扫描每帧最多使用其中约 1ms。
+                CollectionCandidateSnapshot.Advance(Math.Min(_collectionDeadline, Stopwatch.GetTimestamp() + Stopwatch.Frequency / 1000));
+                if (_waitingForCandidates) TryStartCollection();
                 MaintainStorageSlice();
                 if (_scanInProgress && !_isRedundant && Stopwatch.GetTimestamp() < _collectionDeadline) CollectSlice();
             }
             catch (Exception ex)
             {
                 _scanInProgress = false;
+                _waitingForCandidates = false;
                 _scanItems.Clear();
                 _maintenanceItems.Clear();
                 _maintenanceCursor = 0;
@@ -217,14 +202,14 @@ namespace OmniMod.Collection
                 GameObject item = _maintenanceItems[_maintenanceCursor++];
                 if (item == null) continue;
                 Pickupable pickup = item.GetComponent<Pickupable>();
-                // 快照之后物品可能已经被取走；只处理仍属于本箱的物品。
                 if (pickup != null ? pickup.storage != _storage : !_storage.items.Contains(item)) continue;
                 if (LivingThingsSafety.EjectIfLiving(this, item) || _isRedundant || pickup == null ||
                     pickup.ReservedAmount > 0f || _treeFilterable == null) continue;
-                bool checkFilter = mode == CollectMode.Edibles ||
-                                   (AggregateBoxRegistry.DiscreteHome == this && !BulkBufferManager.IsBulkSolidElementChunk(pickup));
-                if (checkFilter && !FilterAutoManager.IsAcceptedByFilter(this, _treeFilterable, pickup.KPrefabID))
-                    _storage.Drop(item);
+                if (OmniEntityPool.CanManage(pickup))
+                {
+                    OmniEntityPool pool = OmniEntityPool.Instance;
+                    if (pool != null && !pool.IsCheckout(pickup)) pool.Deposit(pickup);
+                }
             }
             if (_maintenanceCursor >= _maintenanceItems.Count)
             {
@@ -244,7 +229,8 @@ namespace OmniMod.Collection
                 {
                     Pickupable pickup = _scanItems[_scanCursor++];
                     examined++;
-                    if (!IsLooseInertPickupable(pickup)) continue;
+                    // 快照发布后物品可能移动；最终操作前重新确认物品仍在本世界且可安全收集。
+                    if (!IsLooseInertPickupable(pickup) || pickup.GetMyWorldId() != this.GetMyWorldId()) continue;
                     KPrefabID id = pickup.KPrefabID;
                     bool food = id.HasTag(GameTags.Edible) || id.HasTag(GameTags.CookingIngredient);
                     if (mode == CollectMode.Edibles ? !food : id.HasTag(GameTags.Edible)) continue;
@@ -259,25 +245,7 @@ namespace OmniMod.Collection
                     }
                     else
                     {
-                        Storage destination = _storage;
-                        if (mode == CollectMode.Debris)
-                        {
-                            Assignable assignable = pickup.GetComponent<Assignable>();
-                            if (assignable != null && assignable.IsAssigned())
-                            {
-                                int assigneeWorld = AggregateBoxRegistry.GetAssigneeWorldId(assignable.assignee);
-                                if (assigneeWorld >= 0 && assigneeWorld != this.GetMyWorldId())
-                                {
-                                    GlobalItemCollector targetBox = AggregateBoxRegistry.GetActiveJunkBoxForWorld(assigneeWorld);
-                                    if (targetBox != null && targetBox.BoxStorage != null)
-                                    {
-                                        destination = targetBox.BoxStorage;
-                                    }
-                                }
-                            }
-                        }
-                        _changedStorages.Add(destination);
-                        StorageBatchHelper.Store(destination, pickup.gameObject);
+                        OmniEntityPool.Instance?.Deposit(pickup);
                     }
                 }
                 if (_scanCursor >= _scanItems.Count)
@@ -296,7 +264,7 @@ namespace OmniMod.Collection
             }
         }
 
-        private static bool IsLooseInertPickupable(Pickupable p)
+        internal static bool IsLooseInertPickupable(Pickupable p)
         {
             if (p == null || p.storage != null) return false;
 

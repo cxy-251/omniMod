@@ -240,60 +240,6 @@ namespace OmniMod.Logistics.RemoteFetch
     [HarmonyPatch(typeof(SolidTransferArm), nameof(SolidTransferArm.FindFetchTarget))]
     internal static class SolidTransferArm_FindFetchTarget_Patch
     {
-        private static readonly Dictionary<Tag, float> _failedTagTimes = new Dictionary<Tag, float>();
-        private const float FailedTagCooldownSeconds = 3.0f;
-
-        internal static void InvalidateFailedCache()
-        {
-            _failedTagTimes.Clear();
-        }
-
-        internal static void InvalidateFailedCacheForTag(Tag tag)
-        {
-            if (tag.IsValid)
-            {
-                _failedTagTimes.Remove(tag);
-            }
-        }
-
-        private static bool IsBroadCategoryTag(Tag tag)
-        {
-            return !tag.IsValid ||
-                   tag == GameTags.Creatures.Deliverable ||
-                   tag == GameTags.BagableCreature ||
-                   tag == GameTags.Creature;
-        }
-
-        private static bool IsRecentlyFailed(FetchChore chore)
-        {
-            float now = Time.unscaledTime;
-            if (chore.tagsFirst.IsValid && !IsBroadCategoryTag(chore.tagsFirst) &&
-                _failedTagTimes.TryGetValue(chore.tagsFirst, out float t1) && now - t1 < FailedTagCooldownSeconds)
-            {
-                return true;
-            }
-            return false;
-        }
-
-        private static void RecordFailure(FetchChore chore)
-        {
-            float now = Time.unscaledTime;
-            if (chore.tagsFirst.IsValid && !IsBroadCategoryTag(chore.tagsFirst))
-            {
-                _failedTagTimes[chore.tagsFirst] = now;
-            }
-            if (chore.tags != null)
-            {
-                foreach (Tag t in chore.tags)
-                {
-                    if (t.IsValid && !IsBroadCategoryTag(t))
-                    {
-                        _failedTagTimes[t] = now;
-                    }
-                }
-            }
-        }
-
         private static void Postfix(SolidTransferArm __instance, Storage destination, FetchChore chore, ref Pickupable __result)
         {
             if (__result != null || __instance == null || destination == null || chore == null)
@@ -416,12 +362,12 @@ namespace OmniMod.Logistics.RemoteFetch
                     return matchedBag;
                 }
 
-                // 注意：绝不调用 RecordFailure(chore)，防止活物任务被错误节流锁定！
+                // 注意：绝不调用 RemoteFetchFailures.Record(chore, world)，防止活物任务被错误节流锁定！
                 return null;
             }
 
             // 失败节流：仅针对普通矿物/杂物/建材，且只按具体物品标签节流，杜绝数十条机械臂高频重叠遍历引发卡顿
-            if (IsRecentlyFailed(chore))
+            if (RemoteFetchFailures.Contains(chore, world))
             {
                 return null;
             }
@@ -460,7 +406,7 @@ namespace OmniMod.Logistics.RemoteFetch
                          SearchBottlers(BottlerRegistry.GetAllBottlers(), chore, destination);
                 if (bottle != null) return bottle;
 
-                RecordFailure(chore);
+                RemoteFetchFailures.Record(chore, world);
                 return null;
             }
 
@@ -470,44 +416,21 @@ namespace OmniMod.Logistics.RemoteFetch
             // 机械手通过本世界的箱子入口取物（若本世界无箱子，则无权访问共享池）
             // 绝不直接返回外部世界的 Pickupable 实体；所有远端共享物品均通过箱子入口瞬移入本地箱取用！
             // =========================================================================
-            bool hasAccess = AggregateBoxRegistry.WorldHasAccessToSharedBox(world, parentWorld, GlobalItemCollector.CollectMode.Debris, isPocket: parentWorld >= 0) ||
-                             AggregateBoxRegistry.WorldHasAccessToSharedBox(world, parentWorld, GlobalItemCollector.CollectMode.Edibles, isPocket: parentWorld >= 0);
+            bool hasAccess = SharedBoxInventory.HasAccess(world);
             if (!hasAccess)
             {
-                RecordFailure(chore);
+                RemoteFetchFailures.Record(chore, world);
                 return null;
             }
 
             // 1. 优先从本世界聚合箱取用（若未直接命中，从虚拟池 OmniPool 按需物化至本地箱）
-            Pickupable matched = AggregateBoxRegistry.FindMatchInWorldBox(world, chore, destination);
+            Pickupable matched = ArmBoxSource.FindMatchInWorldBox(world, chore, destination);
             if (matched != null)
             {
                 return matched;
             }
 
-            // 2. 若本地箱未命中且虚拟池未命中：
-            // 因为所有箱子共享资源，检查全星系其它箱子入口中是否有该实体（如离散种子/离散食物）；
-            // 只要找到，立即通过箱子入口调拨（Transfer）至本世界的本地箱，供本地机械手就地取用！
-            for (int b = 0; b < AggregateBoxRegistry.BoxesCount; b++)
-            {
-                GlobalItemCollector box = AggregateBoxRegistry.GetBox(b);
-                if (box == null || box.BoxStorage == null || box.IsRedundant) continue;
-                int bw = box.GetMyWorldId();
-                if (bw == world) continue;
-
-                Pickupable remoteMatch = AggregateBoxRegistry.FindMatchInWorldBox(bw, chore, destination, isCrossPlanetDiscrete: true);
-                if (remoteMatch != null)
-                {
-                    GlobalItemCollector.CollectMode m = (remoteMatch.GetComponent<Edible>() != null || (remoteMatch.KPrefabID != null && remoteMatch.KPrefabID.HasTag(GameTags.Edible)))
-                        ? GlobalItemCollector.CollectMode.Edibles : GlobalItemCollector.CollectMode.Debris;
-                    if (AggregateBoxRegistry.TransferItemToWorldBox(remoteMatch.gameObject, world, m))
-                    {
-                        return remoteMatch;
-                    }
-                }
-            }
-
-            RecordFailure(chore);
+            RemoteFetchFailures.Record(chore, world);
             return null;
         }
 

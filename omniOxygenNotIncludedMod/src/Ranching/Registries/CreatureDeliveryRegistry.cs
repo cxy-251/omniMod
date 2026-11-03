@@ -100,6 +100,16 @@ namespace OmniMod.Ranching.Registries
             return false;
         }
 
+        internal static CreatureDeliveryPoint[] Snapshot()
+        {
+            lock (_lock)
+            {
+                var points = new CreatureDeliveryPoint[_pointCells.Count];
+                _pointCells.Keys.CopyTo(points, 0);
+                return points;
+            }
+        }
+
         public static void Clear()
         {
             lock (_lock)
