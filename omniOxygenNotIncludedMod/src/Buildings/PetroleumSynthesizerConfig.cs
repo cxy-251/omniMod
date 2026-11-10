@@ -69,7 +69,7 @@ namespace OmniMod.Buildings
             consumer.consumptionRate = 10f;
             consumer.capacityKG = 20f;
             consumer.capacityTag = SimHashes.Water.CreateTag();
-            consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
+            consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Store;
             consumer.forceAlwaysSatisfied = true;
 
             // 出液管道接口：排出石油 2 kg/s

@@ -14,7 +14,9 @@ namespace OmniMod.Pool
             if (chore == null || chore.isNull) return 0f;
             float amount = chore.amount;
             if (!(amount > 0f)) amount = chore.originalAmount;
-            return amount > 0f && !float.IsInfinity(amount) && !float.IsNaN(amount) ? amount : 0f;
+            // 过滤小于 1 克的无意义微量搬运（如农砖/机器消耗 0.000005 kg 产生的浮点残余），避免 831 台机械臂全图空转
+            if (amount < 0.001f) return 0f;
+            return !float.IsInfinity(amount) && !float.IsNaN(amount) ? amount : 0f;
         }
 
         private static string Category(FetchChore chore)

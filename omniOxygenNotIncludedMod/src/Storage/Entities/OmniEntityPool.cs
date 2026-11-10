@@ -61,6 +61,7 @@ namespace OmniMod.Pool
         private int _cursor;
         private float _clock;
         private float _nextLegacySeed;
+        private float _nextConsolidation;
         private const float CheckoutLifetime = 30f;
         internal int EntityCount => _entries.Count;
         internal long Revision { get; private set; }
@@ -93,7 +94,9 @@ namespace OmniMod.Pool
                 Pickupable pickup = items[i] != null ? items[i].GetComponent<Pickupable>() : null;
                 if (pickup != null) Track(pickup, null, null, 0f);
             }
-            ModLog.Info($"[实体共享池] 已载入 {EntityCount} 个实体堆叠；箱子仅作为存取入口。");
+            int initialCount = EntityCount;
+            int merged = ConsolidateAll();
+            ModLog.Info($"[实体共享池] 已载入 {initialCount} 个实体堆叠，合堆瘦身清理 {merged} 个冗余碎片，当前存量 {EntityCount} 个实体堆叠；箱子仅作为存取入口。");
         }
 
         protected override void OnCleanUp()
@@ -106,9 +109,25 @@ namespace OmniMod.Pool
 
         internal static void BeginShutdown() { Stopping = true; }
         internal static bool IsPool(Storage storage) => storage is OmniEntityPool;
-        internal static bool CanManage(Pickupable pickup) => pickup != null && pickup.PrimaryElement != null &&
-            GlobalItemCollector.IsDiscreteManaged(pickup.gameObject) &&
-            pickup.PrimaryElement.Element != null && pickup.PrimaryElement.Element.IsSolid;
+        internal static bool CanManage(Pickupable pickup)
+        {
+            if (pickup == null || pickup.PrimaryElement == null ||
+                !GlobalItemCollector.IsDiscreteManaged(pickup.gameObject) ||
+                pickup.PrimaryElement.Element == null || !pickup.PrimaryElement.Element.IsSolid)
+            {
+                return false;
+            }
+            if (pickup.storage != null)
+            {
+                if (pickup.storage.GetComponent<MinionIdentity>() != null ||
+                    pickup.storage.GetComponent<MinionAssignablesProxy>() != null ||
+                    pickup.storage.storageID == GameTags.StoragesIds.BionicUpgradeStorage)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
         internal static bool CanTrackAtPortal(Pickupable pickup) => CanManage(pickup) || BulkBufferManager.IsBulkSolidElementChunk(pickup);
         internal void HoldMaterial(Pickupable pickup, object request)
         {
@@ -121,8 +140,8 @@ namespace OmniMod.Pool
             if (id == null) return 0;
             Element material = ElementLoader.GetElement(id.PrefabTag);
             if (material != null && material.IsSolid) return 1;
-            bool edible = id.HasTag(GameTags.Edible);
-            return (edible ? 0 : 1) | (edible || id.HasTag(GameTags.CookingIngredient) ? 2 : 0);
+            bool isFood = FilterAutoManager.IsFoodItem(id);
+            return (isFood && !id.HasTag(GameTags.Dehydrated) ? 0 : 1) | (isFood ? 2 : 0);
         }
         internal bool Owns(Pickupable pickup) => pickup != null && _entries.TryGetValue(pickup, out Entry entry) &&
             (pickup.storage == this || (entry.Outlet != null && pickup.storage == entry.Outlet));
@@ -165,9 +184,229 @@ namespace OmniMod.Pool
             if (Stopping || App.isLoading || !CanManage(pickup) || pickup.ReservedAmount > 0f) return false;
             if (pickup.storage == this) { Observe(pickup); return true; }
             if (IsCheckout(pickup)) return true;
+            if (TryMergeIncoming(pickup)) return true;
             if (!MoveIntact(pickup, this)) return false;
             Track(pickup, null, null, 0f);
             return true;
+        }
+
+        internal static Tag GetMergeIdentity(Pickupable pickup)
+        {
+            if (pickup == null || pickup.KPrefabID == null) return Tag.Invalid;
+            Tag tag = pickup.KPrefabID.PrefabTag;
+
+            MutantPlant m = pickup.GetComponent<MutantPlant>();
+            if (m != null && !m.IsOriginal)
+            {
+                return new Tag(tag.Name + "__" + m.SubSpeciesID.Name + (m.IsIdentified ? "_ID" : "_UNID"));
+            }
+
+            Edible e = pickup.GetComponent<Edible>();
+            if (e != null)
+            {
+                string spiceKey = "";
+                if (e.Spices != null && e.Spices.Count > 0)
+                {
+                    for (int i = 0; i < e.Spices.Count; i++)
+                        spiceKey += "_" + e.Spices[i].Id;
+                }
+                bool rehydrated = pickup.HasTag(GameTags.Rehydrated);
+                bool dehydrated = pickup.HasTag(GameTags.Dehydrated);
+                if (!string.IsNullOrEmpty(spiceKey) || rehydrated || dehydrated)
+                {
+                    return new Tag(tag.Name + spiceKey + (rehydrated ? "_R" : "") + (dehydrated ? "_D" : ""));
+                }
+            }
+
+            return tag;
+        }
+
+        internal static bool CanBeMaster(Pickupable pickup)
+        {
+            if (pickup == null || pickup.wasAbsorbed || pickup.ReservedAmount > 0f) return false;
+            if (pickup.KPrefabID == null || pickup.PrimaryElement == null) return false;
+
+            Assignable assign = pickup.GetComponent<Assignable>();
+            if (assign != null && assign.IsAssigned()) return false;
+
+            return true;
+        }
+
+        internal static bool CanMerge(Pickupable master, Pickupable source)
+        {
+            if (master == null || source == null || ReferenceEquals(master, source)) return false;
+            if (master.wasAbsorbed || source.wasAbsorbed) return false;
+            if (master.KPrefabID == null || source.KPrefabID == null) return false;
+            if (master.KPrefabID.PrefabTag != source.KPrefabID.PrefabTag) return false;
+            if (master.PrimaryElement == null || source.PrimaryElement == null) return false;
+            if (master.PrimaryElement.ElementID != source.PrimaryElement.ElementID) return false;
+
+            Assignable assignA = master.GetComponent<Assignable>();
+            Assignable assignB = source.GetComponent<Assignable>();
+            if ((assignA != null && assignA.IsAssigned()) || (assignB != null && assignB.IsAssigned())) return false;
+
+            MutantPlant mA = master.GetComponent<MutantPlant>();
+            MutantPlant mB = source.GetComponent<MutantPlant>();
+            if (mA != null || mB != null)
+            {
+                if (mA == null || mB == null) return false;
+                if (mA.IsOriginal != mB.IsOriginal) return false;
+                if (!mA.IsOriginal)
+                {
+                    if (mA.SubSpeciesID != mB.SubSpeciesID) return false;
+                    if (mA.IsIdentified != mB.IsIdentified) return false;
+                }
+            }
+
+            Edible eA = master.GetComponent<Edible>();
+            Edible eB = source.GetComponent<Edible>();
+            if (eA != null || eB != null)
+            {
+                if (eA == null || eB == null || !eA.CanAbsorb(eB)) return false;
+            }
+
+            return true;
+        }
+
+        private bool MergeInto(Pickupable master, Pickupable source)
+        {
+            if (!CanMerge(master, source)) return false;
+            if (!_entries.TryGetValue(source, out Entry sourceEntry)) return false;
+            if (!_entries.TryGetValue(master, out Entry masterEntry)) return false;
+            if (masterEntry.Outlet != null || sourceEntry.Outlet != null) return false;
+            if (master.ReservedAmount > 0f || source.ReservedAmount > 0f) return false;
+
+            PrimaryElement masterPe = master.PrimaryElement;
+            PrimaryElement sourcePe = source.PrimaryElement;
+
+            float newMass = masterPe.Mass + sourcePe.Mass;
+            if (newMass > 0f)
+            {
+                float finalTemp = (masterPe.Mass * masterPe.Temperature + sourcePe.Mass * sourcePe.Temperature) / newMass;
+                masterPe.SetMassTemperature(newMass, finalTemp);
+            }
+
+            if (sourcePe.DiseaseCount > 0)
+            {
+                masterPe.AddDisease(sourcePe.DiseaseIdx, sourcePe.DiseaseCount, "合堆吸收");
+            }
+
+            master.Trigger((int)GameHashes.Absorb, source);
+
+            if (master.OnTake == null)
+            {
+                master.OnTake = (p, units) => EntitySplitter.Split(p, units);
+            }
+
+            Untrack(sourceEntry);
+            items.Remove(source.gameObject);
+            Util.KDestroyGameObject(source.gameObject);
+            Refresh(masterEntry);
+
+            return true;
+        }
+
+        private bool TryMergeIncoming(Pickupable pickup)
+        {
+            if (pickup == null || pickup.wasAbsorbed || pickup.ReservedAmount > 0f) return false;
+            if (pickup.KPrefabID == null || pickup.PrimaryElement == null) return false;
+            Tag tag = pickup.KPrefabID.PrefabTag;
+
+            if (!_byTag.TryGetValue(tag, out List<Pickupable> candidates)) return false;
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                Pickupable master = candidates[i];
+                if (master != null && master.storage == this && master.ReservedAmount <= 0f &&
+                    _entries.TryGetValue(master, out Entry masterEntry) && masterEntry.Outlet == null)
+                {
+                    if (CanMerge(master, pickup))
+                    {
+                        Storage previous = pickup.storage;
+                        previous?.Remove(pickup.gameObject, do_disease_transfer: false);
+
+                        PrimaryElement masterPe = master.PrimaryElement;
+                        PrimaryElement sourcePe = pickup.PrimaryElement;
+
+                        float newMass = masterPe.Mass + sourcePe.Mass;
+                        if (newMass > 0f)
+                        {
+                            float finalTemp = (masterPe.Mass * masterPe.Temperature + sourcePe.Mass * sourcePe.Temperature) / newMass;
+                            masterPe.SetMassTemperature(newMass, finalTemp);
+                        }
+
+                        if (sourcePe.DiseaseCount > 0)
+                        {
+                            masterPe.AddDisease(sourcePe.DiseaseIdx, sourcePe.DiseaseCount, "入库合并");
+                        }
+
+                        master.Trigger((int)GameHashes.Absorb, pickup);
+
+                        if (master.OnTake == null)
+                        {
+                            master.OnTake = (p, units) => EntitySplitter.Split(p, units);
+                        }
+
+                        if (_entries.TryGetValue(pickup, out Entry currentEntry)) Untrack(currentEntry);
+
+                        Util.KDestroyGameObject(pickup.gameObject);
+                        Refresh(masterEntry);
+                        Notify(previous);
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        internal int ConsolidateAll()
+        {
+            if (Stopping) return 0;
+            int mergedCount = 0;
+            var masterByIdentity = new Dictionary<Tag, Pickupable>();
+
+            var candidates = new List<Pickupable>(_ordered.Count);
+            for (int i = 0; i < _ordered.Count; i++)
+            {
+                Entry entry = _ordered[i];
+                if (entry != null && entry.Outlet == null && entry.Pickup != null && entry.Pickup.storage == this)
+                {
+                    candidates.Add(entry.Pickup);
+                }
+            }
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                Pickupable pickup = candidates[i];
+                if (pickup == null || pickup.wasAbsorbed || pickup.storage != this || pickup.ReservedAmount > 0f) continue;
+                if (pickup.KPrefabID == null) continue;
+
+                Tag identity = GetMergeIdentity(pickup);
+                if (!identity.IsValid) continue;
+
+                if (!masterByIdentity.TryGetValue(identity, out Pickupable master))
+                {
+                    if (CanBeMaster(pickup))
+                    {
+                        masterByIdentity[identity] = pickup;
+                    }
+                    continue;
+                }
+
+                if (master == pickup || master == null || master.wasAbsorbed)
+                {
+                    if (CanBeMaster(pickup)) masterByIdentity[identity] = pickup;
+                    continue;
+                }
+
+                if (MergeInto(master, pickup))
+                {
+                    mergedCount++;
+                }
+            }
+
+            items.RemoveAll(x => x == null);
+            return mergedCount;
         }
 
         internal Pickupable Checkout(Pickupable pickup, GlobalItemCollector portal, float amount, object request,
@@ -193,9 +432,19 @@ namespace OmniMod.Pool
             _moving++;
             try
             {
-                if (take < pickup.FetchTotalAmount && pickup.OnTake != null)
+                if (take < pickup.FetchTotalAmount)
                 {
-                    portion = pickup.Take(take);
+                    if (pickup.OnTake != null)
+                    {
+                        portion = pickup.Take(take);
+                    }
+                    else
+                    {
+                        float massPerUnit = pickup.PrimaryElement != null && pickup.PrimaryElement.MassPerUnit > 0f
+                            ? pickup.PrimaryElement.MassPerUnit : 1f;
+                        float units = Mathf.Min(pickup.TotalAmount, take / massPerUnit);
+                        portion = EntitySplitter.Split(pickup, units);
+                    }
                     Refresh(entry);
                 }
                 if (portion == null) return null;
@@ -314,6 +563,7 @@ namespace OmniMod.Pool
             var entry = new Entry { Pickup = pickup, Outlet = outlet, Request = request, ReturnAt = returnAt,
                 Tags = new Tag[tags.Count], TagSlots = new int[tags.Count], Access = AccessFor(pickup.KPrefabID),
                 Amount = pickup.TotalAmount, Mass = pickup.PrimaryElement.Mass, Calories = CaloriesFor(pickup), Slot = _ordered.Count };
+            if (FilterAutoManager.IsFoodItem(pickup.KPrefabID)) FilterAutoManager.EnsureDiscovered(pickup.KPrefabID);
             tags.CopyTo(entry.Tags);
             _entries.Add(pickup, entry); _ordered.Add(entry);
             entry.Request = null;
@@ -489,15 +739,21 @@ namespace OmniMod.Pool
                     }
                     // 已分配设备也是按需出库，不让它在入口与池之间每秒往返。
                     Assignable assignment = pickup.GetComponent<Assignable>();
-                    if (assignment != null && assignment.IsAssigned() && entry.Request is Assignable &&
+                    if (assignment != null && assignment.IsAssigned() &&
                         SharedItemDispatcher.GetAssigneeWorldId(assignment.assignee) == entry.Outlet.GetMyWorldId())
                     { entry.ReturnAt = _clock + CheckoutLifetime; continue; }
+                    if (TryMergeIncoming(pickup)) continue;
                     if (MoveIntact(pickup, this)) Track(pickup, null, null, 0f);
                 }
                 if (_clock >= _nextLegacySeed)
                 {
                     _nextLegacySeed = _clock + 1f;
                     MigrateLegacySeeds();
+                }
+                if (_clock >= _nextConsolidation && _ordered.Count > 100)
+                {
+                    _nextConsolidation = _clock + 10f;
+                    ConsolidateAll();
                 }
             }
             catch (Exception ex) { ModLog.Throttle("entity_pool_maintenance", "[实体共享池] 分片维护稍后重试：" + ex, 10f); }

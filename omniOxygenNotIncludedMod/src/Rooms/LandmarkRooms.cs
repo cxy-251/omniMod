@@ -25,7 +25,8 @@ namespace OmniMod.Rooms
         private static readonly string[] GalleryEffectIds =
         {
             ExhibitionHallPatch.EffectId, NaturalHistoryId + "Inspiration",
-            WorkshopId + "Inspiration", FitnessId + "Inspiration"
+            WorkshopId + "Inspiration", FitnessId + "Inspiration",
+            CollectiveBedroomPatch.EffectId
         };
 
         // 由展览馆注册入口在公共约束准备完成后调用，避免多个 Db Postfix 的执行顺序依赖。
@@ -33,6 +34,7 @@ namespace OmniMod.Rooms
         {
             VisitEffects.Clear();
             VisitEffects[ExhibitionHallPatch.RoomTypeId] = ExhibitionHallPatch.EffectId;
+            VisitEffects[CollectiveBedroomPatch.RoomTypeId] = CollectiveBedroomPatch.EffectId;
             var db = Db.Get();
             var tuning = TuningData<RoomProber.Tuning>.Get();
             tuning.maxRoomSize = Math.Max(tuning.maxRoomSize, 256);
@@ -188,6 +190,14 @@ namespace OmniMod.Rooms
             if (visitor == null || visitor.GetComponent<MinionIdentity>() == null || cavity?.room?.roomType == null) return;
             if (VisitEffects.TryGetValue(cavity.room.roomType.Id, out string effectId))
                 visitor.GetComponent<Effects>()?.Add(effectId, true);
+        }
+
+        internal static void RegisterVisitEffect(string roomId, string effectId)
+        {
+            if (!string.IsNullOrEmpty(roomId) && !string.IsNullOrEmpty(effectId))
+            {
+                VisitEffects[roomId] = effectId;
+            }
         }
     }
 }

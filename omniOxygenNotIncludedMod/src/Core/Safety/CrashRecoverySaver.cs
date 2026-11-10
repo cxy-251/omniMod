@@ -55,6 +55,8 @@ namespace OmniMod.Core.Safety
         {
             if (!Game.IsOnMainThread() || App.isLoading) return false;
             if (Game.Instance == null || !Game.Instance.isSpawned) return false;
+            if (SaveGame.Instance == null || !SaveGame.Instance.isSpawned) return false;
+            if (ClusterManager.Instance == null) return false;
             lock (SaveLock)
             {
                 if (_hasSavedEmergency || _savingEmergency)
@@ -71,7 +73,21 @@ namespace OmniMod.Core.Safety
                         return false;
                     }
 
+                    // 严密检查：必须确保 SaveManager 健在且有场景实体，绝不在实体清空时保存空档案
+                    SaveManager sm = SaveLoader.Instance.saveManager;
+                    if (sm == null || sm.GetLists() == null || sm.GetLists().Count == 0)
+                    {
+                        ModLog.Warn("[容灾防护] 场景实体列表已清空或未就绪，放弃紧急保存以防生成坏档。");
+                        return false;
+                    }
+
                     string activeSavePath = SaveLoader.GetActiveSaveFilePath();
+                    long originalSaveSize = 0;
+                    if (!string.IsNullOrEmpty(activeSavePath) && File.Exists(activeSavePath))
+                    {
+                        originalSaveSize = new FileInfo(activeSavePath).Length;
+                    }
+
                     string colonyName = "Colony";
                     string targetFolder = null;
 
@@ -124,8 +140,18 @@ namespace OmniMod.Core.Safety
                         return false;
                     }
 
+                    FileInfo fi = new FileInfo(recoveryFullPath);
+                    // 完好的缺氧完整存档必须带有实体与Sim网格，体积通常至少在 2MB 以上。
+                    // 若原档体积正常，新紧急存档若小于原档体积的 50% 且小于 2MB，必然是实体丢失的空残卷，必须立即清除！
+                    if (fi.Length < 2000000 || (originalSaveSize > 2000000 && fi.Length < originalSaveSize / 2))
+                    {
+                        ModLog.Warn($"[容灾防护] ⚠️ 紧急保存生成的文件不完整 (体积仅 {fi.Length} 字节，原活动档为 {originalSaveSize} 字节)，已自动删除，防止破坏最新存档！");
+                        try { fi.Delete(); } catch { }
+                        return false;
+                    }
+
                     _hasSavedEmergency = true;
-                    ModLog.Info($"[容灾防护] ✅ 紧急抢救成功！已将最新进度安全写入: {recoveryFullPath}");
+                    ModLog.Info($"[容灾防护] ✅ 紧急抢救成功！已将最新进度安全写入: {recoveryFullPath} ({fi.Length / 1024 / 1024:F2} MB)");
                     return true;
                 }
                 catch (Exception ex)

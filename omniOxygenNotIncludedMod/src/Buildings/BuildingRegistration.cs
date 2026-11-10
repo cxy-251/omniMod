@@ -45,6 +45,15 @@ namespace OmniMod.Buildings
             RegisterPocketHabitat();
             RegisterExhibitionSign();
             RegisterLandmarkSigns();
+            RegisterEggCrackerSafety();
+            RegisterCompactLuxuryBed();
+            RegisterLiquorDispenser();
+        }
+
+        private static void RegisterEggCrackerSafety()
+        {
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_EGGCRACKER.RESERVE_THRESHOLD_TITLE", "物种蛋保留阈值 (防绝种)");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_EGGCRACKER.RESERVE_THRESHOLD_TOOLTIP", "设定该物种蛋在全殖民地的保留数量。低于或等于此数值时打蛋机将自动停工，杜绝灭绝。");
         }
 
         private static void RegisterFluidProcessors()
@@ -130,7 +139,9 @@ namespace OmniMod.Buildings
         private static void RegisterLiquidChiller()
         {
             Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_LIQUIDCHILLER.TARGET_TEMP_TITLE", "目标出液温度");
-            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_LIQUIDCHILLER.TARGET_TEMP_TOOLTIP", "调节管道流体冷却后的目标出液温度（-200°C ~ +100°C）");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_LIQUIDCHILLER.TARGET_TEMP_TOOLTIP", "调节管道流体冷却后的目标出液温度（-200°C ~ +400°C）");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_LIQUIDCHILLER_REFILL.TITLE", "循环管道智能校准");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_LIQUIDCHILLER_FLUSH.TITLE", "循环管道除杂排空");
 
             ModStrings.AddBuilding(
                 LiquidChillerConfig.ID,
@@ -139,8 +150,8 @@ namespace OmniMod.Buildings
                     "采用先进的分子共振与深冷压缩热吸收技术，直接将管道通入的任意流体一次性恒温冷却至目标温度。通流即冷却，一步直达，无多余废热外泄，内置智能防爆管保护，彻底替代繁复且笨重的传统液温调节器架构。",
                     "Uses cryogenic absorption technology to instantly cool any liquid in the pipe to a user-defined target temperature in a single pass. Eliminates the need for bulky Thermo Aquatuner setups and dangerous pipe ruptures."),
                 effect: ModStrings.T(
-                    "最高支持 10kg/s 满管液体连续恒温处理，侧边栏自由设定目标出液温度（-200°C ~ +100°C）。内置液体冰点智能防爆管保护，极低能耗且支持复制设置。",
-                    "Cools up to 10 kg/s of any piped liquid directly to a target temperature (-200°C to +100°C). Features automatic freeze-burst protection, minimal heat output, and Copy Settings."));
+                    "最高支持 10kg/s 满管液体连续恒温处理，侧边栏自由设定目标出液温度（-200°C ~ +400°C）。内置液体冰点智能防爆管保护与一键充满超级冷却剂功能，极低能耗且支持复制设置。",
+                    "Cools up to 10 kg/s of any piped liquid directly to a target temperature (-200°C to +400°C). Features automatic freeze-burst protection, one-click super coolant conduit fill, minimal heat output, and Copy Settings."));
 
             ModUtil.AddBuildingToPlanScreen(
                 new HashedString("Utilities"),
@@ -187,10 +198,10 @@ namespace OmniMod.Buildings
             if (!DlcManager.IsExpansion1Active()) return;
             ModStrings.AddBuilding(RadboltIrradiatorConfig.ID,
                 ModStrings.T("横向辐照器", "Horizontal Radbolt Irradiator"),
-                ModStrings.T("占地 1×1 的普通建筑，无需电力。吸收辐射粒子并持续转换为横向窄带辐射，适合已经建成的长条农场。",
-                    "A normal 1×1 building that needs no electricity. Converts stored radbolts into a narrow horizontal radiation field for long farms."),
-                ModStrings.T("先填满 100 粒子缓存，满仓余量或停机时沿原方向放行。默认向右延伸 30 格、高 5 格，高度和上下偏移可调，到世界边界缩短。工作时矩形区域每格辐射均为设定值，无距离、遮挡及四角衰减，重叠取较高值。支持自动化及复制设置；辐射同样影响复制人。",
-                    "Fills a 100-radbolt buffer first; overflow or disabled units let radbolts continue. Defaults to 30 tiles rightward and 5 tiles high, with adjustable height and offset, clipped at world borders. Every tile uses the target radiation without falloff or shielding; overlaps use the higher target. Supports automation and Copy Settings; also affects duplicants."));
+                ModStrings.T("占地 1×1 的普通建筑，无需电力。运送一定量浓缩铀（10 kg）作为反应核心后即可永久工作，提供均匀横向窄带辐射，适合已经建成的长条农场。",
+                    "A normal 1×1 building that needs no electricity. Once fueled with a one-time delivery of Enriched Uranium (10 kg), it runs permanently without running consumption, providing uniform horizontal radiation for long farms."),
+                ModStrings.T("运送 10 kg 浓缩铀后成为永久反应核心，无需持续补充燃料。默认向右延伸 30 格、高 5 格，高度和上下偏移可调，到世界边界缩短。工作时矩形区域每格辐射均为设定值，无距离、遮挡及四角衰减，重叠取较高值。支持自动化及复制设置；辐射同样影响复制人。",
+                    "Delivering 10 kg of Enriched Uranium activates a permanent core that never depletes. Defaults to 30 tiles rightward and 5 tiles high, with adjustable height and offset, clipped at world borders. Every tile uses the target radiation without falloff or shielding; overlaps use the higher target. Supports automation and Copy Settings; also affects duplicants."));
             string key = RadboltIrradiator.SliderKey;
             Strings.Add(key + "TITLE", ModStrings.T("横向辐照设置", "Horizontal Irradiation").Resolve());
             Strings.Add(key + "REACH_TITLE", ModStrings.T("横向延伸距离", "Horizontal Reach").Resolve());
@@ -199,10 +210,8 @@ namespace OmniMod.Buildings
             Strings.Add(key + "HEIGHT_TOOLTIP", ModStrings.T("辐照带总高度，3–15 格，步进 2。", "Total band height, 3–15 tiles in steps of 2.").Resolve());
             Strings.Add(key + "STRENGTH_TITLE", ModStrings.T("每格目标辐射", "Target Radiation Per Tile").Resolve());
             Strings.Add(key + "STRENGTH_TOOLTIP", ModStrings.T("工作时区域每格采用此实际辐射值，重叠取较高值。", "Every covered tile uses this actual radiation value while running; overlaps use the higher target.").Resolve());
-            Strings.Add(key + "CONSUMPTION_TITLE", ModStrings.T("整机粒子消耗", "Total Radbolt Consumption").Resolve());
-            Strings.Add(key + "CONSUMPTION_TOOLTIP", ModStrings.T("整台设备每游戏秒实际消耗，不随范围或辐射强度增加；游戏倍速同比加快消耗。", "Actual total use per game second, independent of field size or radiation; fast-forward speeds up consumption in real time.").Resolve());
             Strings.Add("STRINGS.BUILDING.STATUSITEMS.OMNIRADBOLTIRRADIATOR.NAME", ModStrings.T("横向辐照", "Horizontal Irradiation").Resolve());
-            Strings.Add("STRINGS.BUILDING.STATUSITEMS.OMNIRADBOLTIRRADIATOR.TOOLTIP", ModStrings.T("辐射粒子转换为横向辐射。", "Converts radbolts into horizontal radiation.").Resolve());
+            Strings.Add("STRINGS.BUILDING.STATUSITEMS.OMNIRADBOLTIRRADIATOR.TOOLTIP", ModStrings.T("装载浓缩铀提供永久横向辐照。", "Fueled with Enriched Uranium to provide permanent horizontal radiation.").Resolve());
             TUNING.BUILDINGS.PLANSUBCATEGORYSORTING[RadboltIrradiatorConfig.ID] = "transmissions";
             ModUtil.AddBuildingToPlanScreen(new HashedString("HEP"), RadboltIrradiatorConfig.ID,
                 "transmissions", relativeBuildingId: "HighEnergyParticleRedirector", ordering: ModUtil.BuildingOrdering.After);
@@ -367,6 +376,8 @@ namespace OmniMod.Buildings
         private static void RegisterNuclearReprocessor()
         {
             Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_REPROCESSOR.TITLE", "浓缩铀出料配置");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_REPROCESSOR_REFILL.TITLE", "进料管道智能校准");
+            Strings.Add("STRINGS.UI.UISIDESCREENS.OMNIMOD_REPROCESSOR_FLUSH.TITLE", "进料管道除杂排空");
 
             ModStrings.AddBuilding(
                 NuclearReprocessorConfig.ID,
@@ -445,6 +456,54 @@ namespace OmniMod.Buildings
             ModStrings.AddBuilding(id, name, requirements, effect);
             ModUtil.AddBuildingToPlanScreen(new HashedString("Furniture"), id, "decor",
                 relativeBuildingId: previous, ordering: ModUtil.BuildingOrdering.After);
+        }
+
+        private static void RegisterCompactLuxuryBed()
+        {
+            ModStrings.AddBuilding(
+                CompactLuxuryBedConfig.ID,
+                name: ModStrings.T("紧凑型舒适床铺", "Compact Luxury Bed"),
+                desc: ModStrings.T(
+                    "采用高密度缓压材料精巧打造的紧凑型舒适床铺。仅占 2 格横向空间，却能带来与 4 格豪华床完全相同的优质睡眠体验。",
+                    "A compact comfy bed crafted with high-density pressure-relief materials. Takes up only 2 horizontal tiles while providing the exact same deluxe rest experience as a 4-tile Luxury Bed."
+                ),
+                effect: ModStrings.T(
+                    "提供与豪华床完全相同的顶级睡眠恢复（豪华床体力恢复、+40% 舒适度、健康恢复），并带有舒适床铺标签，可完美满足集体卧室与私人卧室的要求。",
+                    "Provides the exact same deluxe sleep recovery as a Luxury Bed (Luxury Stamina recovery, +40% comfort, Health recovery). Carries the Luxury Bed tag to satisfy Collective Bedroom and Private Bedroom requirements."
+                )
+            );
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Furniture"),
+                CompactLuxuryBedConfig.ID,
+                "bed",
+                relativeBuildingId: "LuxuryBed",
+                ordering: ModUtil.BuildingOrdering.After
+            );
+        }
+
+        private static void RegisterLiquorDispenser()
+        {
+            ModStrings.AddBuilding(
+                LiquorDispenserConfig.ID,
+                name: ModStrings.T("全能微醺特调吧", "Omni Lounge Bar"),
+                desc: ModStrings.T(
+                    "使用管道直连乙醇与高纯结晶蔗糖精心调配特制微醺鸡尾酒的娱乐设施。浓烈酒香不仅能让复制人体会到久违的放松与狂喜，还能彻底隔绝严寒，气血充盈，绝无任何病菌滋生风险。",
+                    "A deluxe recreation bar that crafts sweet cocktails from piped ethanol and crystalline sucrose. The rich aroma gives duplicants unmatched relaxation and joy, provides complete cold immunity, and carries zero germ risk."
+                ),
+                effect: ModStrings.T(
+                    "消耗管道供应的乙醇与固体蔗糖。复制人饮用后获得骚气爆棚的【醉意撩人】强效增益：士气 +6，体能与力量各 +3，免疫力 +4，保温御寒（免除寒冷惩罚与受冻状态），大幅舒缓压力。\n自带娱乐设施标签，可直接替代原版饮水机满足【高级餐厅】与【娱乐室】的房间要求。",
+                    "Consumes piped ethanol and sucrose. Duplicants who drink gain the flamboyant [Tipsy & Flirtatious] buff: Morale +6, Athletics & Strength +3, Immunity +4, Thermal Barrier (immune to hypothermia and cold), and massive stress relief.\nCarries the Recreation Building tag to satisfy Great Mess Hall and Recreation Room requirements."
+                )
+            );
+
+            ModUtil.AddBuildingToPlanScreen(
+                new HashedString("Furniture"),
+                LiquorDispenserConfig.ID,
+                "recreation",
+                relativeBuildingId: "WaterCooler",
+                ordering: ModUtil.BuildingOrdering.After
+            );
         }
 
         // 注：阶段二仍不做科技门槛，两个箱子一开局就能造。

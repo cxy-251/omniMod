@@ -53,6 +53,10 @@ namespace OmniMod.Buildings
             def.AudioCategory = "HollowMetal";
             def.AudioSize = "large";
 
+            def.Floodable = false;
+            def.Overheatable = false;
+            def.Invincible = true;
+
             def.LogicInputPorts = LogicOperationalController.CreateSingleInputPortList(new CellOffset(1, 0));
 
             return def;
@@ -61,6 +65,7 @@ namespace OmniMod.Buildings
         public override void ConfigureBuildingTemplate(GameObject go, Tag prefab_tag)
         {
             go.GetComponent<KPrefabID>().AddTag(RoomConstraints.ConstraintTags.IndustrialMachinery);
+            go.GetComponent<KPrefabID>().AddTag(GameTags.CorrosionProof);
 
             Storage storage = BuildingTemplates.CreateDefaultStorage(go);
             storage.capacityKg = 2000f;
@@ -74,7 +79,7 @@ namespace OmniMod.Buildings
             consumer.consumptionRate = 10f;
             consumer.capacityKG = 50f;
             consumer.capacityTag = SimHashes.NuclearWaste.CreateTag();
-            consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
+            consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Store;
             consumer.forceAlwaysSatisfied = true;
             consumer.storage = storage;
 
@@ -85,10 +90,15 @@ namespace OmniMod.Buildings
             delivery.capacity = 500f;
             delivery.refillMass = 100f;
             delivery.choreTypeIDHash = Db.Get().ChoreTypes.MachineFetch.IdHash;
+            delivery.allowPause = true;
 
-            // 基础转换器：5 kg/s 核废料 -> 0.5 kg/s 浓缩铀
+            // 基础转换器：5 kg/s 核废料 -> 0.5 kg/s 浓缩铀（支持液态与固态双通道，默认液态激活）
             ElementConverter converter = go.AddComponent<ElementConverter>();
-            converter.consumedElements = NuclearReprocessor.ConsumedLiquidWaste;
+            converter.consumedElements = new[]
+            {
+                new ElementConverter.ConsumedElement(NuclearReprocessor.LiquidWasteTag, NuclearReprocessor.WasteConsumptionPerSecond, true),
+                new ElementConverter.ConsumedElement(NuclearReprocessor.SolidWasteTag, NuclearReprocessor.WasteConsumptionPerSecond, false),
+            };
             converter.outputElements = NuclearReprocessor.OutputEnrichedUranium;
 
             // 运转微量辐射（铅套屏蔽下维持 120 rads）
@@ -102,6 +112,7 @@ namespace OmniMod.Buildings
             // 主控逻辑与出料管理组件
             go.AddOrGet<CopyBuildingSettings>();
             go.AddOrGet<NuclearReprocessor>();
+            go.AddOrGet<NuclearReprocessorEjector>();
 
             Prioritizable.AddRef(go);
 

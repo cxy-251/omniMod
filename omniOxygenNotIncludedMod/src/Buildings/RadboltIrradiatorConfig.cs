@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using TUNING;
 using UnityEngine;
 
@@ -23,8 +24,7 @@ namespace OmniMod.Buildings
             def.Overheatable = false;
             def.AudioCategory = "Metal";
             def.ViewMode = OverlayModes.Radiation.ID;
-            def.UseHighEnergyParticleInputPort = true;
-            def.HighEnergyParticleInputOffset = new CellOffset(0, 0);
+            def.UseHighEnergyParticleInputPort = false;
             def.LogicInputPorts = LogicOperationalController.CreateSingleInputPortList(new CellOffset(0, 0));
             def.Deprecated = !Sim.IsRadiationEnabled();
             GeneratedBuildings.RegisterWithOverlay(OverlayScreen.RadiationIDs, ID);
@@ -34,10 +34,26 @@ namespace OmniMod.Buildings
         public override void ConfigureBuildingTemplate(GameObject go, Tag prefab_tag)
         {
             BuildingConfigManager.Instance.IgnoreDefaultKComponent(typeof(RequiresFoundation), prefab_tag);
-            var storage = go.AddOrGet<HighEnergyParticleStorage>();
-            storage.capacity = RadboltIrradiator.BufferCapacity;
-            storage.autoStore = false;
-            storage.showCapacityStatusItem = true;
+
+            var storage = go.AddOrGet<Storage>();
+            storage.capacityKg = RadboltIrradiator.RequiredEnrichedUranium;
+            storage.showInUI = true;
+            storage.showDescriptor = true;
+            storage.storageFilters = new List<Tag> { SimHashes.EnrichedUranium.CreateTag() };
+            storage.SetDefaultStoredItemModifiers(Storage.StandardSealedStorage);
+
+            var delivery = go.AddOrGet<ManualDeliveryKG>();
+            delivery.SetStorage(storage);
+            delivery.RequestedItemTag = SimHashes.EnrichedUranium.CreateTag();
+            delivery.capacity = RadboltIrradiator.RequiredEnrichedUranium;
+            delivery.refillMass = RadboltIrradiator.RequiredEnrichedUranium;
+            delivery.MinimumMass = 0.01f;
+            delivery.choreTypeIDHash = Db.Get().ChoreTypes.MachineFetch.IdHash;
+            delivery.operationalRequirement = Operational.State.None;
+            delivery.allowPause = true;
+
+            Prioritizable.AddRef(go);
+
             go.AddOrGet<CopyBuildingSettings>().copyGroupTag = ID.ToTag();
             go.AddOrGet<BuildingTint>().tint = new Color32(115, 235, 190, 255);
         }

@@ -82,8 +82,14 @@ namespace OmniMod.Buildings
                 }
             }
             for (int y = bounds.Offset.y; y < bounds.MaxY; y++)
+            {
                 for (int x = bounds.Offset.x; x < bounds.MaxX; x++)
-                    Grid.Reveal(Grid.XYToCell(x, y), byte.MaxValue);
+                {
+                    int cell = Grid.XYToCell(x, y);
+                    Grid.PreventFogOfWarReveal[cell] = false;
+                    Grid.Reveal(cell, byte.MaxValue, forceReveal: true);
+                }
+            }
             return true;
         }
 
@@ -112,26 +118,280 @@ namespace OmniMod.Buildings
 
         internal static ClustercraftInteriorDoor FindDoor(WorldContainer world)
         {
+            if (world == null) return null;
             if (!PocketWorldBounds.TryGet(world, out PocketWorldBounds bounds)) return null;
+
+            int canonicalCell = Grid.XYToCell(bounds.Offset.x + 1, bounds.Offset.y + 2);
+            var doors = new List<ClustercraftInteriorDoor>();
             foreach (ClustercraftInteriorDoor door in Components.ClusterCraftInteriorDoors.Items)
-                if (door != null && bounds.Owns(Grid.PosToCell(door)) &&
-                    bounds.ContainsFootprint(door.GetComponent<OccupyArea>())) return door;
-            return null;
+            {
+                if (door != null && !Util.IsNullOrDestroyed(door) && ClusterUtil.GetMyWorldId(door) == world.id)
+                {
+                    doors.Add(door);
+                }
+            }
+
+            if (doors.Count == 0) return null;
+            if (doors.Count == 1) return doors[0];
+
+            doors.Sort((a, b) =>
+            {
+                int cellA = Grid.PosToCell(a);
+                int cellB = Grid.PosToCell(b);
+                int distA = Math.Abs(Grid.CellToXY(cellA).x - (bounds.Offset.x + 1)) + Math.Abs(Grid.CellToXY(cellA).y - (bounds.Offset.y + 2));
+                int distB = Math.Abs(Grid.CellToXY(cellB).x - (bounds.Offset.x + 1)) + Math.Abs(Grid.CellToXY(cellB).y - (bounds.Offset.y + 2));
+                return distA.CompareTo(distB);
+            });
+            return doors[0];
+        }
+
+        internal static ClustercraftInteriorDoor FindAndRestoreDoor(OmniPocketHabitat owner, WorldContainer world)
+        {
+            if (world == null) return null;
+            if (!PocketWorldBounds.TryGet(world, out PocketWorldBounds bounds)) return null;
+
+            int canonicalCell = Grid.XYToCell(bounds.Offset.x + 1, bounds.Offset.y + 2);
+            var doorsInWorld = new List<ClustercraftInteriorDoor>();
+            foreach (ClustercraftInteriorDoor door in Components.ClusterCraftInteriorDoors.Items)
+            {
+                if (door != null && !Util.IsNullOrDestroyed(door))
+                {
+                    int cell = Grid.PosToCell(door);
+                    if (bounds.Owns(cell) || ClusterUtil.GetMyWorldId(door) == world.id)
+                    {
+                        doorsInWorld.Add(door);
+                    }
+                }
+            }
+
+            // 1. 优先检查标准位置 canonicalCell 是否已经有原版门
+            ClustercraftInteriorDoor canonicalDoor = null;
+            foreach (var door in doorsInWorld)
+            {
+                if (Grid.PosToCell(door) == canonicalCell)
+                {
+                    canonicalDoor = door;
+                    break;
+                }
+            }
+            if (canonicalDoor == null && Grid.IsValidCell(canonicalCell))
+            {
+                GameObject b = Grid.Objects[canonicalCell, (int)ObjectLayer.Building];
+                if (b != null)
+                {
+                    canonicalDoor = b.GetComponent<ClustercraftInteriorDoor>();
+                }
+            }
+
+            // 2. 运行期清理所有不在标准门位的多余或错位门
+            if (!App.isLoading && !KMonoBehaviour.isLoadingScene)
+            {
+                foreach (var unwanted in doorsInWorld)
+                {
+                    if (unwanted != null && unwanted != canonicalDoor && !Util.IsNullOrDestroyed(unwanted))
+                    {
+                        Components.ClusterCraftInteriorDoors.Remove(unwanted);
+                        unwanted.gameObject.SetActive(false);
+                        Util.KDestroyGameObject(unwanted.gameObject);
+                        ModLog.Info($"[生态舱] 已安全清理 World {world.id} 错位舱门 (cell {Grid.PosToCell(unwanted)})。");
+                    }
+                }
+                ClearLeftoverDoorDebris(world, bounds);
+            }
+
+            // 3. 若标准门已存在，确保其处于激活状态并注册进系统列表
+            if (canonicalDoor != null && !Util.IsNullOrDestroyed(canonicalDoor))
+            {
+                if (!canonicalDoor.gameObject.activeSelf) canonicalDoor.gameObject.SetActive(true);
+                if (Components.ClusterCraftInteriorDoors != null && !Components.ClusterCraftInteriorDoors.Items.Contains(canonicalDoor))
+                {
+                    Components.ClusterCraftInteriorDoors.Add(canonicalDoor);
+                }
+                ClearLeftoverDoorDebris(world, bounds);
+                return canonicalDoor;
+            }
+
+            // 4. 若标准门位尚无门，在游戏运行期强制清除阻碍并原位重建标准舱门
+            if (!App.isLoading && !KMonoBehaviour.isLoadingScene)
+            {
+                ClearCanonicalDoorFootprint(bounds, canonicalCell);
+
+                GameObject prefab = Assets.GetPrefab("ClustercraftInteriorDoor");
+                if (prefab != null)
+                {
+                    GameObject instance = GameUtil.KInstantiate(prefab, Grid.CellToPosCBC(canonicalCell, Grid.SceneLayer.Building), Grid.SceneLayer.Building);
+                    PrimaryElement primary = instance.GetComponent<PrimaryElement>();
+                    if (primary != null)
+                    {
+                        primary.SetElement(SimHashes.Steel);
+                        primary.Temperature = 294.15f;
+                        primary.Units = 1f;
+                    }
+                    instance.SetActive(true);
+                    ClustercraftInteriorDoor restoredDoor = instance.GetComponent<ClustercraftInteriorDoor>();
+                    ModLog.Info($"[生态舱] 成功归正舱门！已在 World {world.id} 原始标准门位 (cell {canonicalCell}) 重建原版舱内门。");
+                    ClearLeftoverDoorDebris(world, bounds);
+                    return restoredDoor;
+                }
+            }
+
+            ClearLeftoverDoorDebris(world, bounds);
+            return doorsInWorld.Count > 0 ? doorsInWorld[0] : null;
+        }
+
+        internal static void ClearLeftoverDoorDebris(WorldContainer world, PocketWorldBounds bounds)
+        {
+            if (world == null || App.isLoading || KMonoBehaviour.isLoadingScene) return;
+
+            // 1. 舱门区域严格仅保留 2 格钢材（位于标准门位 canonicalCell 与 upperCell）
+            // 用户明确要求：原来的钢就两格，这两格钢就是在门自身的区域，绝不乱加或外延至其他格子
+            int doorCellBottom = Grid.XYToCell(bounds.Offset.x + 1, bounds.Offset.y + 2);
+            int doorCellTop = Grid.XYToCell(bounds.Offset.x + 1, bounds.Offset.y + 3);
+
+            if (bounds.Owns(doorCellBottom) && (!Grid.Solid[doorCellBottom] || Grid.Element[doorCellBottom].id != SimHashes.Steel))
+            {
+                SimMessages.ReplaceElement(doorCellBottom, SimHashes.Steel, CellEventLogger.Instance.Scenario, 200f, 293.15f);
+                Pathfinding.Instance?.AddDirtyNavGridCell(doorCellBottom);
+            }
+            if (bounds.Owns(doorCellTop) && (!Grid.Solid[doorCellTop] || Grid.Element[doorCellTop].id != SimHashes.Steel))
+            {
+                SimMessages.ReplaceElement(doorCellTop, SimHashes.Steel, CellEventLogger.Instance.Scenario, 200f, 293.15f);
+                Pathfinding.Instance?.AddDirtyNavGridCell(doorCellTop);
+            }
+
+            // 2. 撤销此前误在门口地面 (x+2, y+1) 与门下方 (x+1, y+1) 额外添加的多余钢块，恢复为真空，杜绝 4 格钢
+            int outsideCell = Grid.XYToCell(bounds.Offset.x + 2, bounds.Offset.y + 1);
+            if (bounds.Owns(outsideCell) && Grid.Solid[outsideCell] && Grid.Element[outsideCell].id == SimHashes.Steel)
+            {
+                GameObject b = Grid.Objects[outsideCell, (int)ObjectLayer.Building];
+                if (b == null)
+                {
+                    SimMessages.ReplaceElement(outsideCell, SimHashes.Vacuum, CellEventLogger.Instance.Scenario, 0f);
+                    Pathfinding.Instance?.AddDirtyNavGridCell(outsideCell);
+                }
+            }
+
+            int underCell = Grid.XYToCell(bounds.Offset.x + 1, bounds.Offset.y + 1);
+            if (bounds.Owns(underCell) && Grid.Solid[underCell] && Grid.Element[underCell].id == SimHashes.Steel)
+            {
+                GameObject b = Grid.Objects[underCell, (int)ObjectLayer.Building];
+                if (b == null)
+                {
+                    SimMessages.ReplaceElement(underCell, SimHashes.Vacuum, CellEventLogger.Instance.Scenario, 0f);
+                    Pathfinding.Instance?.AddDirtyNavGridCell(underCell);
+                }
+            }
+
+            // 3. 仅在舱门足迹格子内清理散落的钢材掉落物（Pickupables），绝不替换任何固体方块（Grid.Solid）
+            int exitCell = Grid.OffsetCell(doorCellBottom, new CellOffset(1, 0));
+            int[] doorCells = new[] { doorCellBottom, doorCellTop, exitCell };
+            foreach (int c in doorCells)
+            {
+                if (bounds.Owns(c))
+                {
+                    CleanCellSteelPickupables(world, c);
+                }
+            }
+        }
+
+        private static void CleanCellSteelPickupables(WorldContainer world, int cell)
+        {
+            GameObject head = Grid.Objects[cell, (int)ObjectLayer.Pickupables];
+            if (head != null)
+            {
+                Pickupable p = head.GetComponent<Pickupable>();
+                if (p != null)
+                {
+                    ObjectLayerListItem item = p.objectLayerListItem;
+                    while (item != null)
+                    {
+                        var curr = item.gameObject;
+                        var next = item.nextItem;
+                        if (curr != null)
+                        {
+                            Pickupable pick = curr.GetComponent<Pickupable>();
+                            if (pick != null && IsSteelDebris(pick))
+                            {
+                                ModLog.Info($"[生态舱] 已自动清理 World {(world != null ? world.id : -1)} 舱内旧门位格子散落钢材 (cell {cell})。");
+                                Util.KDestroyGameObject(curr);
+                            }
+                        }
+                        item = next;
+                    }
+                }
+            }
+        }
+
+        private static bool IsSteelDebris(Pickupable p)
+        {
+            if (p == null) return false;
+            PrimaryElement pe = p.GetComponent<PrimaryElement>();
+            if (pe != null && pe.ElementID == SimHashes.Steel) return true;
+            KPrefabID kpid = p.GetComponent<KPrefabID>();
+            if (kpid != null && (kpid.PrefabTag == GameTags.Steel || kpid.PrefabTag == "Steel" || kpid.HasTag(SimHashes.Steel.CreateTag()) || kpid.HasTag(GameTags.Steel))) return true;
+            if (p.name != null && p.name.IndexOf("Steel", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
+        private static void ClearCanonicalDoorFootprint(PocketWorldBounds bounds, int canonicalCell)
+        {
+            int upperCell = Grid.OffsetCell(canonicalCell, new CellOffset(0, 1));
+            int exitCell = Grid.OffsetCell(canonicalCell, new CellOffset(1, 0));
+
+            // 门自身两格（canonicalCell 与 upperCell）：严格作为舱内唯一的 2 格坚固钢块
+            int[] doorCells = new[] { canonicalCell, upperCell };
+            foreach (int cell in doorCells)
+            {
+                if (!bounds.Owns(cell)) continue;
+
+                // 若有非门建筑阻挡，清理之
+                GameObject b = Grid.Objects[cell, (int)ObjectLayer.Building];
+                if (b != null && b.GetComponent<ClustercraftInteriorDoor>() == null)
+                {
+                    Util.KDestroyGameObject(b);
+                }
+
+                if (!Grid.Solid[cell] || Grid.Element[cell].id != SimHashes.Steel)
+                {
+                    SimMessages.ReplaceElement(cell, SimHashes.Steel, CellEventLogger.Instance.Scenario, 200f, 293.15f);
+                    Pathfinding.Instance?.AddDirtyNavGridCell(cell);
+                }
+            }
+
+            // 门口站立格（exitCell）：小人进出门立足点，必须保持通畅
+            if (bounds.Owns(exitCell))
+            {
+                GameObject b = Grid.Objects[exitCell, (int)ObjectLayer.Building];
+                if (b != null && b.GetComponent<ClustercraftInteriorDoor>() == null)
+                {
+                    Util.KDestroyGameObject(b);
+                }
+
+                if (Grid.Solid[exitCell])
+                {
+                    SimMessages.ReplaceElement(exitCell, SimHashes.Vacuum, CellEventLogger.Instance.Scenario, 0f);
+                    Pathfinding.Instance?.AddDirtyNavGridCell(exitCell);
+                }
+            }
         }
 
         internal static ClustercraftInteriorDoor EnsureDoor(OmniPocketHabitat owner, WorldContainer world)
         {
-            if (!PocketWorldBounds.TryValidate(owner, world, out PocketWorldBounds bounds, out string reason))
+            // 场景加载/反序列化期间严禁补门/移动门，防止因内门尚未 Spawn 导致误判
+            if (App.isLoading || KMonoBehaviour.isLoadingScene)
             {
-                ModLog.Throttle("pocket_door_" + owner.targetWorldId, "[生态舱] 跳过舱门修复：" + reason, 10f);
-                return null;
+                return FindDoor(world);
             }
-            ClustercraftInteriorDoor found = FindDoor(world);
-            if (found != null) return found;
+
+            return FindAndRestoreDoor(owner, world);
+        }
+
+        private static ClustercraftInteriorDoor SpawnDoor(WorldContainer world, PocketWorldBounds bounds, int canonicalCell)
+        {
             GameObject prefab = Assets.GetPrefab("ClustercraftInteriorDoor");
             OccupyArea area = prefab != null ? prefab.GetComponent<OccupyArea>() : null;
             if (area == null || area.OccupiedCellsOffsets == null) return null;
-            int anchor = Grid.XYToCell(bounds.Offset.x + 1, bounds.Offset.y + 2);
+            int anchor = canonicalCell;
             if (!CanPlaceDoor(bounds, area, anchor))
             {
                 anchor = Grid.InvalidCell;
@@ -156,7 +416,7 @@ namespace OmniMod.Buildings
                 primary.Units = 1f;
             }
             instance.SetActive(true);
-            ModLog.Info($"[生态舱] 已补齐 World {world.id} 的舱门，未重新盖舱内模板。");
+            ModLog.Info($"[生态舱] 容灾保底：已补齐 World {world.id} 的舱门。");
             return instance.GetComponent<ClustercraftInteriorDoor>();
         }
 
@@ -168,7 +428,10 @@ namespace OmniMod.Buildings
             foreach (CellOffset offset in prefabArea.OccupiedCellsOffsets)
             {
                 int cell = Grid.OffsetCell(anchor, offset);
-                if (!bounds.Owns(cell) || Grid.Solid[cell] || Grid.Objects[cell, (int)ObjectLayer.Building] != null) return false;
+                if (!bounds.Owns(cell)) return false;
+                if (Grid.Solid[cell] && Grid.Element[cell].id != SimHashes.Steel) return false;
+                GameObject b = Grid.Objects[cell, (int)ObjectLayer.Building];
+                if (b != null && b.GetComponent<ClustercraftInteriorDoor>() == null) return false;
             }
             int exit = Grid.OffsetCell(anchor, new CellOffset(1, 0));
             return !Grid.Solid[exit] && Grid.Objects[exit, (int)ObjectLayer.Building] == null;
@@ -200,7 +463,15 @@ namespace OmniMod.Buildings
                 foreach (ClustercraftInteriorDoor door in Components.ClusterCraftInteriorDoors.Items)
                     if (door != null && door != primaryDoor && bounds.Owns(Grid.PosToCell(door)) &&
                         bounds.ContainsFootprint(door.GetComponent<OccupyArea>())) extras.Add(door);
-                foreach (ClustercraftInteriorDoor extra in extras) Util.KDestroyGameObject(extra.gameObject);
+                foreach (ClustercraftInteriorDoor extra in extras)
+                {
+                    if (extra != null && !Util.IsNullOrDestroyed(extra))
+                    {
+                        Components.ClusterCraftInteriorDoors.Remove(extra);
+                        extra.gameObject.SetActive(false);
+                        Util.KDestroyGameObject(extra.gameObject);
+                    }
+                }
             }
             return true;
         }

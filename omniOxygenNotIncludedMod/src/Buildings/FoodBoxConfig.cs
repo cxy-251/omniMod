@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using HarmonyLib;
 using OmniMod.Collection;
 using STRINGS;
 using TUNING;
@@ -54,7 +55,12 @@ namespace OmniMod.Buildings
             storage.allowItemRemoval = true;
             storage.ignoreSourcePriority = true;   // 允许机械手无视优先级从食物箱中抓取食物
             storage.showDescriptor = true;
-            storage.storageFilters = STORAGEFILTERS.FOOD;
+            var foodFilters = new List<Tag>(STORAGEFILTERS.FOOD);
+            if (!foodFilters.Contains(GameTags.Dehydrated))
+            {
+                foodFilters.Add(GameTags.Dehydrated);
+            }
+            storage.storageFilters = foodFilters;
             storage.storageFullMargin = STORAGE.STORAGE_LOCKER_FILLED_MARGIN;
             storage.fetchCategory = Storage.FetchCategory.GeneralStorage;
             storage.showCapacityStatusItem = true;
@@ -76,6 +82,7 @@ namespace OmniMod.Buildings
             go.AddOrGet<CopyBuildingSettings>().copyGroupTag = GameTags.StorageLocker;
             go.AddOrGet<RationBox>();
             go.AddOrGet<UserNameable>();
+            go.AddOrGet<FoodBoxSterilizer>();
             go.AddOrGetDef<RocketUsageRestriction.Def>();
         }
 
@@ -83,6 +90,68 @@ namespace OmniMod.Buildings
         {
             go.AddOrGetDef<StorageController.Def>();
             go.AddOrGet<GlobalItemCollector>().mode = GlobalItemCollector.CollectMode.Edibles;
+        }
+    }
+
+    /// <summary>
+    /// 食物箱深度无菌灭菌器：
+    /// 确保箱内存放的任何食物附带的病菌（包括食物中毒菌、粘液肺菌等）被瞬间归零，
+    /// 食物出箱后达到医用级洁净，小人食用绝不会发生食物中毒。
+    /// </summary>
+    [SkipSaveFileSerialization]
+    public class FoodBoxSterilizer : KMonoBehaviour, ISim1000ms
+    {
+        private Storage _storage;
+
+        protected override void OnPrefabInit()
+        {
+            base.OnPrefabInit();
+            _storage = GetComponent<Storage>();
+            Subscribe((int)GameHashes.OnStorageChange, OnStorageChange);
+        }
+
+        protected override void OnSpawn()
+        {
+            base.OnSpawn();
+            if (_storage == null) _storage = GetComponent<Storage>();
+            Sterilize();
+        }
+
+        private void OnStorageChange(object data)
+        {
+            Sterilize();
+        }
+
+        public void Sim1000ms(float dt)
+        {
+            Sterilize();
+        }
+
+        private void Sterilize()
+        {
+            if (_storage == null || _storage.items == null) return;
+            for (int i = 0; i < _storage.items.Count; i++)
+            {
+                GameObject item = _storage.items[i];
+                if (item == null) continue;
+                PrimaryElement pe = item.GetComponent<PrimaryElement>();
+                if (pe != null && pe.DiseaseCount > 0)
+                {
+                    pe.ModifyDiseaseCount(-pe.DiseaseCount, "OmniMod_FoodBoxSterilization");
+                }
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(RationBox), "OnSpawn")]
+    internal static class RationBox_OnSpawn_Sterilizer_Patch
+    {
+        private static void Postfix(RationBox __instance)
+        {
+            if (__instance != null && __instance.PrefabID() == FoodBoxConfig.Id)
+            {
+                __instance.gameObject.AddOrGet<FoodBoxSterilizer>();
+            }
         }
     }
 }

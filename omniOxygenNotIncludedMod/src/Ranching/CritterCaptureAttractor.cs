@@ -14,7 +14,8 @@ namespace OmniMod.Ranching
 
         internal static bool IsEligible(FixedCapturePoint.Instance point, FixedCapturableMonitor.Instance target)
         {
-            if (!IsEnabled(point) || target.IsNullOrStopped() || target.gameObject == null ||
+            GameObject go = target.SafeGameObject();
+            if (!IsEnabled(point) || target.IsNullOrStopped() || go == null ||
                 point.targetCapturable != target || target.targetCapturePoint != point ||
                 target.GetComponent<Baggable>() == null || target.HasTag(GameTags.Creatures.Bagged)) return false;
             Pickupable pickup = target.GetComponent<Pickupable>();

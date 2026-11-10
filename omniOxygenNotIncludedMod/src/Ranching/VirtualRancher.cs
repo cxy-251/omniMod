@@ -8,6 +8,30 @@ using UnityEngine;
 
 namespace OmniMod.Ranching
 {
+    internal static class RanchCritterHelper
+    {
+        internal static GameObject SafeGameObject(this StateMachine.Instance smi)
+        {
+            if (smi == null) return null;
+            try
+            {
+                KMonoBehaviour master = smi.GetMaster() as KMonoBehaviour;
+                if (master != null && master.gameObject != null)
+                {
+                    return master.gameObject;
+                }
+            }
+            catch {}
+            return null;
+        }
+
+        internal static int SafeInstanceID(this StateMachine.Instance smi)
+        {
+            GameObject go = smi.SafeGameObject();
+            return go != null ? go.GetInstanceID() : 0;
+        }
+    }
+
     /// <summary>
     /// 全自动小动物照料站、挤奶站、剪毛站虚拟小人（免人工无人化养殖）
     /// </summary>
@@ -64,11 +88,27 @@ namespace OmniMod.Ranching
 
     internal static class AutoRanchTracker
     {
-        private static readonly HashSet<int> _calledCritterIds = new HashSet<int>();
+        private static readonly Dictionary<int, float> _calledCritterTimes = new Dictionary<int, float>();
 
-        internal static bool HasBeenCalled(int id) => _calledCritterIds.Contains(id);
-        internal static void MarkCalled(int id) => _calledCritterIds.Add(id);
-        internal static void Clear(int id) => _calledCritterIds.Remove(id);
+        internal static bool HasBeenCalled(int id)
+        {
+            if (_calledCritterTimes.TryGetValue(id, out float time))
+            {
+                if (Time.time - time < 8f) return true;
+                _calledCritterTimes.Remove(id);
+            }
+            return false;
+        }
+
+        internal static void MarkCalled(int id)
+        {
+            _calledCritterTimes[id] = Time.time;
+        }
+
+        internal static void Clear(int id)
+        {
+            _calledCritterTimes.Remove(id);
+        }
     }
 
     internal static class AutoRanchHelper
@@ -104,6 +144,19 @@ namespace OmniMod.Ranching
     [HarmonyPatch(typeof(RanchStation.Instance), "CreateChore")]
     internal static class RanchStation_CreateChore_Patch
     {
+        private static void Prefix(RanchStation.Instance __instance)
+        {
+            if (__instance != null)
+            {
+                if (__instance.GetComponent<SkillPerkMissingComplainer>() == null &&
+                    __instance.GetComponent<MultiSkillPerkMissingComplainer>() == null)
+                {
+                    var complainer = __instance.gameObject.AddComponent<SkillPerkMissingComplainer>();
+                    complainer.requiredSkillPerk = Db.Get().SkillPerks.CanUseRanchStation.Id;
+                }
+            }
+        }
+
         private static void Postfix(RanchStation.Instance __instance, ref Chore __result)
         {
             Chore chore = __result;
@@ -164,7 +217,7 @@ namespace OmniMod.Ranching
         private static void Postfix(RanchStation.Instance __instance)
         {
             AutoRanchHelper.EnsureVirtualRancher(__instance);
-            if (AquaticRanchAutoRunner.IsAquaticStation(__instance.gameObject))
+            if (AquaticRanchAutoRunner.IsRanchStation(__instance.gameObject))
                 __instance.gameObject.AddOrGet<AquaticRanchAutoRunner>();
         }
     }
@@ -208,12 +261,13 @@ namespace OmniMod.Ranching
             for (int i = 0; i < list.Count; i++)
             {
                 var critter = list[i];
-                if (critter == null || critter.IsNullOrStopped() || critter.gameObject == null)
+                GameObject go = critter.SafeGameObject();
+                if (go == null)
                 {
                     continue;
                 }
 
-                int id = critter.gameObject.GetInstanceID();
+                int id = go.GetInstanceID();
                 if (!AutoRanchTracker.HasBeenCalled(id))
                 {
                     AutoRanchTracker.MarkCalled(id);
@@ -275,10 +329,12 @@ namespace OmniMod.Ranching
     {
         private static void Prefix(RanchStation.Instance __instance, out RanchedStates.Instance __state)
         {
+            AutoRanchHelper.EnsureVirtualRancher(__instance);
             __state = __instance?.ActiveRanchable;
-            if (__state != null && __state.gameObject != null)
+            int id = __state.SafeInstanceID();
+            if (id != 0)
             {
-                AutoRanchTracker.Clear(__state.gameObject.GetInstanceID());
+                AutoRanchTracker.Clear(id);
             }
         }
 
@@ -288,7 +344,7 @@ namespace OmniMod.Ranching
             {
                 try
                 {
-                    int critterId = __state.gameObject != null ? __state.gameObject.GetInstanceID() : 0;
+                    int critterId = __state.SafeInstanceID();
                     if (critterId != 0)
                     {
                         AutoRanchTracker.Clear(critterId);
@@ -311,9 +367,10 @@ namespace OmniMod.Ranching
     {
         private static void Postfix(RanchableMonitor.Instance critter)
         {
-            if (critter != null && critter.gameObject != null)
+            int id = critter.SafeInstanceID();
+            if (id != 0)
             {
-                AutoRanchTracker.Clear(critter.gameObject.GetInstanceID());
+                AutoRanchTracker.Clear(id);
             }
         }
     }
@@ -329,16 +386,6 @@ namespace OmniMod.Ranching
             }
 
             AutoRanchHelper.EnsureVirtualRancher(__instance);
-            // 水生站在动物的入站状态切换结束后，由模拟回调计时并执行原版工作回调。
-            if (AquaticRanchAutoRunner.IsAquaticStation(__instance.gameObject)) return;
-
-            RanchedStates.Instance targetCritter = __instance.ActiveRanchable ?? critter;
-            if (targetCritter == null)
-            {
-                return;
-            }
-
-            __instance.gameObject.AddOrGet<DeferredRanchCompletion>().Request(targetCritter);
         }
     }
 
@@ -349,9 +396,10 @@ namespace OmniMod.Ranching
         {
             __instance.root.Exit("OmniMod_ClearTrackerOnExit", smi =>
             {
-                if (smi?.gameObject != null)
+                int id = smi.SafeInstanceID();
+                if (id != 0)
                 {
-                    AutoRanchTracker.Clear(smi.gameObject.GetInstanceID());
+                    AutoRanchTracker.Clear(id);
                 }
                 if (smi?.Monitor != null && smi.Monitor.TargetRanchStation != null)
                 {

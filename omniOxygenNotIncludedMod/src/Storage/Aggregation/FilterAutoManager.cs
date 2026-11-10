@@ -28,6 +28,17 @@ namespace OmniMod.Collection
                     }
                 }
 
+                if (collector.mode == GlobalItemCollector.CollectMode.Edibles)
+                {
+                    if (DiscoveredResources.Instance.GetDiscoveredResourcesFromTag(GameTags.Dehydrated) != null)
+                    {
+                        foreach (Tag resource in DiscoveredResources.Instance.GetDiscoveredResourcesFromTag(GameTags.Dehydrated))
+                        {
+                            accepted.Add(resource);
+                        }
+                    }
+                }
+
                 if (collector.mode == GlobalItemCollector.CollectMode.Debris)
                 {
                     foreach (Tag resource in new List<Tag>(DiscoveredResources.Instance.GetDiscoveredResourcesFromTag(GameTags.MiscPickupable)))
@@ -81,6 +92,23 @@ namespace OmniMod.Collection
                 }
                 return storage.storageFilters.Contains(category) || (isSeed && !category.IsValid);
             }
+            if (collector.mode == GlobalItemCollector.CollectMode.Edibles)
+            {
+                if (category == GameTags.Clothes || isBionicUpgrade)
+                {
+                    return false;
+                }
+                if (pid != null && IsFoodItem(pid))
+                {
+                    return true;
+                }
+                if (category == GameTags.Edible || category == GameTags.CookingIngredient ||
+                    category == GameTags.Dehydrated || category == GameTags.Medicine)
+                {
+                    return true;
+                }
+                return storage.storageFilters.Contains(category);
+            }
             return storage.storageFilters.Contains(category);
         }
 
@@ -105,6 +133,10 @@ namespace OmniMod.Collection
             {
                 categories.Add(GameTags.MiscPickupable);
             }
+            if (collector.mode == GlobalItemCollector.CollectMode.Edibles && !categories.Contains(GameTags.Dehydrated))
+            {
+                categories.Add(GameTags.Dehydrated);
+            }
 
             int added = 0;
             foreach (Tag category in categories)
@@ -115,6 +147,24 @@ namespace OmniMod.Collection
                     {
                         accepted.Add(resource);
                         added++;
+                    }
+                }
+            }
+
+            // 对食物箱：扫描当前世界所有已存在的食物实体，确保被自动发现并勾选
+            if (collector.mode == GlobalItemCollector.CollectMode.Edibles && Components.Pickupables != null)
+            {
+                for (int i = 0; i < Components.Pickupables.Count; i++)
+                {
+                    Pickupable p = Components.Pickupables[i];
+                    if (p != null && p.KPrefabID != null && IsFoodItem(p.KPrefabID))
+                    {
+                        EnsureDiscovered(p.KPrefabID);
+                        if (!accepted.Contains(p.KPrefabID.PrefabTag))
+                        {
+                            accepted.Add(p.KPrefabID.PrefabTag);
+                            added++;
+                        }
                     }
                 }
             }
@@ -188,23 +238,75 @@ namespace OmniMod.Collection
             return cat;
         }
 
+        public static bool IsFoodItem(KPrefabID id)
+        {
+            if (id == null) return false;
+            if (id.HasTag(GameTags.Edible) ||
+                id.HasTag(GameTags.CookingIngredient) ||
+                id.HasTag(GameTags.Dehydrated))
+            {
+                return true;
+            }
+            if (id.GetComponent<Edible>() != null ||
+                id.GetComponent<DehydratedFoodPackage>() != null)
+            {
+                return true;
+            }
+            return false;
+        }
+
+        public static Tag GetFoodCategory(KPrefabID id)
+        {
+            if (id == null) return Tag.Invalid;
+            Tag cat = GetCategoryCached(id);
+            if (cat.IsValid && cat != Tag.Invalid)
+            {
+                return cat;
+            }
+            if (id.HasTag(GameTags.CookingIngredient)) return GameTags.CookingIngredient;
+            if (id.HasTag(GameTags.Dehydrated) || id.GetComponent<DehydratedFoodPackage>() != null) return GameTags.Dehydrated;
+            return GameTags.Edible;
+        }
+
+        public static void EnsureDiscovered(KPrefabID id)
+        {
+            if (id == null || DiscoveredResources.Instance == null) return;
+            Tag tag = id.PrefabTag;
+            if (!DiscoveredResources.Instance.IsDiscovered(tag))
+            {
+                Tag cat = GetFoodCategory(id);
+                DiscoveredResources.Instance.Discover(tag, cat);
+            }
+        }
+
         public static bool IsAcceptedByFilter(GlobalItemCollector collector, TreeFilterable treeFilterable, KPrefabID id)
         {
             if (treeFilterable == null || id == null) return true;
 
             if (treeFilterable.ContainsTag(id.PrefabTag)) return true;
 
+            if (collector.mode == GlobalItemCollector.CollectMode.Edibles)
+            {
+                if (IsFoodItem(id))
+                {
+                    EnsureDiscovered(id);
+                    treeFilterable.AddTagToFilter(id.PrefabTag);
+                    return true;
+                }
+                return false;
+            }
+
             if (collector.mode == GlobalItemCollector.CollectMode.Debris)
             {
                 if (id.HasTag(GameTags.BionicUpgrade))
                 {
+                    if (treeFilterable.ContainsTag(id.PrefabTag)) return true;
                     if (DiscoveredResources.Instance != null && !DiscoveredResources.Instance.GetDiscoveredResourcesFromTag(GameTags.BionicUpgrade).Contains(id.PrefabTag))
                     {
                         DiscoveredResources.Instance.Discover(id.PrefabTag, GameTags.BionicUpgrade);
-                        treeFilterable.AddTagToFilter(id.PrefabTag);
-                        return true;
                     }
-                    return treeFilterable.ContainsTag(GameTags.BionicUpgrade);
+                    treeFilterable.AddTagToFilter(id.PrefabTag);
+                    return true;
                 }
 
                 // 散装固体元素检查（纯 O(1) 静态表查，零 GetComponent）

@@ -16,11 +16,55 @@ namespace OmniMod.Ranching
     {
         private static void Postfix(Baggable __instance)
         {
-            if (__instance != null && (__instance.wrangled || __instance.HasTag(GameTags.Creatures.Bagged) || __instance.HasTag(GameTags.Trapped)))
+            if (__instance == null || __instance.gameObject == null) return;
+
+            if (__instance.wrangled || __instance.HasTag(GameTags.Creatures.Bagged) || __instance.HasTag(GameTags.Trapped))
             {
                 __instance.gameObject.AddTag(GameTags.Creatures.Deliverable);
                 BaggedCreatureRegistry.Register(__instance);
+                return;
             }
+
+            // 搁浅水生动物自动救助：若水生生物（矿甲龟、帕库鱼等）不在水中且未装袋，自动打包装袋以便机械臂/小人搬运至水体
+            int cell = Grid.PosToCell(__instance);
+            if (Grid.IsValidCell(cell) && !Grid.IsLiquid(cell) && IncubatorAutoRelease.IsAquatic(__instance.gameObject))
+            {
+                var pickup = __instance.GetComponent<Pickupable>();
+                if (pickup == null || pickup.storage == null)
+                {
+                    __instance.SetWrangled();
+                    __instance.gameObject.AddTag(GameTags.Creatures.Deliverable);
+                    BaggedCreatureRegistry.Register(__instance);
+                    ModLog.Info($"[水生救援] 发现搁浅在陆地上的水生动物【{__instance.GetProperName()}】，已自动打包就绪供机械臂投递至水体！");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 水生生物翻滚状态自愈：水生生物（帕库鱼、矿甲龟等）一旦脱离水体进入陆地翻滚（Flop）状态，自动打包就绪
+    /// </summary>
+    [HarmonyPatch(typeof(FlopStates), "InitializeStates")]
+    internal static class FlopStates_InitializeStates_Rescue_Patch
+    {
+        private static void Postfix(FlopStates __instance)
+        {
+            __instance.root.Enter(smi =>
+            {
+                if (smi == null || smi.gameObject == null) return;
+                var bag = smi.GetComponent<Baggable>();
+                if (bag != null && !bag.wrangled)
+                {
+                    var pickup = smi.GetComponent<Pickupable>();
+                    if (pickup == null || pickup.storage == null)
+                    {
+                        bag.SetWrangled();
+                        smi.gameObject.AddTag(GameTags.Creatures.Deliverable);
+                        BaggedCreatureRegistry.Register(bag);
+                        ModLog.Info($"[水生救援] 陆地搁浅翻滚的水生动物【{smi.gameObject.GetProperName()}】已自动装袋就绪，等待机械臂投递！");
+                    }
+                }
+            });
         }
     }
 

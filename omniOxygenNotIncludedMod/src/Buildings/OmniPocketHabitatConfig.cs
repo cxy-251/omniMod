@@ -150,7 +150,7 @@ namespace OmniMod.Buildings
             liquidConsumer.capacityKG = 0f;
             liquidConsumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
             liquidConsumer.forceAlwaysSatisfied = true;
-            liquidConsumer.alwaysConsume = true; // 气液接口独立工作，不要求其他输出管全部接好
+            liquidConsumer.alwaysConsume = true;
             liquidConsumer.storage = liquidInStorage;
             liquidConsumer.enabled = false; // 默认禁用，舱内有出水需求时才动态启用，实现 100% 直通零截留
 
@@ -219,6 +219,7 @@ namespace OmniMod.Buildings
             wireLink.visualizeOnly = false;
 
             go.AddOrGet<BuildingCellVisualizer>();
+            AttachPorts(go);
             ConfigureExteriorAnimation(go);
 
             KBatchedAnimController kbac = go.GetComponent<KBatchedAnimController>();

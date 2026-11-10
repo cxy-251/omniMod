@@ -8,7 +8,11 @@ using UnityEngine;
 
 namespace OmniMod.Ranching
 {
-    /// <summary>水生照料、挤奶及修剪站：动物正常游到台前，随后按原版时长自动工作。</summary>
+    /// <summary>
+    /// 全自动照料、挤奶及修剪站自动运作器（支持陆生与水生照料站、剪毛站、挤奶站）：
+    /// 动物就位后自动计时并执行原版照料回调，免人工照料，彻底消除复制人技能需求。
+    /// </summary>
+    [SkipSaveFileSerialization]
     public sealed class AquaticRanchAutoRunner : KMonoBehaviour, ISim200ms
     {
         private RanchStation.Instance station;
@@ -19,11 +23,25 @@ namespace OmniMod.Ranching
         private float remaining;
         private float recallTimer;
 
+        internal static bool IsRanchStation(GameObject go)
+        {
+            if (go == null) return false;
+            Tag id = go.PrefabID();
+            return id == RanchStationConfig.ID ||
+                   id == ShearingStationConfig.ID ||
+                   id == MilkingStationConfig.ID ||
+                   id == UnderwaterMilkingStationConfig.ID ||
+                   id == UnderwaterShearingStationConfig.ID ||
+                   id == UnderwaterRanchStationConfig.ID ||
+                   go.GetDef<RanchStation.Def>() != null;
+        }
+
         internal static bool IsAquaticStation(GameObject go)
         {
             if (go == null) return false;
             Tag id = go.PrefabID();
-            return id == UnderwaterMilkingStationConfig.ID || id == UnderwaterShearingStationConfig.ID ||
+            return id == UnderwaterMilkingStationConfig.ID ||
+                   id == UnderwaterShearingStationConfig.ID ||
                    id == UnderwaterRanchStationConfig.ID;
         }
 
@@ -34,21 +52,38 @@ namespace OmniMod.Ranching
             workable = GetComponent<RancherChore.RancherWorkable>();
             operational = GetComponent<Operational>();
             anim = GetComponent<KBatchedAnimController>();
+
             if (workable != null)
             {
                 workable.requiredSkillPerk = null;
                 workable.requireMinionToWork = false;
                 workable.SetShouldShowSkillPerkStatusItem(false);
             }
+
             BuildingComplete building = GetComponent<BuildingComplete>();
-            if (building != null) building.isManuallyOperated = false;
+            if (building != null)
+            {
+                building.isManuallyOperated = false;
+            }
+
+            // 确保技能警告组件存在（RancherChore 构造函数硬断言必须存在该组件以获取技能前置条件，缺少会抛出 Assert 异常），
+            // 状态图标已通过下方的 Harmony 补丁（AquaticRanch_SingleSkillWarning_Patch 等）彻底屏蔽。
+            if (GetComponent<SkillPerkMissingComplainer>() == null && GetComponent<MultiSkillPerkMissingComplainer>() == null)
+            {
+                var complainer = gameObject.AddComponent<SkillPerkMissingComplainer>();
+                complainer.requiredSkillPerk = Db.Get().SkillPerks.CanUseRanchStation.Id;
+            }
+
             KSelectable selectable = GetComponent<KSelectable>();
-            selectable?.RemoveStatusItem(Db.Get().BuildingStatusItems.PendingWork);
-            selectable?.RemoveStatusItem(Db.Get().BuildingStatusItems.RequiresSkillPerk);
-            selectable?.RemoveStatusItem(Db.Get().BuildingStatusItems.ColonyLacksRequiredSkillPerk);
-            selectable?.RemoveStatusItem(Db.Get().BuildingStatusItems.ClusterColonyLacksRequiredSkillPerk);
-            selectable?.RemoveStatusItem(Db.Get().BuildingStatusItems.ColonyLacksDupeWithMultiSkillPerk);
-            selectable?.RemoveStatusItem(Db.Get().BuildingStatusItems.WorkRequiresMinion);
+            if (selectable != null)
+            {
+                selectable.RemoveStatusItem(Db.Get().BuildingStatusItems.PendingWork);
+                selectable.RemoveStatusItem(Db.Get().BuildingStatusItems.RequiresSkillPerk);
+                selectable.RemoveStatusItem(Db.Get().BuildingStatusItems.ColonyLacksRequiredSkillPerk);
+                selectable.RemoveStatusItem(Db.Get().BuildingStatusItems.ClusterColonyLacksRequiredSkillPerk);
+                selectable.RemoveStatusItem(Db.Get().BuildingStatusItems.ColonyLacksDupeWithMultiSkillPerk);
+                selectable.RemoveStatusItem(Db.Get().BuildingStatusItems.WorkRequiresMinion);
+            }
         }
 
         public void Sim200ms(float dt)
@@ -71,8 +106,8 @@ namespace OmniMod.Ranching
                     recallTimer -= dt;
                     if (recallTimer <= 0f && station.IsCritterAvailableForRanching)
                     {
-                        // 先前的一次唤醒可能在导航失败时丢失，队列内的动物允许低频重新呼叫。
-                        recallTimer = 5f;
+                        // 队列内的动物允许低频重新呼叫，避免导航或状态中断导致漏检
+                        recallTimer = 4f;
                         station.MessageRancherReady();
                     }
                     return;
@@ -81,7 +116,8 @@ namespace OmniMod.Ranching
                 {
                     EndWork();
                     workingCritter = critter;
-                    remaining = Mathf.Max(0.2f, station.def.WorkTime);
+                    // 快速照料/剪毛/挤奶：缩短为原版时间的1/4（介于1.5秒至3秒之间），兼顾动画表现与高通量
+                    remaining = Mathf.Clamp(station.def.WorkTime * 0.25f, 1.5f, 3.0f);
                     workable.WorkTimeRemaining = remaining;
                     station.def.OnRanchWorkBegins?.Invoke(critter, workable);
                     critter.AnimController.Play(station.def.RanchedPreAnim);
@@ -96,20 +132,20 @@ namespace OmniMod.Ranching
                 workable.WorkTimeRemaining = remaining;
                 if (remaining > 0f) return;
 
-                // 此时已离开动物入站的状态切换栈；沿用原版挤奶/剪毛/照料回调和原版产物存储。
+                // 照料完成：播放结束动画并触发原版结算回调（给予"Ranched"效果、恢复血量、掉落毛发或产奶等）
                 critter.AnimController.Play(station.def.RanchedPstAnim);
                 station.RanchCreature();
                 EndWork();
-                ModLog.Throttle("aquatic_ranch_done_" + this.PrefabID().Name,
-                    $"水生站已自动完成工作：{name}", 10f);
+                ModLog.Throttle("ranch_auto_done_" + this.PrefabID().Name,
+                    $"照料站已自动完成工作：{name}", 10f);
             }
             catch (Exception ex)
             {
-                // 回调若已部分执行，先释放这一轮，避免每个 tick 重复结算产物。
+                // 回调若已部分执行，先释放这一轮，避免每个 tick 重复结算产物
                 if (station != null && workingCritter != null && station.ActiveRanchable == workingCritter)
                     station.Abandon(workingCritter.Monitor);
                 EndWork();
-                ModLog.Throttle("aquatic_ranch_failed", $"水生站自动工作失败：{ex.Message}", 10f);
+                ModLog.Throttle("ranch_auto_failed", $"照料站自动工作失败：{ex.Message}", 10f);
             }
         }
 
@@ -127,12 +163,15 @@ namespace OmniMod.Ranching
         }
     }
 
-    // 在建筑定义生成时移除技能元数据，建造预览和侧栏也不再宣称需要有技能的复制人。
+    // 在建筑定义生成时移除技能元数据，建造预览和侧栏也不再宣称需要有技能的复制人
     [HarmonyPatch]
     internal static class AquaticRanch_BuildingSkill_Patch
     {
         private static IEnumerable<MethodBase> TargetMethods()
         {
+            yield return AccessTools.Method(typeof(RanchStationConfig), nameof(RanchStationConfig.CreateBuildingDef));
+            yield return AccessTools.Method(typeof(ShearingStationConfig), nameof(ShearingStationConfig.CreateBuildingDef));
+            yield return AccessTools.Method(typeof(MilkingStationConfig), nameof(MilkingStationConfig.CreateBuildingDef));
             yield return AccessTools.Method(typeof(UnderwaterMilkingStationConfig), nameof(UnderwaterMilkingStationConfig.CreateBuildingDef));
             yield return AccessTools.Method(typeof(UnderwaterShearingStationConfig), nameof(UnderwaterShearingStationConfig.CreateBuildingDef));
             yield return AccessTools.Method(typeof(UnderwaterRanchStationConfig), nameof(UnderwaterRanchStationConfig.CreateBuildingDef));
@@ -149,7 +188,7 @@ namespace OmniMod.Ranching
     {
         private static void Postfix(RancherChore.RancherWorkable __instance)
         {
-            if (!AquaticRanchAutoRunner.IsAquaticStation(__instance.gameObject)) return;
+            if (!AquaticRanchAutoRunner.IsRanchStation(__instance.gameObject)) return;
             __instance.requiredSkillPerk = null;
             __instance.requireMinionToWork = false;
         }
@@ -163,7 +202,23 @@ namespace OmniMod.Ranching
 
         private static bool Prefix(SkillPerkMissingComplainer __instance)
         {
-            if (!AquaticRanchAutoRunner.IsAquaticStation(__instance.gameObject)) return true;
+            if (!AquaticRanchAutoRunner.IsRanchStation(__instance.gameObject)) return true;
+            Guid handle = StatusHandle(__instance);
+            if (handle != Guid.Empty) __instance.GetComponent<KSelectable>()?.RemoveStatusItem(handle);
+            StatusHandle(__instance) = Guid.Empty;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(MultiSkillPerkMissingComplainer), "UpdateStatusItem")]
+    internal static class AquaticRanch_SkillWarning_Patch
+    {
+        private static readonly AccessTools.FieldRef<MultiSkillPerkMissingComplainer, Guid> StatusHandle =
+            AccessTools.FieldRefAccess<MultiSkillPerkMissingComplainer, Guid>("workStatusItemHandle");
+
+        private static bool Prefix(MultiSkillPerkMissingComplainer __instance)
+        {
+            if (!AquaticRanchAutoRunner.IsRanchStation(__instance.gameObject)) return true;
             Guid handle = StatusHandle(__instance);
             if (handle != Guid.Empty) __instance.GetComponent<KSelectable>()?.RemoveStatusItem(handle);
             StatusHandle(__instance) = Guid.Empty;
@@ -197,22 +252,6 @@ namespace OmniMod.Ranching
             }
             else target = Grid.CellRight(target);
             __result = Grid.IsValidCell(target) && ranchable.NavComponent.GetNavigationCost(target) != -1;
-        }
-    }
-
-    [HarmonyPatch(typeof(MultiSkillPerkMissingComplainer), "UpdateStatusItem")]
-    internal static class AquaticRanch_SkillWarning_Patch
-    {
-        private static readonly AccessTools.FieldRef<MultiSkillPerkMissingComplainer, Guid> StatusHandle =
-            AccessTools.FieldRefAccess<MultiSkillPerkMissingComplainer, Guid>("workStatusItemHandle");
-
-        private static bool Prefix(MultiSkillPerkMissingComplainer __instance)
-        {
-            if (!AquaticRanchAutoRunner.IsAquaticStation(__instance.gameObject)) return true;
-            Guid handle = StatusHandle(__instance);
-            if (handle != Guid.Empty) __instance.GetComponent<KSelectable>()?.RemoveStatusItem(handle);
-            StatusHandle(__instance) = Guid.Empty;
-            return false;
         }
     }
 }

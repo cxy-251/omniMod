@@ -132,6 +132,12 @@ namespace OmniMod.Pool
                 Pickupable pickup = candidates[state.Cursor++];
                 budget--;
                 if (!Available(pickup, world)) continue;
+                if (chore.destination != null)
+                {
+                    var safety = chore.destination.GetComponent<EggCrackerSafetyControl>();
+                    if (safety != null && pickup.KPrefabID != null && pickup.KPrefabID.HasTag(GameTags.Egg) && !safety.CanCrackEgg(pickup.KPrefabID.PrefabTag))
+                        continue;
+                }
                 GlobalItemCollector portal = FindPortal(world, pickup, navigator, arm);
                 if (portal == null || portal.BoxStorage == chore.destination) continue;
                 bool matches;

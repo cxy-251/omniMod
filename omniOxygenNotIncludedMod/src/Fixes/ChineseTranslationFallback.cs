@@ -49,6 +49,7 @@ namespace OmniMod.Fixes
         private static void Postfix(int __state)
         {
             if (__state > 0) ModLog.Info($"[中文补全] 已补入或修正 {__state} 项中文，沿用原版翻译加载和校验流程。");
+            CustomGameSettingsLocalizationFix.ApplyTranslations(force: true);
         }
     }
 }

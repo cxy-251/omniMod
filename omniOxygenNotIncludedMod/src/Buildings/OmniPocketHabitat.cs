@@ -47,6 +47,10 @@ namespace OmniMod.Buildings
 #pragma warning restore CS0649
 
         private ClustercraftInteriorDoor pairedInteriorDoor;
+        private FlowUtilityNetwork.NetworkItem gasItemInput;
+        private FlowUtilityNetwork.NetworkItem gasItemOutput;
+        private int gasInputCell = Grid.InvalidCell;
+        private int gasOutputCell = Grid.InvalidCell;
         private bool isInitializingWorld;
         private bool hasInitializedWorld;
         private bool isClosing;
@@ -78,15 +82,41 @@ namespace OmniMod.Buildings
                 return;
             }
 
+            WorldContainer targetWorld = GetTargetWorld();
+            if (targetWorld == null)
+            {
+                return;
+            }
+
+            if (!App.isLoading && !KMonoBehaviour.isLoadingScene)
+            {
+                ClustercraftInteriorDoor validDoor = PocketWorldLayout.FindAndRestoreDoor(this, targetWorld);
+                if (validDoor != null && (validDoor != pairedInteriorDoor || !OwnsInteriorCell(Grid.PosToCell(validDoor))))
+                {
+                    if (pairedInteriorDoor != null && pairedInteriorDoor != validDoor)
+                    {
+                        navTeleporter?.Deregister();
+                    }
+                    pairedInteriorDoor = validDoor;
+                    PairWithInteriorDoor();
+                }
+            }
             if (pairedInteriorDoor == null)
             {
                 PairWithInteriorDoor();
             }
 
-            WorldContainer targetWorld = GetTargetWorld();
-            if (targetWorld == null)
+            if (PocketWorldBounds.TryGet(targetWorld, out var bounds))
             {
-                return;
+                for (int y = bounds.Offset.y; y < bounds.MaxY; y++)
+                {
+                    for (int x = bounds.Offset.x; x < bounds.MaxX; x++)
+                    {
+                        int cell = Grid.XYToCell(x, y);
+                        Grid.PreventFogOfWarReveal[cell] = false;
+                        Grid.Reveal(cell, byte.MaxValue, forceReveal: true);
+                    }
+                }
             }
 
             ClusterManager.Instance.SetActiveWorld(targetWorldId);
@@ -157,6 +187,22 @@ namespace OmniMod.Buildings
                 OnUtilityOverlayChanged(overlayScreen.GetMode());
             }
 
+            // 关键：显式注册副端口（气体输入与输出）进原版 gasConduitSystem 网络系统（EndpointType.Sink 与 EndpointType.Source）
+            // 解决生态舱出气管道直接直连另一生态舱进气管道时，因副端口未入网导致原版 ConduitFlow 无法建立流向矢量的根本问题
+            Building building = GetComponent<Building>();
+            if (building != null)
+            {
+                CellOffset inOffset = building.GetRotatedOffset(OmniPocketHabitatConfig.GasInputPort.offset);
+                gasInputCell = Grid.OffsetCell(building.GetCell(), inOffset);
+                gasItemInput = new FlowUtilityNetwork.NetworkItem(ConduitType.Gas, Endpoint.Sink, gasInputCell, gameObject);
+                Conduit.GetNetworkManager(ConduitType.Gas)?.AddToNetworks(gasInputCell, gasItemInput, true);
+
+                CellOffset outOffset = building.GetRotatedOffset(OmniPocketHabitatConfig.GasOutputPort.offset);
+                gasOutputCell = Grid.OffsetCell(building.GetCell(), outOffset);
+                gasItemOutput = new FlowUtilityNetwork.NetworkItem(ConduitType.Gas, Endpoint.Source, gasOutputCell, gameObject);
+                Conduit.GetNetworkManager(ConduitType.Gas)?.AddToNetworks(gasOutputCell, gasItemOutput, true);
+            }
+
             EnsurePocketWorldInitialized();
 
             PairWithInteriorDoor();
@@ -167,6 +213,30 @@ namespace OmniMod.Buildings
         public void Sim1000ms(float dt)
         {
             if (!hasInitializedWorld || GetTargetWorld() == null) EnsurePocketWorldInitialized();
+
+            // 运行时自动检测与归正错位或多余的舱内门（防止旧存档遗留多余/错位舱门）
+            if (hasInitializedWorld && !App.isLoading && !KMonoBehaviour.isLoadingScene)
+            {
+                WorldContainer targetWorld = GetTargetWorld();
+                if (targetWorld != null)
+                {
+                    ClustercraftInteriorDoor validDoor = PocketWorldLayout.FindAndRestoreDoor(this, targetWorld);
+                    if (validDoor != null && (validDoor != pairedInteriorDoor || !OwnsInteriorCell(Grid.PosToCell(validDoor))))
+                    {
+                        if (pairedInteriorDoor != null && pairedInteriorDoor != validDoor)
+                        {
+                            navTeleporter?.Deregister();
+                        }
+                        pairedInteriorDoor = validDoor;
+                        PairWithInteriorDoor();
+                    }
+                    if (PocketWorldBounds.TryGet(targetWorld, out PocketWorldBounds bounds))
+                    {
+                        PocketWorldLayout.ClearLeftoverDoorDebris(targetWorld, bounds);
+                    }
+                }
+            }
+
             if (pairedInteriorDoor != null && !OwnsInteriorCell(Grid.PosToCell(pairedInteriorDoor)))
             {
                 navTeleporter?.Deregister();
@@ -281,11 +351,7 @@ namespace OmniMod.Buildings
             WorldContainer targetWorld = GetTargetWorld();
             if (targetWorld == null) return;
             pairedInteriorDoor = PocketWorldLayout.EnsureDoor(this, targetWorld);
-            if (pairedInteriorDoor == null || !PocketWorldBounds.TryGet(targetWorld, out PocketWorldBounds bounds)) return;
-            int anchor = Grid.PosToCell(pairedInteriorDoor);
-            if (!bounds.Owns(Grid.OffsetCell(anchor, new CellOffset(0, -1))) ||
-                !bounds.Owns(Grid.OffsetCell(anchor, new CellOffset(1, -1))) ||
-                !bounds.Owns(Grid.OffsetCell(anchor, new CellOffset(1, 0)))) return;
+            if (pairedInteriorDoor == null) return;
 
             // 1. 同步内外门的通行权限组（确保 AssignmentGroupID 绝不为空且已在 AssignmentManager 中注册）
             EnsureExteriorAssignmentGroupReady();
@@ -337,6 +403,18 @@ namespace OmniMod.Buildings
         protected override void OnCleanUp()
         {
             isClosing = true;
+            if (gasItemInput != null && Grid.IsValidCell(gasInputCell))
+            {
+                Conduit.GetNetworkManager(ConduitType.Gas)?.RemoveFromNetworks(gasInputCell, gasItemInput, true);
+                gasItemInput = null;
+                gasInputCell = Grid.InvalidCell;
+            }
+            if (gasItemOutput != null && Grid.IsValidCell(gasOutputCell))
+            {
+                Conduit.GetNetworkManager(ConduitType.Gas)?.RemoveFromNetworks(gasOutputCell, gasItemOutput, true);
+                gasItemOutput = null;
+                gasOutputCell = Grid.InvalidCell;
+            }
             if (overlayScreen != null) overlayScreen.OnOverlayChanged -= OnUtilityOverlayChanged;
             overlayScreen = null;
             habitatAnim = null;

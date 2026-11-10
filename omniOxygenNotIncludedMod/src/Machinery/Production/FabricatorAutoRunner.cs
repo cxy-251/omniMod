@@ -165,6 +165,25 @@ namespace OmniMod.Machinery.Production
                         workingOrderIdx = WorkingOrderIdxField(__instance);
                         hasWorkingOrder = workingOrderIdx > -1;
                     }
+                    else
+                    {
+                        // 快速检查存储内是否有其他已就绪可做的配方
+                        ComplexRecipe[] recipes = RecipeListField(__instance) ?? __instance.GetRecipes();
+                        if (recipes != null && HasIngredientsFunc != null)
+                        {
+                            for (int r = 0; r < recipes.Length; r++)
+                            {
+                                ComplexRecipe candidate = recipes[r];
+                                if (candidate != null && __instance.IsRecipeQueued(candidate) && HasIngredientsFunc(__instance, candidate, __instance.inStorage))
+                                {
+                                    RefreshAndStartNextOrderAction?.Invoke(__instance);
+                                    workingOrderIdx = WorkingOrderIdxField(__instance);
+                                    hasWorkingOrder = workingOrderIdx > -1;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 op.SetActive(hasWorkingOrder);

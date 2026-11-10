@@ -240,9 +240,24 @@ namespace OmniMod.Logistics.RemoteFetch
     [HarmonyPatch(typeof(SolidTransferArm), nameof(SolidTransferArm.FindFetchTarget))]
     internal static class SolidTransferArm_FindFetchTarget_Patch
     {
+        [ThreadStatic]
+        private static List<int> _cachedInteriors;
+        private static List<int> GetCachedInteriors()
+        {
+            if (_cachedInteriors == null) _cachedInteriors = new List<int>(32);
+            _cachedInteriors.Clear();
+            return _cachedInteriors;
+        }
+
         private static void Postfix(SolidTransferArm __instance, Storage destination, FetchChore chore, ref Pickupable __result)
         {
             if (__result != null || __instance == null || destination == null || chore == null)
+            {
+                return;
+            }
+
+            // 微量搬运过滤：小于 1 克 (0.001 kg) 的请求直接忽略，防止 831 台机械臂全图空转
+            if (SharedFetchRequest.GetAmount(chore) <= 0f)
             {
                 return;
             }
@@ -321,7 +336,7 @@ namespace OmniMod.Logistics.RemoteFetch
                     }
 
                     // 2.0 检索同母星下的其他生态巨舱！
-                    List<int> siblingInteriors = new List<int>();
+                    List<int> siblingInteriors = GetCachedInteriors();
                     OmniPocketHabitat.CollectInteriorWorldsOf(parentWorld, siblingInteriors);
                     for (int iw = 0; iw < siblingInteriors.Count; iw++)
                     {
@@ -341,7 +356,7 @@ namespace OmniMod.Logistics.RemoteFetch
                 // 2.1 若为外部母星机械臂，检索建造在该星球上的所有生态巨舱内部！
                 if (!isRocket)
                 {
-                    List<int> interiorWorlds = new List<int>();
+                    List<int> interiorWorlds = GetCachedInteriors();
                     OmniPocketHabitat.CollectInteriorWorldsOf(world, interiorWorlds);
                     for (int iw = 0; iw < interiorWorlds.Count; iw++)
                     {
@@ -391,7 +406,7 @@ namespace OmniMod.Logistics.RemoteFetch
                 // 2.3 若为舱外母星机械臂，查找建造在该星球上的所有生态巨舱内部的装瓶器！
                 if (!isRocket)
                 {
-                    List<int> interiorWorlds = new List<int>();
+                    List<int> interiorWorlds = GetCachedInteriors();
                     OmniPocketHabitat.CollectInteriorWorldsOf(world, interiorWorlds);
                     for (int iw = 0; iw < interiorWorlds.Count; iw++)
                     {

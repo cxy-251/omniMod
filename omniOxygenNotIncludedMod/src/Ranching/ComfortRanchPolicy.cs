@@ -148,10 +148,10 @@ namespace OmniMod.Ranching
                 ? ModStrings.T("免拥挤：开", "Ignore Crowding: On").Resolve()
                 : ModStrings.T("免拥挤：关", "Ignore Crowding: Off").Resolve();
             string tooltip = ignoreCrowding
-                ? ModStrings.T("已开启宽松养殖：本房间／水池动物免除拥挤、狭窄和封闭惩罚，对应区域放生点允许超过设定数量；显示的仍是真实数量。点击恢复原版规则。",
-                    "Comfort mode is on: critters in this room or pond ignore crowded, cramped and confined penalties. Drop-offs in the same region may exceed their targets. Counts remain real. Click to restore normal rules.").Resolve()
-                : ModStrings.T("默认使用原版计数和养殖规则。点击使本房间／水池动物免除拥挤、狭窄和封闭惩罚，并允许对应区域放生点超过设定数量；水生范围按同星球相连水池计算。",
-                    "Uses normal counts and ranching rules by default. Click to remove crowding, cramped and confined penalties in this room and let drop-offs in the same region exceed their targets.").Resolve();
+                ? ModStrings.T("已开启宽松养殖：本房间／水池动物免除拥挤、狭窄和封闭惩罚，严格遵守放生点设定的数量上限；显示的仍是真实数量。点击恢复原版规则。",
+                    "Comfort mode is on: critters in this room or pond ignore crowded, cramped and confined penalties, and strictly respect drop-off target limits. Counts remain real. Click to restore normal rules.").Resolve()
+                : ModStrings.T("默认使用原版计数和养殖规则。点击使本房间／水池动物免除拥挤、狭窄和封闭惩罚，严格遵守放生点设定的目标数量；水生范围按同星球相连水池计算。",
+                    "Uses normal counts and ranching rules by default. Click to remove crowding, cramped and confined penalties in this room, strictly respecting drop-off target limits.").Resolve();
             var room = ResolveCavity();
             var pond = ResolvePond(out _);
             tooltip += ModStrings.T($"\n作业房间：{room?.NumCells ?? 0} 格；水池：{pond?.cellCount ?? 0} 格。水生动物同时按所在水池与星球匹配。",
@@ -192,12 +192,10 @@ namespace OmniMod.Ranching
         internal static bool HasComfort(OvercrowdingMonitor.Instance critter) =>
             IsComfortableCell(Grid.PosToCell(critter), critter.IsFish);
 
-        // 仅替换 RebalanceFetches 的上限读取，不改动显示值、玩家设定或名册。
+        // 严格遵守玩家在放生点设置的上限（如 40 只），严禁越过设定数量导致无休止运入小动物
         internal static int DeliveryLimit(BaggableCritterCapacityTracker tracker)
         {
-            int cell = CapacityCell(tracker);
-            return IsComfortableCell(cell, tracker.requireLiquidOffset)
-                ? Math.Max(tracker.creatureLimit, tracker.storedCreatureCount + 1) : tracker.creatureLimit;
+            return tracker != null ? tracker.creatureLimit : 0;
         }
 
         internal static void Reset()

@@ -22,6 +22,7 @@ namespace OmniMod.Pool
             __instance.gameObject.AddOrGet<OmniPool>();
             __instance.gameObject.AddOrGet<OmniEntityPool>();
             __instance.gameObject.AddOrGet<ConduitGuardian>();
+            __instance.gameObject.AddOrGet<OmniMod.Buildings.GlobalCookingRecipeManager>();
         }
     }
 }

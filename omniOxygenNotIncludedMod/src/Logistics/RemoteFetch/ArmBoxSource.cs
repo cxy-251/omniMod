@@ -70,6 +70,12 @@ namespace OmniMod.Logistics.RemoteFetch
                 {
                     continue;
                 }
+                if (destination != null)
+                {
+                    var safety = destination.GetComponent<OmniMod.Buildings.EggCrackerSafetyControl>();
+                    if (safety != null && p.KPrefabID.HasTag(GameTags.Egg) && !safety.CanCrackEgg(p.KPrefabID.PrefabTag))
+                        continue;
+                }
                 if (p.storage == null || !SolidTransferArmRemotePickup.IsRemoteSource(p) ||
                     p.storage.GetMyWorldId() != sourceWorld) continue;
                 if (p.storage != null)

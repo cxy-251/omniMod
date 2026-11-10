@@ -207,6 +207,12 @@ namespace OmniMod.Collection
                     pickup.ReservedAmount > 0f || _treeFilterable == null) continue;
                 if (OmniEntityPool.CanManage(pickup))
                 {
+                    Assignable assign = pickup.GetComponent<Assignable>();
+                    if (assign != null && assign.IsAssigned() &&
+                        SharedItemDispatcher.GetAssigneeWorldId(assign.assignee) == this.GetMyWorldId())
+                    {
+                        continue;
+                    }
                     OmniEntityPool pool = OmniEntityPool.Instance;
                     if (pool != null && !pool.IsCheckout(pickup)) pool.Deposit(pickup);
                 }
@@ -232,8 +238,8 @@ namespace OmniMod.Collection
                     // 快照发布后物品可能移动；最终操作前重新确认物品仍在本世界且可安全收集。
                     if (!IsLooseInertPickupable(pickup) || pickup.GetMyWorldId() != this.GetMyWorldId()) continue;
                     KPrefabID id = pickup.KPrefabID;
-                    bool food = id.HasTag(GameTags.Edible) || id.HasTag(GameTags.CookingIngredient);
-                    if (mode == CollectMode.Edibles ? !food : id.HasTag(GameTags.Edible)) continue;
+                    bool food = FilterAutoManager.IsFoodItem(id);
+                    if (mode == CollectMode.Edibles ? !food : food) continue;
                     if (!FilterAutoManager.IsAcceptedByFilter(this, _treeFilterable, id)) continue;
 
                     if (mode == CollectMode.Debris && BulkBufferManager.IsBulkSolidElementChunk(pickup))

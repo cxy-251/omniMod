@@ -26,12 +26,15 @@ namespace OmniMod.Core.Safety
 
         private static float _lastSaveRealtime = 0f;
         private static bool _isEnabled = true;
+        private static bool _isPerformingBackup = false;
 
         public static bool IsEnabled
         {
             get => _isEnabled;
             set => _isEnabled = value;
         }
+
+        public static bool IsPerformingBackup => _isPerformingBackup;
 
         public static void RecordSaveTime()
         {
@@ -43,6 +46,17 @@ namespace OmniMod.Core.Safety
             if (!_isEnabled) return;
             if (SaveLoader.Instance == null || Game.Instance == null) return;
             if (App.isLoading) return;
+
+            // 若玩家当前正在鼠标拖拽、框选或按住按键，延后检查，避免主线程存档截断鼠标释放事件引发工具与 EventSystem 锁死
+            if (PlayerController.Instance != null && PlayerController.Instance.ActiveTool is DragTool dt && dt.Dragging)
+            {
+                return;
+            }
+
+            if (Input.GetMouseButton(0) || Input.GetMouseButton(1) || Input.GetMouseButton(2))
+            {
+                return;
+            }
 
             float now = Time.unscaledTime;
             if (_lastSaveRealtime <= 0f)
@@ -61,6 +75,7 @@ namespace OmniMod.Core.Safety
         {
             try
             {
+                _isPerformingBackup = true;
                 string activeSavePath = SaveLoader.GetActiveSaveFilePath();
                 string colonyName = "Colony";
                 string targetFolder = null;
@@ -107,6 +122,28 @@ namespace OmniMod.Core.Safety
                 _lastSaveRealtime = Time.unscaledTime; // 失败也推迟，避免反复重试卡顿
                 ModLog.Warn($"[容灾防护] 定时防丢备份失败 (已跳过): {ex.Message}");
             }
+            finally
+            {
+                _isPerformingBackup = false;
+                // 确保备份完毕后键鼠与 EventSystem 状态全部完好
+                OmniMod.Fixes.InputUnfreezeManager.ForceRestoreInputState();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 补丁：后台定时防丢备份时跳过全景缩略图截图（Timelapser），杜绝 freezeCamera 与 UI Alpha 冻结
+    /// </summary>
+    [HarmonyPatch(typeof(Timelapser), "SaveColonyPreview", new[] { typeof(string) })]
+    internal static class Timelapser_SaveColonyPreview_Patch
+    {
+        private static bool Prefix()
+        {
+            if (TimedEmergencyBackup.IsPerformingBackup)
+            {
+                return false; // 定时备份跳过全景预览截图与相机冻结
+            }
+            return true;
         }
     }
 

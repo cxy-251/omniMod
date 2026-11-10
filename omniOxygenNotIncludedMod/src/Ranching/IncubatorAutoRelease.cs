@@ -6,19 +6,46 @@ namespace OmniMod.Ranching
 {
     internal static class IncubatorAutoRelease
     {
-        private static bool IsFish(GameObject baby)
+        internal static bool IsAquatic(GameObject baby)
         {
+            if (baby == null) return false;
+
+            // 1. 明确的水生/游泳生物标签
+            if (baby.HasTag(GameTags.SwimmingCreature) || baby.HasTag(GameTags.Creatures.Swimmer))
+            {
+                return true;
+            }
+
+            // 2. 检查物种标签（涵盖帕库鱼、远古帕库鱼、矿甲龟、海仙女、海马、乌贼、鹦鹉鱼、刺豚等全系水生物种）
             CreatureBrain brain = baby.GetComponent<CreatureBrain>();
-            if (brain == null) return false;
-            Tag species = brain.species;
-            // 用物种覆盖帕库鱼变种与幼体，不将同为 Swimmer 的矿甲龟也当成鱼。
-            return species == GameTags.Creatures.Species.PacuSpecies ||
-                species == GameTags.Creatures.Species.PrehistoricPacuSpecies ||
-                species == GameTags.Creatures.Species.ParrotFishSpecies ||
-                species == GameTags.Creatures.Species.PufferFishSpecies;
+            if (brain != null)
+            {
+                Tag species = brain.species;
+                if (species == GameTags.Creatures.Species.PacuSpecies ||
+                    species == GameTags.Creatures.Species.PrehistoricPacuSpecies ||
+                    species == GameTags.Creatures.Species.SeaTurtleSpecies ||
+                    species == GameTags.Creatures.Species.SeaFairySpecies ||
+                    species == GameTags.Creatures.Species.SeaHorseSpecies ||
+                    species == GameTags.Creatures.Species.SquidSpecies ||
+                    species == GameTags.Creatures.Species.ParrotFishSpecies ||
+                    species == GameTags.Creatures.Species.PufferFishSpecies)
+                {
+                    return true;
+                }
+            }
+
+            // 3. 检查导航网格
+            Navigator nav = baby.GetComponent<Navigator>();
+            if (nav != null && !string.IsNullOrEmpty(nav.NavGridName) &&
+                nav.NavGridName.IndexOf("Swimmer", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            return false;
         }
 
-        /// <summary>自动出雏：鱼苗保留袋装以供搬运，其它幼体自由活动。</summary>
+        /// <summary>自动出雏：水生动物幼苗保留袋装以供搬运，陆生幼体自由活动。</summary>
         internal static void Release(EggIncubator incubator, GameObject baby)
         {
             if (incubator == null || baby == null || incubator.Occupant != baby ||
@@ -29,18 +56,19 @@ namespace OmniMod.Ranching
                 Tag nextEgg = incubator.requestedEntityTag;
                 Tag nextFilter = incubator.requestedEntityAdditionalFilterTag;
                 Baggable bag = baby.GetComponent<Baggable>();
-                bool packFish = bag != null && IsFish(baby);
-                if (bag != null) bag.keepWrangledNextTimeRemovedFromStorage = packFish;
+                bool packAquatic = bag != null && IsAquatic(baby);
+                if (bag != null) bag.keepWrangledNextTimeRemovedFromStorage = packAquatic;
                 incubator.OrderRemoveOccupant();
 
                 // 只处理刚从这台孵化器弹出的实体，不修改地上的动物或其它存储中的动物。
                 var pickup = baby.GetComponent<Pickupable>();
                 if (pickup == null || pickup.storage == null)
                 {
-                    if (packFish)
+                    if (packAquatic)
                     {
                         bag.SetWrangled();
                         baby.AddTag(GameTags.Creatures.Deliverable);
+                        OmniMod.Ranching.Registries.BaggedCreatureRegistry.Register(bag);
                     }
                     else
                     {

@@ -113,9 +113,23 @@ namespace OmniMod.Logistics.Dispatch
                     return;
                 }
 
+                Pickupable p = __instance.GetComponent<Pickupable>();
+                if (p != null && p.storage != null)
+                {
+                    if (p.storage.GetComponent<MinionIdentity>() != null || p.storage.GetComponent<MinionAssignablesProxy>() != null ||
+                        p.storage.storageID == GameTags.StoragesIds.BionicUpgradeStorage)
+                    {
+                        return;
+                    }
+                }
+
                 int targetWorldId = SharedItemDispatcher.GetAssigneeWorldId(new_assignee);
                 if (targetWorldId >= 0 && targetWorldId != 255)
                 {
+                    if (p != null && p.storage != null && AggregateBoxRegistry.IsBoxStorage(p.storage) && p.storage.GetMyWorldId() == targetWorldId)
+                    {
+                        return;
+                    }
                     SharedItemDispatcher.TransferItemToWorldJunkBox(__instance.gameObject, targetWorldId);
                 }
             });
@@ -138,8 +152,46 @@ namespace OmniMod.Logistics.Dispatch
                     return;
                 }
 
+                Pickupable pickup = upgradecComponent.GetComponent<Pickupable>();
+                if (pickup == null)
+                {
+                    return;
+                }
+
+                // 1. 若已被小人携带/放入小人背包 Storage 中，绝不能调拨并抢夺！
+                if (pickup.storage != null && (pickup.storage.GetComponent<MinionIdentity>() != null || pickup.storage.GetComponent<MinionAssignablesProxy>() != null))
+                {
+                    return;
+                }
+
+                // 2. 若已安装在仿生人增幅插槽中，绝不能调拨！
+                if (pickup.storage != null && pickup.storage.storageID == GameTags.StoragesIds.BionicUpgradeStorage)
+                {
+                    return;
+                }
+
                 int dupeWorld = __instance.gameObject.GetMyWorldId();
-                if (dupeWorld >= 0 && dupeWorld != 255 && (OmniMod.Pool.OmniEntityPool.IsPool(upgradecComponent.GetComponent<Pickupable>()?.storage) || upgradecComponent.GetMyWorldId() != dupeWorld))
+                if (dupeWorld < 0 || dupeWorld == 255)
+                {
+                    return;
+                }
+
+                // 3. 若已在目标星球杂物箱内，无需重复调拨
+                if (pickup.storage != null && AggregateBoxRegistry.IsBoxStorage(pickup.storage) && pickup.storage.GetMyWorldId() == dupeWorld)
+                {
+                    return;
+                }
+
+                // 4. 若已在目标星球地面上，交由原版 CanReach 寻路即可
+                if (pickup.storage == null && upgradecComponent.GetMyWorldId() == dupeWorld)
+                {
+                    return;
+                }
+
+                // 5. 仅当在中央实体池中，或明确在其它星球时，才调拨至目标星球杂物箱
+                if (OmniMod.Pool.OmniEntityPool.IsPool(pickup.storage) ||
+                    (pickup.storage != null && pickup.storage.GetMyWorldId() != dupeWorld) ||
+                    (pickup.storage == null && upgradecComponent.GetMyWorldId() != dupeWorld && upgradecComponent.GetMyWorldId() >= 0))
                 {
                     SharedItemDispatcher.TransferItemToWorldJunkBox(upgradecComponent.gameObject, dupeWorld);
                 }

@@ -53,6 +53,8 @@ namespace OmniMod.Rooms
                     RegisterConstraints();
                     RegisterRoomType();
                     LandmarkRooms.Register();
+                    CollectiveBedroomPatch.Register();
+                    EntertainmentRooms.Register();
                     ModLog.Info("[房间扩展] 【展览馆 (Exhibition Hall)】房间类型与标牌约束注册成功。");
                 }
                 catch (Exception ex)
@@ -158,20 +160,32 @@ namespace OmniMod.Rooms
             );
 
             HAS_DISPLAYED_COLLECTION = new RoomConstraints.Constraint(
-                building_criteria: kpid =>
-                {
-                    if (kpid == null) return false;
-                    var receptacle = kpid.GetComponent<SingleEntityReceptacle>();
-                    return receptacle != null && receptacle.Occupant != null;
-                },
+                building_criteria: kpid => CheckGalleryCollection(kpid),
                 room_criteria: null,
                 times_required: 1,
                 name: ModStrings.T("至少一件展出藏品", "At least one Displayed Collection").Resolve(),
                 description: ModStrings.T(
-                    "包含至少一个陈列了物品的展台（展出文物、矿石或珍稀藏品）",
-                    "Requires at least one pedestal displaying an artifact or item"
+                    "包含至少一个陈列了物品的展台或展架（陈列文物、矿石、种子或珍藏等）",
+                    "Requires at least one pedestal or shelf displaying an item (artifact, mineral, seed, etc.)"
                 ).Resolve()
             );
+        }
+
+        public static bool CheckGalleryCollection(KPrefabID kpid)
+        {
+            if (kpid == null) return false;
+
+            // 必须是真正的展台或展架建筑（ItemPedestal, Shelf, GravitasPedestal）
+            if (kpid.HasTag(GameTags.OrnamentDisplayer) || kpid.HasTag(GameTags.PedestalDisplayable))
+            {
+                var receptacle = kpid.GetComponent<SingleEntityReceptacle>();
+                if (receptacle != null && receptacle.Occupant != null)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static void RegisterRoomType()

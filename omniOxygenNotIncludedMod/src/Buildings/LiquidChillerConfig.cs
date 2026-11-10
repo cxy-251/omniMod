@@ -6,7 +6,7 @@ namespace OmniMod.Buildings
     /// <summary>
     /// 全能恒温流体冷却机（Auto Liquid Chiller）：
     /// 采用先进分子吸收与深冷压缩技术，全流体通用，进管直出，
-    /// 侧边栏滑条设定出液温度（-200°C ~ +100°C），智能防爆管，超低功耗与自热，
+    /// 侧边栏滑条设定出液温度（-200°C ~ +400°C），智能防爆管，超低功耗与自热，
     /// 支持复制设置，全面替代原版繁琐臃肿的液温调节器。
     /// </summary>
     public class LiquidChillerConfig : IBuildingConfig

@@ -223,4 +223,45 @@ namespace OmniMod.Fixes
             }
         }
     }
+
+    /// <summary>
+    /// 原版 ClustercraftInteriorDoor.OnCleanUp 未对 GetComponent&lt;OccupyArea&gt;() 与 GetOccupiedGridCells() 进行空值校验。
+    /// 当生态舱或火箭门在尚未完全 Spawn / 反序列化未就绪或被销毁时，访问 null.Length 会引发 NullReferenceException 导致闪退。
+    /// 此补丁提供全流程空值防御与安全注销。
+    /// </summary>
+    [HarmonyPatch(typeof(ClustercraftInteriorDoor), "OnCleanUp")]
+    internal static class ClustercraftInteriorDoor_OnCleanUp_Guard_Patch
+    {
+        private static bool Prefix(ClustercraftInteriorDoor __instance)
+        {
+            if (__instance == null) return false;
+            try
+            {
+                if (Components.ClusterCraftInteriorDoors != null)
+                {
+                    Components.ClusterCraftInteriorDoors.Remove(__instance);
+                }
+                OccupyArea component = __instance.GetComponent<OccupyArea>();
+                if (component != null)
+                {
+                    int[] cells = component.GetOccupiedGridCells();
+                    if (cells != null)
+                    {
+                        foreach (int cell in cells)
+                        {
+                            if (Grid.IsValidCell(cell))
+                            {
+                                Grid.HasDoor[cell] = false;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                OmniMod.Core.Logging.ModLog.Warn($"[ClustercraftInteriorDoor.OnCleanUp] 拦截清理异常: {ex.Message}");
+            }
+            return false;
+        }
+    }
 }

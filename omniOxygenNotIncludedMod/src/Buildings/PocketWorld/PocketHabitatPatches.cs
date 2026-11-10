@@ -71,8 +71,9 @@ namespace OmniMod.Buildings
         {
             if (world == null) return false;
             if (world.GetComponent<Clustercraft>() != null) return false;
-            // 兼容层在读档或退出时也需识别组件类型；修改世界前另走严格的所有权校验。
-            return world.GetComponent<OmniPocketHabitat>() != null;
+            if (world.GetComponent<OmniPocketHabitat>() != null) return true;
+            if (world.id >= 0 && OmniPocketHabitat.GetHabitatForWorld(world.id) != null) return true;
+            return false;
         }
 
         // ==========================================
@@ -176,9 +177,12 @@ namespace OmniMod.Buildings
         {
             public static void Postfix(WorldContainer __instance, ref bool __result)
             {
-                if (suppressModuleInteriorDepth > 0 && __result && IsPocketHabitatWorld(__instance))
+                if (suppressModuleInteriorDepth > 0 && __result)
                 {
-                    __result = false;
+                    if (IsPocketHabitatWorld(__instance) || (__instance != null && __instance.GetComponent<Clustercraft>() == null))
+                    {
+                        __result = false;
+                    }
                 }
             }
         }
@@ -214,10 +218,16 @@ namespace OmniMod.Buildings
         [HarmonyPatch(typeof(TerrainBG), "LateUpdate")]
         public static class TerrainBG_LateUpdate_Patch
         {
-            public static void Prefix(out bool __state)
+            public static bool Prefix(out bool __state)
             {
+                __state = false;
+                if (ClusterManager.Instance == null || ClusterManager.Instance.activeWorld == null || CameraController.Instance == null)
+                {
+                    return false;
+                }
                 __state = true;
                 suppressModuleInteriorDepth++;
+                return true;
             }
             public static void Finalizer(bool __state)
             {
@@ -225,31 +235,167 @@ namespace OmniMod.Buildings
             }
         }
 
-        [HarmonyPatch(typeof(ClusterManager), "UpdateWorldReverbSnapshot")]
+        [HarmonyPatch(typeof(TerrainBG), nameof(TerrainBG.LargeImpactorFragmentsVisible), MethodType.Getter)]
+        public static class TerrainBG_LargeImpactorFragmentsVisible_Patch
+        {
+            public static bool Prefix(ref bool __result)
+            {
+                try
+                {
+                    if (ClusterManager.Instance == null || ClusterManager.Instance.activeWorld == null)
+                    {
+                        __result = false;
+                        return false;
+                    }
+
+                    WorldContainer activeWorld = ClusterManager.Instance.activeWorld;
+                    if (activeWorld.largeImpactorFragments != TUNING.FIXEDTRAITS.LARGEIMPACTORFRAGMENTS.ALLOWED)
+                    {
+                        __result = false;
+                        return false;
+                    }
+
+                    if (SaveGame.Instance == null || SaveGame.Instance.ColonyAchievementTracker == null)
+                    {
+                        __result = false;
+                        return false;
+                    }
+
+                    __result = SaveGame.Instance.ColonyAchievementTracker.largeImpactorState == ColonyAchievementTracker.LargeImpactorState.Defeated;
+                }
+                catch
+                {
+                    __result = false;
+                }
+                return false;
+            }
+        }
+
+        [HarmonyPatch(typeof(TerrainBG), nameof(TerrainBG.LargeImpactorBackgroundScale), MethodType.Getter)]
+        public static class TerrainBG_LargeImpactorBackgroundScale_Patch
+        {
+            public static bool Prefix(ref float __result)
+            {
+                try
+                {
+                    if (SaveGame.Instance == null || SaveGame.Instance.ColonyAchievementTracker == null)
+                    {
+                        __result = 1f;
+                        return false;
+                    }
+
+                    __result = SaveGame.Instance.ColonyAchievementTracker.LargeImpactorBackgroundScale;
+                }
+                catch
+                {
+                    __result = 1f;
+                }
+                return false;
+            }
+        }
+
+        [HarmonyPatch(typeof(ClusterManager), nameof(ClusterManager.UpdateWorldReverbSnapshot))]
         public static class ClusterManager_UpdateWorldReverbSnapshot_Patch
         {
-            public static void Prefix(out bool __state)
+            public static bool Prefix(ClusterManager __instance, int worldId)
             {
-                __state = true;
-                suppressModuleInteriorDepth++;
-            }
-            public static void Finalizer(bool __state)
-            {
-                if (__state && suppressModuleInteriorDepth > 0) suppressModuleInteriorDepth--;
+                try
+                {
+                    if (DlcManager.FeatureClusterSpaceEnabled() && AudioMixer.instance != null)
+                    {
+                        AudioMixerSnapshots snapshots = AudioMixerSnapshots.Get();
+                        if (snapshots != null)
+                        {
+                            if (!snapshots.SmallRocketInteriorReverbSnapshot.IsNull)
+                            {
+                                AudioMixer.instance.Stop(snapshots.SmallRocketInteriorReverbSnapshot);
+                            }
+                            if (!snapshots.MediumRocketInteriorReverbSnapshot.IsNull)
+                            {
+                                AudioMixer.instance.Stop(snapshots.MediumRocketInteriorReverbSnapshot);
+                            }
+                        }
+                    }
+
+                    if (AudioMixer.instance != null)
+                    {
+                        AudioMixer.instance.PauseSpaceVisibleSnapshot(pause: false);
+                    }
+
+                    if (__instance == null) return false;
+
+                    WorldContainer world = __instance.GetWorld(worldId);
+                    if (world == null) return false;
+
+                    // 口袋生态舱或无火箭实体的世界绝不执行火箭专属音频与快照
+                    if (IsPocketHabitatWorld(world) || world.GetComponent<Clustercraft>() == null)
+                    {
+                        return false;
+                    }
+
+                    if (world.IsModuleInterior)
+                    {
+                        Clustercraft craft = world.GetComponent<Clustercraft>();
+                        PassengerRocketModule passengerModule = craft?.ModuleInterface?.GetPassengerModule();
+                        if (passengerModule != null && !passengerModule.interiorReverbSnapshot.IsNull && AudioMixer.instance != null)
+                        {
+                            AudioMixer.instance.Start(passengerModule.interiorReverbSnapshot);
+                            AudioMixer.instance.PauseSpaceVisibleSnapshot(pause: true);
+                            __instance.UpdateRocketInteriorAudio();
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ModLog.Warn($"[UpdateWorldReverbSnapshot] Safe guard: {ex.Message}");
+                }
+                return false; // 完全安全接管，跳过原版无判空代码
             }
         }
 
         [HarmonyPatch(typeof(ClusterManager), nameof(ClusterManager.UpdateRocketInteriorAudio))]
         public static class ClusterManager_UpdateRocketInteriorAudio_Patch
         {
-            public static void Prefix(out bool __state)
+            public static bool Prefix(ClusterManager __instance)
             {
-                __state = true;
-                suppressModuleInteriorDepth++;
-            }
-            public static void Finalizer(bool __state)
-            {
-                if (__state && suppressModuleInteriorDepth > 0) suppressModuleInteriorDepth--;
+                try
+                {
+                    if (__instance == null) return false;
+                    WorldContainer worldContainer = __instance.activeWorld;
+                    if (worldContainer == null || !worldContainer.IsModuleInterior) return false;
+
+                    // 口袋生态舱或无 Clustercraft 的世界跳过火箭音频状态设置
+                    if (IsPocketHabitatWorld(worldContainer) || worldContainer.GetComponent<Clustercraft>() == null)
+                    {
+                        return false;
+                    }
+
+                    Clustercraft component = worldContainer.GetComponent<Clustercraft>();
+                    if (component == null) return false;
+
+                    ClusterManager.RocketStatesForAudio rocketInteriorState = ClusterManager.RocketStatesForAudio.Grounded;
+                    switch (component.Status)
+                    {
+                        case Clustercraft.CraftStatus.Grounded:
+                            rocketInteriorState = component.LaunchRequested ? ClusterManager.RocketStatesForAudio.ReadyForLaunch : ClusterManager.RocketStatesForAudio.Grounded;
+                            break;
+                        case Clustercraft.CraftStatus.Launching:
+                            rocketInteriorState = ClusterManager.RocketStatesForAudio.Launching;
+                            break;
+                        case Clustercraft.CraftStatus.InFlight:
+                            rocketInteriorState = ClusterManager.RocketStatesForAudio.InSpace;
+                            break;
+                        case Clustercraft.CraftStatus.Landing:
+                            rocketInteriorState = ClusterManager.RocketStatesForAudio.Landing;
+                            break;
+                    }
+                    ClusterManager.RocketInteriorState = rocketInteriorState;
+                }
+                catch (Exception ex)
+                {
+                    ModLog.Warn($"[UpdateRocketInteriorAudio] Safe guard: {ex.Message}");
+                }
+                return false;
             }
         }
 
@@ -899,6 +1045,104 @@ namespace OmniMod.Buildings
 
                 op?.SetActive(transferred > 0f);
                 return false; // 跳过原版依赖 CraftModuleInterface 的逻辑
+            }
+        }
+
+        // ==========================================
+        // 5. 世界容器与渲染流水线防黑屏屏障（彻底杜绝 activeWorld 异常为 null 导致 PropertyTextures NRE 与全屏黑屏）
+        // ==========================================
+        [HarmonyPatch(typeof(ClusterManager), nameof(ClusterManager.SetActiveWorld))]
+        public static class ClusterManager_SetActiveWorld_SafePatch
+        {
+            public static bool Prefix(ClusterManager __instance, int worldIdx, out int __state)
+            {
+                __state = __instance != null ? __instance.activeWorldId : -1;
+                if (__instance == null) return false;
+                if (worldIdx < 0 || worldIdx >= ClusterManager.INVALID_WORLD_IDX)
+                {
+                    // 严禁将 activeWorldId 设为 255 (INVALID_WORLD_IDX) 或负数
+                    return false;
+                }
+                if (__instance.GetWorld(worldIdx) == null)
+                {
+                    // 严禁切换至不存在的世界容器
+                    return false;
+                }
+                return true;
+            }
+
+            public static void Postfix(ClusterManager __instance, int worldIdx, int __state)
+            {
+                if (__state >= 0 && __state != worldIdx)
+                {
+                    PocketWorldDormancyManager.OnActiveWorldChanged(__state, worldIdx);
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(ClusterManager), nameof(ClusterManager.TimelapseModeOverrideActiveWorld))]
+        public static class ClusterManager_TimelapseModeOverrideActiveWorld_SafePatch
+        {
+            public static bool Prefix(ClusterManager __instance, int overrideValue)
+            {
+                if (__instance == null) return false;
+                if (overrideValue < 0 || overrideValue >= ClusterManager.INVALID_WORLD_IDX || __instance.GetWorld(overrideValue) == null)
+                {
+                    // 严禁缩略图模式将 activeWorldIdx 覆盖为不存在的世界容器或 255
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(ClusterManager), nameof(ClusterManager.activeWorld), MethodType.Getter)]
+        public static class ClusterManager_ActiveWorld_SafePatch
+        {
+            public static void Postfix(ClusterManager __instance, ref WorldContainer __result)
+            {
+                if (__result == null && __instance != null)
+                {
+                    // 兜底防御：若 activeWorldId 出现任何异常未匹配到世界容器，
+                    // 自动回退到主世界 (ID 0) 或列表首个可用世界，杜绝 PropertyTextures、TerrainBG 等全游戏渲染流水线 NullReferenceException 导致黑屏
+                    __result = __instance.GetWorld(0) ?? (__instance.WorldContainers.Count > 0 ? __instance.WorldContainers[0] : null);
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(PropertyTextures), nameof(PropertyTextures.CalculateClusterWorldSize))]
+        public static class PropertyTextures_CalculateClusterWorldSize_SafePatch
+        {
+            public static bool Prefix(ref Vector4 __result)
+            {
+                WorldContainer activeWorld = ClusterManager.Instance?.activeWorld;
+                if (activeWorld == null)
+                {
+                    __result = new Vector4(Grid.WidthInCells, Grid.HeightInCells, 0f, 0f);
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        [HarmonyPatch(typeof(CameraController), nameof(CameraController.UpdateFollowTarget))]
+        public static class CameraController_UpdateFollowTarget_SafePatch
+        {
+            public static bool Prefix(CameraController __instance)
+            {
+                if (__instance == null || __instance.followTarget == null) return true;
+                Vector3 followPos = __instance.followTarget.position;
+                int cell = Grid.PosToCell(followPos);
+                if (!Grid.IsValidCell(cell)) return false;
+                byte b = Grid.WorldIdx[cell];
+                if (b == byte.MaxValue || (ClusterManager.Instance != null && ClusterManager.Instance.GetWorld(b) == null))
+                {
+                    // 目标触及未分配边界时，仅平滑更新相机位置，严禁触发跨界到 255 无效世界
+                    Vector2 a = new Vector2(__instance.transform.GetLocalPosition().x, __instance.transform.GetLocalPosition().y);
+                    Vector2 vector = Vector2.Lerp(a, followPos, Time.unscaledDeltaTime * 25f);
+                    __instance.followTargetPos = new Vector3(vector.x, vector.y, __instance.transform.GetLocalPosition().z);
+                    return false;
+                }
+                return true;
             }
         }
     }

@@ -63,7 +63,7 @@ namespace OmniMod.Buildings
             consumer.consumptionRate = 10f;
             consumer.capacityKG = 20f;
             consumer.capacityTag = SimHashes.Water.CreateTag();
-            consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Dump;
+            consumer.wrongElementResult = ConduitConsumer.WrongElementResult.Store;
             consumer.forceAlwaysSatisfied = true;
 
             go.AddOrGet<CopyBuildingSettings>();

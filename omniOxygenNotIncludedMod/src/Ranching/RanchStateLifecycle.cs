@@ -86,38 +86,4 @@ namespace OmniMod.Ranching
             }
         }
     }
-
-    /// <summary>陆生站的瞬时工作在模拟回调结算，不能重入动物 MessageCreatureArrived 的入站回调。</summary>
-    [SkipSaveFileSerialization]
-    public sealed class DeferredRanchCompletion : KMonoBehaviour, ISim200ms
-    {
-        private RanchedStates.Instance pending;
-        internal void Request(RanchedStates.Instance critter) { pending = critter; }
-        public void Sim200ms(float dt)
-        {
-            if (App.isLoading || Game.Instance == null || pending == null) return;
-            RanchedStates.Instance critter = pending;
-            pending = null;
-            try
-            {
-                RanchStation.Instance station = this.GetSMI<RanchStation.Instance>();
-                if (AquaticRanchAutoRunner.IsAquaticStation(gameObject) || !AutoRanchHelper.IsStationOperational(station) ||
-                    critter.IsNullOrStopped() || station.ActiveRanchable != critter) return;
-                if (!RanchStateLifecycle.HasValidTarget(critter))
-                { RanchStateLifecycle.RequestRecovery(critter); return; }
-                if (!RanchStateLifecycle.IsAtWorkState(critter)) return;
-                AutoRanchHelper.EnsureVirtualRancher(station);
-                critter.AnimController.Play(station.def.RanchedPstAnim);
-                station.RanchCreature();
-            }
-            catch (Exception ex)
-            {
-                // 不重试已经可能结算过产物的完成回调；取消这一轮后重新选择。
-                if (critter != null && critter.gameObject != null && critter.Monitor != null)
-                    RanchStateLifecycle.RequestRelease(critter.Monitor, critter.GetRanchStation());
-                ModLog.Throttle("ranch_deferred_complete", "[自动照料] 本轮结算中止并释放目标：" + ex.Message, 20f);
-            }
-        }
-    }
-
 }

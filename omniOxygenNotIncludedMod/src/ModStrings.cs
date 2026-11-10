@@ -41,7 +41,7 @@ namespace OmniMod
             return new Bilingual(zh, en);
         }
 
-        /// <summary>当前游戏语言是否为中文。本地化系统还没就绪时按英文处理。</summary>
+        /// <summary>当前游戏语言是否为中文。在本地化尚未完成的早期阶段自动回退读取用户偏好设置。</summary>
         internal static bool PreferChinese()
         {
             try
@@ -57,10 +57,23 @@ namespace OmniMod
                 {
                     return true;
                 }
+
+                // 本地化未就绪时的关键防线：直接读取用户已保存的语言配置偏好（如 zh_klei）
+                string prefCode = KPlayerPrefs.GetString("SelectedLanguageCode", null);
+                if (!string.IsNullOrEmpty(prefCode) && prefCode.ToLowerInvariant().Contains("zh"))
+                {
+                    return true;
+                }
+
+                string installed = KPlayerPrefs.GetString("InstalledLanguage", null);
+                if (!string.IsNullOrEmpty(installed) && installed.ToLowerInvariant().Contains("zh"))
+                {
+                    return true;
+                }
             }
             catch
             {
-                // 本地化尚未初始化：忽略，返回 false
+                // 忽略
             }
 
             return false;
